@@ -1,0 +1,25 @@
+{
+  "name": "Photo Editor",
+  "short_name": "PhotoEditor",
+  "description": "HTML Canvas PWA photo editor.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0abab5",
+  "theme_color": "#0abab5",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "./assets/icons/app-icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./assets/icons/app-icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
