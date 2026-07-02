@@ -1,5 +1,48 @@
-const CACHE_NAME = "photo-effects-v0.2";
-const CORE_ASSETS = ["./","./index.html","./manifest.json","./assets/styles/main.css","./js/app.js","./js/config/features.js","./js/config/settingsStore.js","./js/home/homeScreen.js","./js/settings/settingsPage.js","./js/core/canvasManager.js","./js/core/imageLoader.js","./js/core/exportManager.js","./js/core/iconLoader.js","./js/features/F1_mirror/mirrorPage.js","./js/features/F1_mirror/mirrorTool.js","./js/features/F1_mirror/mirrorUI.js"];
-self.addEventListener("install", event => { event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(CORE_ASSETS))); self.skipWaiting(); });
-self.addEventListener("activate", event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.map(key => key !== CACHE_NAME ? caches.delete(key) : null)))); self.clients.claim(); });
-self.addEventListener("fetch", event => { if (event.request.method !== "GET") return; event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request).then(response => { const copy=response.clone(); caches.open(CACHE_NAME).then(cache=>cache.put(event.request,copy)); return response; }).catch(()=>caches.match("./index.html")))); });
+const CACHE_NAME = "photo-effects-v0.2.1";
+
+const CORE_ASSETS = [
+  "./",
+  "./index.html",
+  "./manifest.json",
+  "./assets/styles/main.css",
+  "./js/app.js",
+  "./js/config/features.js",
+  "./js/config/settingsStore.js",
+  "./js/home/homeScreen.js",
+  "./js/settings/settingsPage.js",
+  "./js/core/canvasManager.js",
+  "./js/core/imageLoader.js",
+  "./js/core/exportManager.js",
+  "./js/core/iconLoader.js",
+  "./js/features/F1_mirror/mirrorPage.js",
+  "./js/features/F1_mirror/mirrorTool.js",
+  "./js/features/F1_mirror/mirrorUI.js"
+];
+
+self.addEventListener("install", event => {
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(CORE_ASSETS)));
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", event => {
+  event.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.map(key => key !== CACHE_NAME ? caches.delete(key) : null))
+    )
+  );
+  self.clients.claim();
+});
+
+self.addEventListener("fetch", event => {
+  if (event.request.method !== "GET") return;
+  event.respondWith(
+    caches.match(event.request).then(cached => {
+      if (cached) return cached;
+      return fetch(event.request).then(response => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+        return response;
+      }).catch(() => caches.match("./index.html"));
+    })
+  );
+});
