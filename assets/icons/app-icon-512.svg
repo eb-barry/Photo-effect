@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="116" fill="#0abab5"/>
-  <circle cx="256" cy="224" r="112" fill="white" opacity=".92"/>
-  <path d="M98 356c58-64 122-64 180 0s122 64 180 0" fill="none" stroke="white" stroke-width="32" stroke-linecap="round"/>
-  <text x="256" y="252" text-anchor="middle" font-family="Arial" font-size="90" font-weight="700" fill="#0abab5">PE</text>
-</svg>
