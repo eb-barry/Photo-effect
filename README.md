@@ -1,9 +1,14 @@
-# Photo Effects v0.2.1 Patch
+# Photo Effects v0.3.0 Clean Baseline
 
-請把這些檔案覆蓋到 GitHub repo 的相同路徑。
+This is the clean baseline version.
 
-修正項目：
-1. 功能 WebP icon 不再與 F1/F2 文字佔位圖疊在一起。
-2. 中文檔名路徑改用 encodeURIComponent。
-3. 設定與 F1 鏡像按鈕改成更穩定的事件綁定。
-4. Service worker cache name 更新，避免舊版快取卡住。
+Key points:
+1. Only one CSS file: `assets/styles/main.css`.
+2. Removed `dropdown-fix.css`.
+3. Feature icons follow `assets/icons/features/F1-鏡像.webp`.
+4. UI icons follow `assets/icons/ui/首頁.png`, `開啟照片.png`, `儲存照片.png`, `分享照片.png`.
+5. Mirror tool keeps only: 左右鏡像、上下鏡像、水波倒影.
+6. Dropdown styling is fully merged into `main.css`.
+7. Mirror settings are saved in LocalStorage when returning home.
+
+Upload the unzipped contents to your GitHub repo root.

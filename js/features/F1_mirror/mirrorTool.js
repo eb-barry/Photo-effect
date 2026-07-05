@@ -1,1 +1,47 @@
-export class MirrorTool{constructor(canvasManager){this.canvasManager=canvasManager}render(sourceCanvas,state){const canvas=this.canvasManager.canvas;const ctx=this.canvasManager.ctx;const width=sourceCanvas.width;const height=sourceCanvas.height;this.canvasManager.setSize(width,height);this.canvasManager.resetTransform();this.canvasManager.clear();if(state.mode==="horizontal")this.renderHorizontal(ctx,sourceCanvas,width,height,state);else if(state.mode==="vertical")this.renderVertical(ctx,sourceCanvas,width,height,state);else if(state.mode==="reflection")this.renderReflection(ctx,sourceCanvas,width,height,state,false);else this.renderReflection(ctx,sourceCanvas,width,height,state,true)}renderHorizontal(ctx,source,width,height,state){const axisX=Math.round(width/2);const leftShift=Math.round(width*state.leftOffset/100);const rightShift=Math.round(width*state.rightOffset/100);ctx.save();ctx.beginPath();ctx.rect(0,0,axisX,height);ctx.clip();ctx.drawImage(source,leftShift,0);ctx.restore();ctx.save();ctx.globalAlpha=state.blend/100;ctx.beginPath();ctx.rect(axisX,0,width-axisX,height);ctx.clip();ctx.translate(width+rightShift,0);ctx.scale(-1,1);ctx.drawImage(source,0,0);ctx.restore();if(state.showGuide)this.drawGuideLine(ctx,axisX,0,axisX,height)}renderVertical(ctx,source,width,height,state){const axisY=Math.round(height/2);const topShift=Math.round(height*state.leftOffset/100);const bottomShift=Math.round(height*state.rightOffset/100);ctx.save();ctx.beginPath();ctx.rect(0,0,width,axisY);ctx.clip();ctx.drawImage(source,0,topShift);ctx.restore();ctx.save();ctx.globalAlpha=state.blend/100;ctx.beginPath();ctx.rect(0,axisY,width,height-axisY);ctx.clip();ctx.translate(0,height+bottomShift);ctx.scale(1,-1);ctx.drawImage(source,0,0);ctx.restore();if(state.showGuide)this.drawGuideLine(ctx,0,axisY,width,axisY)}renderReflection(ctx,source,width,height,state,withRipple){const axisY=Math.round(height/2);const topShift=Math.round(height*state.leftOffset/100);const reflectionShift=Math.round(height*state.rightOffset/100);ctx.save();ctx.beginPath();ctx.rect(0,0,width,axisY);ctx.clip();ctx.drawImage(source,0,topShift);ctx.restore();const reflectionHeight=height-axisY;if(reflectionHeight<=0)return;const temp=document.createElement("canvas");temp.width=width;temp.height=reflectionHeight;const tctx=temp.getContext("2d",{willReadFrequently:true});tctx.save();tctx.translate(0,reflectionHeight+reflectionShift);tctx.scale(1,-1);tctx.drawImage(source,0,0);tctx.restore();if(withRipple&&state.ripple>0)this.applyRipple(temp,state.ripple,state.density);const mask=document.createElement("canvas");mask.width=width;mask.height=reflectionHeight;const mctx=mask.getContext("2d");mctx.drawImage(temp,0,0);mctx.globalCompositeOperation="destination-in";const gradient=mctx.createLinearGradient(0,0,0,reflectionHeight);gradient.addColorStop(0,`rgba(0,0,0,${state.blend/100})`);gradient.addColorStop(1,"rgba(0,0,0,0)");mctx.fillStyle=gradient;mctx.fillRect(0,0,width,reflectionHeight);ctx.drawImage(mask,0,axisY);if(state.showGuide)this.drawGuideLine(ctx,0,axisY,width,axisY)}applyRipple(canvas,strength,density){const ctx=canvas.getContext("2d",{willReadFrequently:true});const width=canvas.width;const height=canvas.height;const source=ctx.getImageData(0,0,width,height);const output=ctx.createImageData(width,height);const src=source.data;const dst=output.data;for(let y=0;y<height;y++){const fade=1-y/height;const offset=Math.round(Math.sin(y/density*Math.PI*2)*strength*fade);for(let x=0;x<width;x++){const sx=clamp(x+offset,0,width-1);const si=(y*width+sx)*4;const di=(y*width+x)*4;dst[di]=src[si];dst[di+1]=src[si+1];dst[di+2]=src[si+2];dst[di+3]=src[si+3]}}ctx.putImageData(output,0,0)}drawGuideLine(ctx,x1,y1,x2,y2){ctx.save();ctx.strokeStyle="rgba(255,255,255,.82)";ctx.lineWidth=2;ctx.setLineDash([8,8]);ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.strokeStyle="rgba(0,0,0,.32)";ctx.lineWidth=1;ctx.stroke();ctx.restore()}}function clamp(value,min,max){return Math.max(min,Math.min(max,value))}
+export class MirrorTool {
+  constructor(canvasManager){ this.canvasManager = canvasManager; }
+  render(sourceCanvas, state){
+    const ctx = this.canvasManager.ctx;
+    const width = sourceCanvas.width, height = sourceCanvas.height;
+    this.canvasManager.setSize(width, height); this.canvasManager.resetTransform(); this.canvasManager.clear();
+    if (state.mode === "horizontal") this.renderHorizontal(ctx, sourceCanvas, width, height, state);
+    else if (state.mode === "vertical") this.renderVertical(ctx, sourceCanvas, width, height, state);
+    else this.renderReflection(ctx, sourceCanvas, width, height, state);
+  }
+  renderHorizontal(ctx, source, width, height, state){
+    const axisX = Math.round(width / 2), leftShift = Math.round(width * state.leftOffset / 100), rightShift = Math.round(width * state.rightOffset / 100);
+    ctx.save(); ctx.beginPath(); ctx.rect(0,0,axisX,height); ctx.clip(); ctx.drawImage(source,leftShift,0); ctx.restore();
+    ctx.save(); ctx.globalAlpha = state.opacity / 100; ctx.beginPath(); ctx.rect(axisX,0,width-axisX,height); ctx.clip(); ctx.translate(width + rightShift,0); ctx.scale(-1,1); ctx.drawImage(source,0,0); ctx.restore();
+    if (state.showGuide) this.drawGuideLine(ctx, axisX,0,axisX,height);
+  }
+  renderVertical(ctx, source, width, height, state){
+    const axisY = Math.round(height / 2), topShift = Math.round(height * state.leftOffset / 100), bottomShift = Math.round(height * state.rightOffset / 100);
+    ctx.save(); ctx.beginPath(); ctx.rect(0,0,width,axisY); ctx.clip(); ctx.drawImage(source,0,topShift); ctx.restore();
+    ctx.save(); ctx.globalAlpha = state.opacity / 100; ctx.beginPath(); ctx.rect(0,axisY,width,height-axisY); ctx.clip(); ctx.translate(0,height + bottomShift); ctx.scale(1,-1); ctx.drawImage(source,0,0); ctx.restore();
+    if (state.showGuide) this.drawGuideLine(ctx,0,axisY,width,axisY);
+  }
+  renderReflection(ctx, source, width, height, state){
+    const axisY = Math.round(height / 2), topShift = Math.round(height * state.leftOffset / 100), reflectionShift = Math.round(height * state.rightOffset / 100);
+    ctx.save(); ctx.beginPath(); ctx.rect(0,0,width,axisY); ctx.clip(); ctx.drawImage(source,0,topShift); ctx.restore();
+    const reflectionHeight = height - axisY; if (reflectionHeight <= 0) return;
+    const temp = document.createElement("canvas"); temp.width = width; temp.height = reflectionHeight;
+    const tctx = temp.getContext("2d", { willReadFrequently:true });
+    tctx.save(); tctx.translate(0, reflectionHeight + reflectionShift); tctx.scale(1,-1); tctx.drawImage(source,0,0); tctx.restore();
+    if (state.ripple > 0) this.applyRipple(temp, state.ripple, state.density);
+    const mask = document.createElement("canvas"); mask.width = width; mask.height = reflectionHeight;
+    const mctx = mask.getContext("2d"); mctx.drawImage(temp,0,0); mctx.globalCompositeOperation = "destination-in";
+    const gradient = mctx.createLinearGradient(0,0,0,reflectionHeight); gradient.addColorStop(0,`rgba(0,0,0,${state.opacity / 100})`); gradient.addColorStop(1,"rgba(0,0,0,0)");
+    mctx.fillStyle = gradient; mctx.fillRect(0,0,width,reflectionHeight); ctx.drawImage(mask,0,axisY);
+    if (state.showGuide) this.drawGuideLine(ctx,0,axisY,width,axisY);
+  }
+  applyRipple(canvas, strength, density){
+    const ctx = canvas.getContext("2d", { willReadFrequently:true });
+    const width = canvas.width, height = canvas.height;
+    const source = ctx.getImageData(0,0,width,height), output = ctx.createImageData(width,height);
+    const src = source.data, dst = output.data;
+    for (let y=0; y<height; y++){ const fade = 1 - y/height; const offset = Math.round(Math.sin(y/density*Math.PI*2)*strength*fade); for (let x=0; x<width; x++){ const sx = clamp(x+offset,0,width-1); const si = (y*width+sx)*4, di = (y*width+x)*4; dst[di]=src[si]; dst[di+1]=src[si+1]; dst[di+2]=src[si+2]; dst[di+3]=src[si+3]; } }
+    ctx.putImageData(output,0,0);
+  }
+  drawGuideLine(ctx,x1,y1,x2,y2){ ctx.save(); ctx.strokeStyle="rgba(255,255,255,.82)"; ctx.lineWidth=2; ctx.setLineDash([8,8]); ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ctx.strokeStyle="rgba(0,0,0,.32)"; ctx.lineWidth=1; ctx.stroke(); ctx.restore(); }
+}
+function clamp(value,min,max){ return Math.max(min, Math.min(max,value)); }

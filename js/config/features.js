@@ -14,26 +14,9 @@ export function buildFeatures(){
     const id = match ? match[1] : fileName.split("-")[0];
     const label = match ? match[2] : id;
     const route = id === "F1" ? "F1_mirror" : null;
-
-    return {
-      id,
-      label,
-      fileName,
-      route,
-      enabled: Boolean(route),
-      icon: `./assets/icons/features/${encodeURIComponent(fileName)}`
-    };
+    return { id, label, fileName, route, enabled: Boolean(route), icon: `./assets/icons/features/${encodeURIComponent(fileName)}` };
   });
-
   const placeholders = [];
-  for (let i = active.length + 1; i <= 28; i++) {
-    placeholders.push({
-      id: `F${i}`,
-      label: `F${i}`,
-      route: null,
-      enabled: false,
-      icon: ""
-    });
-  }
+  for (let i = active.length + 1; i <= 28; i++) placeholders.push({ id:`F${i}`, label:`F${i}`, route:null, enabled:false, icon:"" });
   return [...active, ...placeholders];
 }
