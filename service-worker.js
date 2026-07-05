@@ -1,4 +1,4 @@
-const CACHE_NAME = "photo-effects-v0.3.0";
+const CACHE_NAME = "photo-effects-v0.3.1";
 
 const CORE_ASSETS = [
   "./",
@@ -26,7 +26,9 @@ self.addEventListener("install", event => {
 });
 
 self.addEventListener("activate", event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.map(key => key !== CACHE_NAME ? caches.delete(key) : null))));
+  event.waitUntil(
+    caches.keys().then(keys => Promise.all(keys.map(key => key !== CACHE_NAME ? caches.delete(key) : null)))
+  );
   self.clients.claim();
 });
 
