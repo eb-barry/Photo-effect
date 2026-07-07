@@ -1,6 +1,7 @@
 import { renderHomeScreen } from "./home/homeScreen.js";
 import { renderSettingsPage } from "./settings/settingsPage.js";
 import { renderMirrorPage } from "./features/F1_mirror/mirrorPage.js";
+import { initCrystalBallPage } from "./features/F2_crystalBall/crystalPage.js";
 import { applySettings } from "./config/settingsStore.js";
 
 const app = document.getElementById("app");
@@ -8,7 +9,8 @@ const app = document.getElementById("app");
 const routes = {
   home: () => renderHomeScreen(app, navigate),
   settings: () => renderSettingsPage(app, navigate),
-  F1_mirror: () => renderMirrorPage(app, navigate)
+  F1_mirror: () => renderMirrorPage(app, navigate),
+  F2_crystalBall: () => initCrystalBallPage(app, { goHome: () => navigate("home") })
 };
 
 function navigate(routeName){
