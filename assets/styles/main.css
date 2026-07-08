@@ -14,7 +14,7 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
 @media(max-width:430px){.mirror-topbar{padding-left:58px;padding-right:174px}.topbar-actions{gap:2px}.topbar-actions .icon-button,.feature-home{width:54px;height:54px}.topbar-actions .icon-button img,.feature-home img{width:43px;height:43px}}
 @media(max-width:380px){body.font-medium{--feature-icon-size:62px}body.font-large{--feature-icon-size:78px}.icon-grid{gap:16px 8px}.mirror-topbar{padding-left:50px;padding-right:150px}.topbar-title h1{font-size:1.12rem}.topbar-actions .icon-button,.feature-home{width:48px;height:48px}.topbar-actions .icon-button img,.feature-home img{width:38px;height:38px}.segment button{padding:11px 6px;font-size:.9rem}.selection-row{grid-template-columns:1fr;gap:6px}.selection-label{font-size:.95rem}.select-control,.select-control.selected{min-height:50px;font-size:.95rem}}
 
-/* F2 水晶球 v0.3.5 */
+/* F2 水晶球 v0.3.6 */
 .app-shell.crystal-page {
   padding: env(safe-area-inset-top) 10px calc(12px + env(safe-area-inset-bottom));
 }
@@ -70,10 +70,9 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
   border-radius: 24px;
 }
 
-.crystal-center-marker {
+.crystal-canvas-tool {
   position: absolute;
   top: 16px;
-  left: 16px;
   z-index: 6;
   width: 48px;
   height: 48px;
@@ -87,8 +86,39 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
   touch-action: manipulation;
 }
 
-.crystal-center-marker:active {
+.crystal-reset-marker {
+  left: 16px;
+}
+
+.crystal-center-marker {
+  left: 72px;
+}
+
+.crystal-canvas-tool:active {
   transform: scale(0.94);
+}
+
+.crystal-reset-marker-icon {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #1e88e5;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9), 0 3px 10px rgba(0, 0, 0, 0.28);
+}
+
+.crystal-reset-marker-icon::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  border-top-color: transparent;
+  border-right-color: transparent;
+  border-radius: 50%;
+  transform: translate(-38%, -52%) rotate(-45deg);
 }
 
 .crystal-center-marker-dot {
@@ -260,11 +290,18 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
     height: 18px;
   }
 
-  .crystal-center-marker {
+  .crystal-canvas-tool {
     top: 12px;
-    left: 12px;
     width: 44px;
     height: 44px;
+  }
+
+  .crystal-reset-marker {
+    left: 12px;
+  }
+
+  .crystal-center-marker {
+    left: 62px;
   }
 }
 

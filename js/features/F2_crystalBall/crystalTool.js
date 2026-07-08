@@ -1,4 +1,4 @@
-// F2 水晶球 - Canvas 影像處理 v0.3.5
+// F2 水晶球 - Canvas 影像處理 v0.3.6
 // 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射與玻璃光層。
 
 import {
@@ -120,7 +120,8 @@ export function clampPhotoPlacement(state, image, layout){
 }
 
 function drawSceneBackground(ctx, image, width, height, blurAmount){
-  const { downscale, pixelBlur } = mapBackgroundBlur(blurAmount);
+  const blur = mapBackgroundBlur(blurAmount);
+  const crop = getCoverCrop(image.width, image.height, CRYSTAL_ASPECT);
 
   if (!image) {
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
@@ -131,48 +132,125 @@ function drawSceneBackground(ctx, image, width, height, blurAmount){
     return;
   }
 
-  const crop = getCoverCrop(image.width, image.height, CRYSTAL_ASPECT);
-  const sharp = downscale >= 0.995 && pixelBlur <= 0;
-
-  if (sharp) {
+  if (blur <= 0) {
     ctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, width, height);
     return;
   }
 
+  const pad = Math.ceil(blur * 3);
   const temp = document.createElement("canvas");
-  const tempW = Math.max(1, Math.round(width * downscale));
-  const tempH = Math.max(1, Math.round(height * downscale));
-  temp.width = tempW;
-  temp.height = tempH;
+  temp.width = width + pad * 2;
+  temp.height = height + pad * 2;
   const tctx = temp.getContext("2d");
-  tctx.imageSmoothingEnabled = true;
-  tctx.imageSmoothingQuality = "low";
-  tctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, tempW, tempH);
-
-  ctx.save();
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "low";
-  if (pixelBlur > 0) ctx.filter = `blur(${pixelBlur}px)`;
-  const expand = pixelBlur > 0 ? pixelBlur * 4 : 0;
-  ctx.drawImage(temp, -expand, -expand, width + expand * 2, height + expand * 2);
-  ctx.filter = "none";
-  ctx.restore();
+  tctx.drawImage(
+    image,
+    crop.sx,
+    crop.sy,
+    crop.sw,
+    crop.sh,
+    0,
+    0,
+    temp.width,
+    temp.height
+  );
+  applyCanvasBlur(temp, blur);
+  ctx.drawImage(temp, pad, pad, width, height, 0, 0, width, height);
 }
 
 function mapBackgroundBlur(sliderValue){
   const value = clamp(Number(sliderValue ?? 0), 0, 40);
-  if (value <= 0) return { downscale: 1, pixelBlur: 0 };
+  if (value <= 0) return 0;
   const t = value / 40;
-  return {
-    downscale: 1 - t * 0.78,
-    pixelBlur: Math.round(t * t * 18 + value * 0.45)
-  };
+  return Math.round(1.5 + t * t * 30 + value * 0.35);
+}
+
+function applyCanvasBlur(canvas, radius){
+  const blur = Math.max(0, Number(radius) || 0);
+  if (blur <= 0) return;
+
+  if (canvasFilterBlurSupported()) {
+    const blurred = document.createElement("canvas");
+    blurred.width = canvas.width;
+    blurred.height = canvas.height;
+    const bctx = blurred.getContext("2d");
+    bctx.filter = `blur(${blur}px)`;
+    bctx.drawImage(canvas, 0, 0);
+    bctx.filter = "none";
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(blurred, 0, 0);
+    return;
+  }
+
+  applyBoxBlurPass(canvas, Math.max(1, Math.round(blur / 2)));
+}
+
+let filterBlurSupported = null;
+function canvasFilterBlurSupported(){
+  if (filterBlurSupported !== null) return filterBlurSupported;
+  filterBlurSupported = typeof CanvasRenderingContext2D !== "undefined"
+    && "filter" in CanvasRenderingContext2D.prototype;
+  return filterBlurSupported;
+}
+
+function applyBoxBlurPass(canvas, radius){
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const { width, height } = canvas;
+  const source = ctx.getImageData(0, 0, width, height);
+  const output = new Uint8ClampedArray(source.data);
+  const data = source.data;
+  const size = radius * 2 + 1;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      for (let k = -radius; k <= radius; k++) {
+        const sx = clamp(x + k, 0, width - 1);
+        const i = (y * width + sx) * 4;
+        r += data[i];
+        g += data[i + 1];
+        b += data[i + 2];
+        a += data[i + 3];
+      }
+      const di = (y * width + x) * 4;
+      output[di] = r / size;
+      output[di + 1] = g / size;
+      output[di + 2] = b / size;
+      output[di + 3] = a / size;
+    }
+  }
+
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      for (let k = -radius; k <= radius; k++) {
+        const sy = clamp(y + k, 0, height - 1);
+        const i = (sy * width + x) * 4;
+        r += output[i];
+        g += output[i + 1];
+        b += output[i + 2];
+        a += output[i + 3];
+      }
+      const di = (y * width + x) * 4;
+      data[di] = r / size;
+      data[di + 1] = g / size;
+      data[di + 2] = b / size;
+      data[di + 3] = a / size;
+    }
+  }
+
+  ctx.putImageData(source, 0, 0);
 }
 
 function drawSoftBackdrop(ctx, width, height, blurAmount = 0){
-  const { downscale, pixelBlur } = mapBackgroundBlur(blurAmount);
-  const blurStrength = Math.max(1 - downscale, pixelBlur / 24);
-  const soften = clamp(blurStrength, 0, 1);
+  const blur = mapBackgroundBlur(blurAmount);
+  const soften = clamp(blur / 28, 0, 1);
   const topOpacity = 0.22 * (1 - soften * 0.72);
   const midOpacity = 0.04 * (1 - soften * 0.5);
   const bottomOpacity = 0.16 * (1 - soften * 0.35);
