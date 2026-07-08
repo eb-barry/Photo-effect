@@ -14,23 +14,24 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
 @media(max-width:430px){.mirror-topbar{padding-left:58px;padding-right:174px}.topbar-actions{gap:2px}.topbar-actions .icon-button,.feature-home{width:54px;height:54px}.topbar-actions .icon-button img,.feature-home img{width:43px;height:43px}}
 @media(max-width:380px){body.font-medium{--feature-icon-size:62px}body.font-large{--feature-icon-size:78px}.icon-grid{gap:16px 8px}.mirror-topbar{padding-left:50px;padding-right:150px}.topbar-title h1{font-size:1.12rem}.topbar-actions .icon-button,.feature-home{width:48px;height:48px}.topbar-actions .icon-button img,.feature-home img{width:38px;height:38px}.segment button{padding:11px 6px;font-size:.9rem}.selection-row{grid-template-columns:1fr;gap:6px}.selection-label{font-size:.95rem}.select-control,.select-control.selected{min-height:50px;font-size:.95rem}}
 
-/* F2 水晶球 v0.3.4 */
+/* F2 水晶球 v0.3.5 */
 .app-shell.crystal-page {
   padding: env(safe-area-inset-top) 10px calc(12px + env(safe-area-inset-bottom));
 }
 
 .crystal-page .crystal-topbar {
-  min-height: 50px;
-  padding: 0 64px 4px;
+  min-height: 60px;
+  padding: 0 64px 0;
 }
 
 .crystal-page .panel {
-  padding: 10px;
+  margin-top: 6px;
+  padding: 0 10px 10px;
 }
 
 .crystal-page .canvas-wrap {
   margin-bottom: 8px;
-  padding: 4px;
+  padding: 0 4px 4px;
 }
 
 .crystal-topbar .topbar-title h1 {
@@ -233,8 +234,8 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
 
 @media (max-width: 430px) {
   .crystal-page .crystal-topbar {
-    min-height: 52px;
-    padding: 0 58px 6px;
+    min-height: 54px;
+    padding: 0 58px 0;
   }
 
   .crystal-topbar {
@@ -270,7 +271,7 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
 @media (max-width: 380px) {
   .crystal-page .crystal-topbar {
     min-height: 48px;
-    padding: 0 50px 4px;
+    padding: 0 50px 0;
   }
 
   .crystal-topbar {

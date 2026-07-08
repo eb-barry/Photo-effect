@@ -1,4 +1,4 @@
-// F2 水晶球 - Canvas 影像處理 v0.3.4
+// F2 水晶球 - Canvas 影像處理 v0.3.5
 // 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射與玻璃光層。
 
 import {
@@ -18,9 +18,7 @@ export const CRYSTAL_ASPECT = 3 / 4;
 const imageCache = new Map();
 const LENS_WORK_SIZE = 560;
 
-/** 固定玻璃光層與邊緣參數（已從調整項目移除） */
-const GLASS_HIGHLIGHT = 0.82;
-const GLASS_HIGHLIGHT_POSITION = 0.18;
+/** 固定邊緣柔光參數（已從調整項目移除） */
 const EDGE_FEATHER = 0.58;
 const SEAT_CONTACT_SHADOW = 0.56;
 
@@ -66,7 +64,6 @@ export async function renderCrystalBall(ctx, sourceImage, state){
   drawSeat(ctx, seat, layout, state.selectedSeatId);
   drawSeatContactShadow(ctx, layout);
   drawPhotoInsideSphere(ctx, sourceImage, layout, state);
-  drawGlassOverlay(ctx, layout);
 }
 
 export function getCrystalLayout(width = CRYSTAL_OUTPUT_WIDTH, height = CRYSTAL_OUTPUT_HEIGHT, seatImage = null){
@@ -397,79 +394,6 @@ function applyCircularFeather(canvas, feather = EDGE_FEATHER){
   mask.addColorStop(1, "rgba(0,0,0,0.98)");
   ctx.fillStyle = mask;
   ctx.fillRect(0, 0, size, size);
-  ctx.restore();
-}
-
-function drawGlassOverlay(ctx, layout){
-  const { sphereX: cx, sphereY: cy, sphereRadius: r } = layout;
-  const highlight = GLASS_HIGHLIGHT;
-  const position = GLASS_HIGHLIGHT_POSITION;
-  const shadow = SEAT_CONTACT_SHADOW;
-  const hx = cx + (position - 0.5) * r * 0.85;
-  const hy = cy - r * 0.42;
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.clip();
-
-  const inner = ctx.createRadialGradient(cx - r * 0.28, cy - r * 0.46, r * 0.04, cx, cy, r);
-  inner.addColorStop(0, `rgba(255,255,255,${0.22 + highlight * 0.14})`);
-  inner.addColorStop(0.38, "rgba(255,255,255,0.04)");
-  inner.addColorStop(0.74, "rgba(210,245,255,0.06)");
-  inner.addColorStop(0.92, "rgba(220,248,255,0.10)");
-  inner.addColorStop(1, `rgba(255,255,255,${0.06 + highlight * 0.08})`);
-  ctx.fillStyle = inner;
-  ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-
-  const shine = ctx.createRadialGradient(hx, hy, 0, hx, hy, r * 0.54);
-  shine.addColorStop(0, `rgba(255,255,255,${0.90 * highlight})`);
-  shine.addColorStop(0.32, `rgba(255,255,255,${0.28 * highlight})`);
-  shine.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = shine;
-  ctx.beginPath();
-  ctx.ellipse(hx, hy, r * 0.32, r * 0.17, -0.68 + position * 0.38, 0, Math.PI * 2);
-  ctx.fill();
-
-  const rx = cx - (hx - cx) * 0.58;
-  const ry = cy - (hy - cy) * 0.42;
-  const reflection = ctx.createRadialGradient(rx, ry, 0, rx, ry, r * 0.36);
-  reflection.addColorStop(0, `rgba(255,255,255,${0.16 * highlight})`);
-  reflection.addColorStop(0.55, `rgba(200,235,255,${0.06 * highlight})`);
-  reflection.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = reflection;
-  ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-
-  ctx.globalAlpha = 0.78 * highlight;
-  ctx.strokeStyle = "rgba(255,255,255,0.88)";
-  ctx.lineWidth = Math.max(2, r * 0.024);
-  ctx.beginPath();
-  ctx.arc(cx - r * 0.10 + (position - 0.5) * r * 0.22, cy - r * 0.14, r * 0.74, Math.PI * 1.06, Math.PI * 1.44);
-  ctx.stroke();
-
-  const sheen = ctx.createLinearGradient(cx - r * 0.85, cy - r, cx - r * 0.15, cy + r);
-  sheen.addColorStop(0, `rgba(255,255,255,${0.30 * highlight})`);
-  sheen.addColorStop(0.3, `rgba(255,255,255,${0.08 * highlight})`);
-  sheen.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = sheen;
-  ctx.beginPath();
-  ctx.ellipse(cx - r * 0.56, cy - r * 0.06, r * 0.22, r * 0.92, 0.1, 0, Math.PI * 2);
-  ctx.fill();
-
-  const baseShade = ctx.createLinearGradient(0, cy + r * 0.10, 0, cy + r);
-  baseShade.addColorStop(0, "rgba(255,255,255,0)");
-  baseShade.addColorStop(1, `rgba(0,0,0,${0.18 * shadow})`);
-  ctx.fillStyle = baseShade;
-  ctx.fillRect(cx - r, cy, r * 2, r);
-
-  const edgeHighlight = ctx.createRadialGradient(cx, cy, r * 0.84, cx, cy, r);
-  edgeHighlight.addColorStop(0, "rgba(255,255,255,0)");
-  edgeHighlight.addColorStop(0.72, `rgba(255,255,255,${0.04 + highlight * 0.06})`);
-  edgeHighlight.addColorStop(0.90, `rgba(220,248,255,${0.22 + highlight * 0.18})`);
-  edgeHighlight.addColorStop(0.97, `rgba(255,255,255,${0.14 + highlight * 0.10})`);
-  edgeHighlight.addColorStop(1, `rgba(200,235,255,${0.06 + highlight * 0.04})`);
-  ctx.fillStyle = edgeHighlight;
-  ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
   ctx.restore();
 }
 
