@@ -1,15 +1,17 @@
-// F2 水晶球 - 狀態管理 v0.2.0
+// F2 水晶球 - 狀態管理 v0.2.1
 // 水晶球展示照片版本：1150×1150 底座錨點定位、球面折射、色散與玻璃光層。
 
 export const CRYSTAL_FEATURE_ID = "F2_crystalBall";
-export const CRYSTAL_FEATURE_VERSION = "0.2.0";
+export const CRYSTAL_FEATURE_VERSION = "0.2.1";
 export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v5";
 
 /** 1150×1150 底座素材中，球座凹槽中心（標準化座標 0–1） */
-export const SEAT_CRADLE_ANCHOR = { x: 0.5, y: 0.268 };
+export const SEAT_CRADLE_ANCHOR = { x: 0.5, y: 0.248 };
 export const SEAT_DISPLAY_WIDTH_RATIO = 0.46;
-export const SPHERE_DIAMETER_RATIO = 0.74;
-export const SPHERE_SINK_RATIO = 0.038;
+/** 球徑相對底座寬度；約 1.72 ≈ 畫布寬度 79% */
+export const SPHERE_DIAMETER_RATIO = 1.72;
+/** 球心額外上移量（相對底座高度） */
+export const SPHERE_LIFT_RATIO = 0.058;
 
 export const CRYSTAL_SEATS = [
   { id: "seat1", label: "白大理石", asset: "./assets/features/F2_crystalBall/seats/seat1.webp" },
