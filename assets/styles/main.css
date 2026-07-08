@@ -90,6 +90,14 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
   height: 2px;
 }
 
+.crystal-picker-label {
+  margin: 0 0 4px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--base-dark);
+}
+
+.crystal-scene-grid,
 .crystal-seat-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -97,6 +105,7 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
   margin-bottom: 8px;
 }
 
+.crystal-scene-button,
 .crystal-seat-button {
   min-height: 28px;
   border: 0;
@@ -111,11 +120,13 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
   justify-content: center;
 }
 
+.crystal-scene-button.active,
 .crystal-seat-button.active {
   background: linear-gradient(135deg, rgba(10, 186, 181, 0.22), rgba(47, 85, 212, 0.9));
   box-shadow: 0 0 0 2px rgba(10, 186, 181, 0.28), 0 6px 14px rgba(0, 0, 0, 0.14);
 }
 
+.crystal-scene-thumb,
 .crystal-seat-thumb {
   width: 100%;
   height: 20px;
@@ -127,14 +138,16 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
   justify-content: center;
 }
 
+.crystal-scene-thumb img,
 .crystal-seat-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center 35%;
+  object-position: center center;
   display: block;
 }
 
+.crystal-scene-button:active,
 .crystal-seat-button:active {
   transform: scale(0.98);
 }
@@ -193,15 +206,18 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
     padding-right: 174px;
   }
 
+  .crystal-scene-grid,
   .crystal-seat-grid {
     gap: 4px;
   }
 
+  .crystal-scene-button,
   .crystal-seat-button {
     min-height: 26px;
     padding: 2px;
   }
 
+  .crystal-scene-thumb,
   .crystal-seat-thumb {
     height: 18px;
   }

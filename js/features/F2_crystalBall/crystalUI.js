@@ -1,9 +1,10 @@
-// F2 水晶球 - UI v0.3.0
-// 場景縮圖列 + 單一下拉選單 / 單一 slider + 球內拖曳 / 雙指縮放。
+// F2 水晶球 - UI v0.3.1
+// 場景背景列 + 底座列 + 單一下拉選單 / 單一 slider + 球內拖曳 / 雙指縮放。
 
 import {
   CRYSTAL_PARAMETERS,
   CRYSTAL_SCENES,
+  CRYSTAL_SEATS,
   resetPhotoPlacement,
   updateCrystalState
 } from "./crystalState.js";
@@ -11,6 +12,7 @@ import { getCrystalLayout } from "./crystalTool.js";
 
 export function setupCrystalUI(root, state, render){
   const sceneButtons = root.querySelectorAll("[data-scene]");
+  const seatButtons = root.querySelectorAll("[data-seat]");
   const centerButton = root.querySelector("#centerPhotoBtn");
   const sliderTarget = root.querySelector("#sliderTarget");
   const slider = root.querySelector("#mainSlider");
@@ -21,6 +23,14 @@ export function setupCrystalUI(root, state, render){
   function refreshSceneButtons(){
     sceneButtons.forEach(button => {
       const active = button.dataset.scene === state.selectedSceneId;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  }
+
+  function refreshSeatButtons(){
+    seatButtons.forEach(button => {
+      const active = button.dataset.seat === state.selectedSeatId;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
@@ -58,6 +68,13 @@ export function setupCrystalUI(root, state, render){
     render();
   }));
 
+  seatButtons.forEach(button => button.addEventListener("click", event => {
+    event.preventDefault();
+    Object.assign(state, updateCrystalState(state, { selectedSeatId: button.dataset.seat }));
+    refreshSeatButtons();
+    render();
+  }));
+
   centerButton?.addEventListener("click", event => {
     event.preventDefault();
     Object.assign(state, resetPhotoPlacement(state));
@@ -85,20 +102,26 @@ export function setupCrystalUI(root, state, render){
   });
 
   refreshSceneButtons();
+  refreshSeatButtons();
   refreshSelectOptions();
   refreshSlider();
 }
 
 export function renderSceneButtons(){
   return CRYSTAL_SCENES.map(scene => `
-    <button type="button" class="crystal-seat-button" data-scene="${scene.id}" aria-label="${scene.label}" title="${scene.label}">
-      <span class="crystal-seat-thumb"><img src="${scene.asset}" alt="" loading="lazy" /></span>
+    <button type="button" class="crystal-scene-button" data-scene="${scene.id}" aria-label="${scene.label}" title="${scene.label}">
+      <span class="crystal-scene-thumb"><img src="${scene.asset}" alt="" loading="lazy" /></span>
     </button>
   `).join("");
 }
 
-/** @deprecated 保留別名 */
-export const renderSeatButtons = renderSceneButtons;
+export function renderSeatButtons(){
+  return CRYSTAL_SEATS.map(seat => `
+    <button type="button" class="crystal-seat-button" data-seat="${seat.id}" aria-label="${seat.label}" title="${seat.label}">
+      <span class="crystal-seat-thumb"><img src="${seat.asset}" alt="" loading="lazy" /></span>
+    </button>
+  `).join("");
+}
 
 function formatParameterValue(value, config){
   const number = Number(value ?? 0);
@@ -123,7 +146,7 @@ function enablePhotoGesture(canvas, state, setPartialState){
     const scaleY = canvas.height / rect.height;
     const x = pointX * scaleX;
     const y = pointY * scaleY;
-    const layout = getCrystalLayout(canvas.width, canvas.height, state.selectedSceneId);
+    const layout = getCrystalLayout(canvas.width, canvas.height);
     return Math.hypot(x - layout.sphereX, y - layout.sphereY) <= layout.sphereRadius;
   };
 
