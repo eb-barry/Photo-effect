@@ -1,55 +1,26 @@
-// F2 水晶球 - 狀態管理 v0.3.0
-// 系統場景背景 + 球內使用者照片。場景圖不含水晶球，由 app 即時繪製。
+// F2 水晶球 - 狀態管理 v0.2.2
+// 水晶球展示照片版本：1150×1150 底座錨點定位、球面折射、色散與玻璃光層。
 
 export const CRYSTAL_FEATURE_ID = "F2_crystalBall";
-export const CRYSTAL_FEATURE_VERSION = "0.3.0";
-export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v6";
+export const CRYSTAL_FEATURE_VERSION = "0.2.2";
+export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v5";
 
-/**
- * 場景球位（標準化 0–1，相對 1200×1600 畫布）
- * cx/cy = 球心；diameter = 球徑相對畫布寬度
- */
-export const CRYSTAL_SCENES = [
-  {
-    id: "scene1",
-    label: "書房",
-    asset: "./assets/features/F2_crystalBall/scenes/scene1.webp",
-    ball: { cx: 0.50, cy: 0.365, diameter: 0.34 }
-  },
-  {
-    id: "scene2",
-    label: "峽谷",
-    asset: "./assets/features/F2_crystalBall/scenes/scene2.webp",
-    ball: { cx: 0.50, cy: 0.362, diameter: 0.35 }
-  },
-  {
-    id: "scene3",
-    label: "辦公室",
-    asset: "./assets/features/F2_crystalBall/scenes/scene3.webp",
-    ball: { cx: 0.50, cy: 0.368, diameter: 0.34 }
-  },
-  {
-    id: "scene4",
-    label: "巴黎",
-    asset: "./assets/features/F2_crystalBall/scenes/scene4.webp",
-    ball: { cx: 0.50, cy: 0.358, diameter: 0.36 }
-  },
-  {
-    id: "scene5",
-    label: "客廳",
-    asset: "./assets/features/F2_crystalBall/scenes/scene5.webp",
-    ball: { cx: 0.50, cy: 0.366, diameter: 0.34 }
-  },
-  {
-    id: "scene6",
-    label: "臥室",
-    asset: "./assets/features/F2_crystalBall/scenes/scene6.webp",
-    ball: { cx: 0.50, cy: 0.364, diameter: 0.34 }
-  }
+/** 1150×1150 底座素材中，球座凹槽中心（標準化座標 0–1） */
+export const SEAT_CRADLE_ANCHOR = { x: 0.5, y: 0.248 };
+export const SEAT_DISPLAY_WIDTH_RATIO = 0.46;
+/** 球徑相對底座寬度；約 1.72 ≈ 畫布寬度 79% */
+export const SPHERE_DIAMETER_RATIO = 1.72;
+/** 球心額外上移量（相對底座高度） */
+export const SPHERE_LIFT_RATIO = 0.058;
+
+export const CRYSTAL_SEATS = [
+  { id: "seat1", label: "白大理石", asset: "./assets/features/F2_crystalBall/seats/seat1.webp" },
+  { id: "seat2", label: "七彩水晶", asset: "./assets/features/F2_crystalBall/seats/seat2.webp" },
+  { id: "seat3", label: "黃金寶石", asset: "./assets/features/F2_crystalBall/seats/seat3.webp" },
+  { id: "seat4", label: "楠木雕刻", asset: "./assets/features/F2_crystalBall/seats/seat4.webp" },
+  { id: "seat5", label: "藍綠寶石", asset: "./assets/features/F2_crystalBall/seats/seat5.webp" },
+  { id: "seat6", label: "檜木雕刻", asset: "./assets/features/F2_crystalBall/seats/seat6.webp" }
 ];
-
-/** @deprecated 保留別名，供舊程式碼過渡 */
-export const CRYSTAL_SEATS = CRYSTAL_SCENES;
 
 export const CRYSTAL_PARAMETERS = [
   { id: "photoOffsetX", label: "照片左右", min: -100, max: 100, step: 1, suffix: "%" },
@@ -58,6 +29,7 @@ export const CRYSTAL_PARAMETERS = [
   { id: "contrast", label: "照片對比", min: 70, max: 150, step: 1, suffix: "%" },
   { id: "saturation", label: "照片飽和", min: 50, max: 170, step: 1, suffix: "%" },
   { id: "warmth", label: "照片色溫", min: -100, max: 100, step: 1, suffix: "" },
+  { id: "backgroundBlur", label: "背景模糊", min: 6, max: 28, step: 1, suffix: "" },
   { id: "highlight", label: "反光強度", min: 0, max: 100, step: 1, suffix: "%" },
   { id: "highlightPosition", label: "反光位置", min: 0, max: 100, step: 1, suffix: "%" },
   { id: "edgeFeather", label: "邊緣柔光", min: 0, max: 100, step: 1, suffix: "%" },
@@ -65,25 +37,11 @@ export const CRYSTAL_PARAMETERS = [
   { id: "refraction", label: "球面折射", min: 0, max: 100, step: 1, suffix: "%" }
 ];
 
-export function getSceneById(sceneId){
-  const normalized = normalizeSceneId(sceneId);
-  return CRYSTAL_SCENES.find(scene => scene.id === normalized) || CRYSTAL_SCENES[0];
-}
-
-export function normalizeSceneId(sceneId){
-  if (CRYSTAL_SCENES.some(scene => scene.id === sceneId)) return sceneId;
-  if (typeof sceneId === "string" && sceneId.startsWith("seat")) {
-    const mapped = sceneId.replace("seat", "scene");
-    if (CRYSTAL_SCENES.some(scene => scene.id === mapped)) return mapped;
-  }
-  return "scene1";
-}
-
 export function createDefaultCrystalState(){
   return {
     featureId: CRYSTAL_FEATURE_ID,
     featureVersion: CRYSTAL_FEATURE_VERSION,
-    selectedSceneId: "scene1",
+    selectedSeatId: "seat1",
     selectedParameter: "photoScale",
     sourceImageDataUrl: null,
     photoOffsetX: 0,
@@ -92,6 +50,7 @@ export function createDefaultCrystalState(){
     contrast: 108,
     saturation: 112,
     warmth: 8,
+    backgroundBlur: 18,
     highlight: 82,
     highlightPosition: 18,
     edgeFeather: 58,
@@ -116,15 +75,8 @@ export function updateCrystalState(currentState, partial){
     updatedAt: Date.now()
   };
 
-  if (next.selectedSceneId == null && next.selectedSeatId != null) {
-    next.selectedSceneId = normalizeSceneId(next.selectedSeatId);
-  }
-  delete next.selectedSeatId;
-
-  next.selectedSceneId = normalizeSceneId(next.selectedSceneId);
-  next.selectedParameter = CRYSTAL_PARAMETERS.some(item => item.id === next.selectedParameter)
-    ? next.selectedParameter
-    : "photoScale";
+  next.selectedSeatId = CRYSTAL_SEATS.some(seat => seat.id === next.selectedSeatId) ? next.selectedSeatId : "seat1";
+  next.selectedParameter = CRYSTAL_PARAMETERS.some(item => item.id === next.selectedParameter) ? next.selectedParameter : "photoScale";
 
   for (const parameter of CRYSTAL_PARAMETERS) {
     next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, createDefaultValue(parameter.id));

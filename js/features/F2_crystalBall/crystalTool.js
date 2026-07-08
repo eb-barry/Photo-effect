@@ -1,7 +1,13 @@
-// F2 水晶球 - Canvas 影像處理 v0.3.0
-// 系統場景背景（無球）+ app 即時繪製水晶球與球內使用者照片。
+// F2 水晶球 - Canvas 影像處理 v0.2.1
+// 固定 3:4 畫框。1150×1150 底座錨點定位、球面折射放大、邊緣色散與玻璃光層。
 
-import { getSceneById, normalizeSceneId } from "./crystalState.js";
+import {
+  CRYSTAL_SEATS,
+  SEAT_CRADLE_ANCHOR,
+  SEAT_DISPLAY_WIDTH_RATIO,
+  SPHERE_DIAMETER_RATIO,
+  SPHERE_LIFT_RATIO
+} from "./crystalState.js";
 
 export const CRYSTAL_OUTPUT_WIDTH = 1200;
 export const CRYSTAL_OUTPUT_HEIGHT = 1600;
@@ -43,38 +49,52 @@ export async function renderCrystalBall(ctx, sourceImage, state){
     return;
   }
 
-  const sceneId = normalizeSceneId(state.selectedSceneId);
-  const scene = getSceneById(sceneId);
-  const sceneImage = await loadSceneImage(sceneId);
-  const layout = getCrystalLayout(width, height, sceneId);
+  const seat = await loadSeatImage(state.selectedSeatId);
+  const layout = getCrystalLayout(width, height, seat);
 
-  drawSceneBackground(ctx, sceneImage, scene, width, height);
-  drawSphereContactShadow(ctx, layout, state.shadow);
+  drawBlurredUserBackground(ctx, sourceImage, width, height, state.backgroundBlur);
+  drawSoftBackdrop(ctx, width, height);
+  drawSeat(ctx, seat, layout, state.selectedSeatId);
+  drawSeatContactShadow(ctx, layout, state.shadow);
   drawPhotoInsideSphere(ctx, sourceImage, layout, state);
   drawGlassOverlay(ctx, layout, state);
 }
 
-export function getCrystalLayout(
-  width = CRYSTAL_OUTPUT_WIDTH,
-  height = CRYSTAL_OUTPUT_HEIGHT,
-  sceneId = "scene1"
-){
-  const scene = getSceneById(sceneId);
-  const ball = scene.ball;
-  const sphereDiameter = width * ball.diameter;
+export function getCrystalLayout(width = CRYSTAL_OUTPUT_WIDTH, height = CRYSTAL_OUTPUT_HEIGHT, seatImage = null){
+  const frameBottomGap = 10;
+  const seatWidth = width * SEAT_DISPLAY_WIDTH_RATIO;
+  const seatRatio = seatImage ? (seatImage.height / seatImage.width) : 1;
+  const rawSeatHeight = seatWidth * seatRatio;
+  const seatHeight = clamp(rawSeatHeight, height * 0.22, height * 0.42);
+  const seatX = (width - seatWidth) / 2;
+  const seatY = height - frameBottomGap - seatHeight;
+
+  const cradleX = seatX + seatWidth * SEAT_CRADLE_ANCHOR.x;
+  const cradleY = seatY + seatHeight * SEAT_CRADLE_ANCHOR.y;
+
+  const sphereDiameter = Math.min(seatWidth * SPHERE_DIAMETER_RATIO, width * 0.84);
   const sphereRadius = sphereDiameter / 2;
-  const sphereX = width * ball.cx;
-  const sphereY = height * ball.cy;
+  const sphereX = cradleX;
+  const sphereY = cradleY - sphereRadius - seatHeight * SPHERE_LIFT_RATIO;
+  const topMargin = Math.max(24, sphereY - sphereRadius);
 
   return {
     width,
     height,
-    sceneId: scene.id,
+    topMargin,
+    bottomMargin: frameBottomGap,
     sphereX,
     sphereY,
     sphereRadius,
     sphereDiameter,
-    contactY: sphereY + sphereRadius * 0.90
+    cradleX,
+    cradleY,
+    seatX,
+    seatY,
+    seatWidth,
+    seatHeight,
+    seatTopOverlapY: cradleY - seatHeight * 0.02,
+    frameBottomGap
   };
 }
 
@@ -93,38 +113,37 @@ export function clampPhotoPlacement(state, image, layout){
   };
 }
 
-function drawSceneBackground(ctx, sceneImage, scene, width, height){
-  if (sceneImage) {
-    ctx.save();
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    const crop = getCoverCrop(sceneImage.width, sceneImage.height, CRYSTAL_ASPECT);
-    ctx.drawImage(sceneImage, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, width, height);
-    ctx.restore();
-    return;
-  }
-  drawSceneFallback(ctx, scene, width, height);
+function drawBlurredUserBackground(ctx, image, width, height, blurAmount){
+  const crop = getCoverCrop(image.width, image.height, CRYSTAL_ASPECT);
+  const blur = clamp(Number(blurAmount || 18), 6, 28);
+
+  ctx.save();
+  ctx.filter = `blur(${blur}px)`;
+  const expand = blur * 4;
+  ctx.drawImage(
+    image,
+    crop.sx,
+    crop.sy,
+    crop.sw,
+    crop.sh,
+    -expand,
+    -expand,
+    width + expand * 2,
+    height + expand * 2
+  );
+  ctx.filter = "none";
+  ctx.fillStyle = "rgba(0,0,0,0.20)";
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
 }
 
-function drawSceneFallback(ctx, scene, width, height){
-  const palette = {
-    scene1: ["#6b4f3a", "#2d2118"],
-    scene2: ["#3d6b52", "#1a3024"],
-    scene3: ["#7a8498", "#3a4258"],
-    scene4: ["#b88858", "#6a4a32"],
-    scene5: ["#b0a898", "#6a6458"],
-    scene6: ["#8a7898", "#4a3e58"]
-  };
-  const [top, bottom] = palette[scene.id] || ["#0abab5", "#078f8b"];
+function drawSoftBackdrop(ctx, width, height){
   const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, top);
-  gradient.addColorStop(1, bottom);
+  gradient.addColorStop(0, "rgba(255,255,255,0.22)");
+  gradient.addColorStop(0.42, "rgba(255,255,255,0.04)");
+  gradient.addColorStop(1, "rgba(0,0,0,0.16)");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
-  ctx.fillStyle = "rgba(255,255,255,0.88)";
-  ctx.font = "600 36px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(`${scene.label} 場景載入中`, width / 2, height * 0.5);
 }
 
 function drawPhotoInsideSphere(ctx, image, layout, state){
@@ -386,38 +405,164 @@ function drawGlassOverlay(ctx, layout, state){
   ctx.restore();
 }
 
-function drawSphereContactShadow(ctx, layout, shadowValue){
+function drawSeat(ctx, seatImage, layout, seatId){
+  if (seatImage) {
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    drawImageContain(ctx, seatImage, layout.seatX, layout.seatY, layout.seatWidth, layout.seatHeight);
+    ctx.restore();
+    return;
+  }
+  drawSeatFallback(ctx, layout, seatId);
+}
+
+function drawSeatFallback(ctx, layout, seatId){
+  const { seatX: x, seatY: y, seatWidth: w, seatHeight: h } = layout;
+  ctx.save();
+  const g = ctx.createLinearGradient(0, y, 0, y + h);
+  g.addColorStop(0, "rgba(255,255,255,0.95)");
+  g.addColorStop(0.48, "rgba(210,218,220,0.96)");
+  g.addColorStop(1, "rgba(170,150,120,0.98)");
+  ctx.fillStyle = g;
+  roundRect(ctx, x + w * 0.08, y + h * 0.10, w * 0.84, h * 0.78, 42);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(218,176,80,0.86)";
+  ctx.lineWidth = 10;
+  ctx.stroke();
+  ctx.fillStyle = "rgba(80,64,38,0.52)";
+  ctx.font = "700 32px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(seatId || "seat", x + w / 2, y + h * 0.58);
+  ctx.restore();
+}
+
+function drawSeatContactShadow(ctx, layout, shadowValue){
   const strength = clamp(Number(shadowValue || 56), 0, 100) / 100;
   if (strength <= 0.01) return;
-  const { sphereX: cx, contactY, sphereRadius: r } = layout;
+  const { sphereX: cx, cradleY, seatX, seatWidth, seatHeight, sphereRadius: r } = layout;
   ctx.save();
-  const g = ctx.createRadialGradient(cx, contactY, r * 0.04, cx, contactY, r * 0.55);
-  g.addColorStop(0, `rgba(0,0,0,${0.28 * strength})`);
-  g.addColorStop(0.5, `rgba(0,0,0,${0.10 * strength})`);
+  ctx.beginPath();
+  ctx.rect(seatX, cradleY - seatHeight * 0.04, seatWidth, Math.max(24, seatHeight * 0.14));
+  ctx.clip();
+  const g = ctx.createRadialGradient(cx, cradleY + 4, r * 0.06, cx, cradleY + 2, r * 0.58);
+  g.addColorStop(0, `rgba(0,0,0,${0.30 * strength})`);
+  g.addColorStop(0.45, `rgba(0,0,0,${0.12 * strength})`);
   g.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.ellipse(cx, contactY + 4, r * 0.46, Math.max(6, r * 0.07), 0, 0, Math.PI * 2);
+  ctx.ellipse(cx, cradleY + 8, r * 0.50, Math.max(8, seatHeight * 0.048), 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
 
-async function loadSceneImage(sceneId){
-  const scene = getSceneById(sceneId);
-  if (!scene?.asset) return null;
-  if (imageCache.has(scene.asset)) return imageCache.get(scene.asset);
+async function loadSeatImage(seatId){
+  const seat = CRYSTAL_SEATS.find(item => item.id === seatId) || CRYSTAL_SEATS[0];
+  if (!seat?.asset) return null;
+  if (imageCache.has(seat.asset)) return imageCache.get(seat.asset);
 
   const promise = new Promise(resolve => {
     const image = new Image();
-    image.onload = () => resolve(image);
+    image.onload = () => resolve(imageHasAlpha(image) ? image : makeTransparentSeat(image));
     image.onerror = () => {
-      console.warn(`[F2 水晶球] 找不到場景素材：${scene.asset}`);
+      console.warn(`[F2 水晶球] 找不到底座素材：${seat.asset}`);
       resolve(null);
     };
-    image.src = scene.asset;
+    image.src = seat.asset;
   });
-  imageCache.set(scene.asset, promise);
+  imageCache.set(seat.asset, promise);
   return promise;
+}
+
+function imageHasAlpha(image){
+  const canvas = document.createElement("canvas");
+  const sampleW = Math.min(image.width, 96);
+  const sampleH = Math.min(image.height, 96);
+  canvas.width = sampleW;
+  canvas.height = sampleH;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(image, 0, 0, sampleW, sampleH);
+  const data = ctx.getImageData(0, 0, sampleW, sampleH).data;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] < 250) return true;
+  }
+  return false;
+}
+
+function makeTransparentSeat(image){
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(image, 0, 0);
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = img.data;
+  const w = canvas.width;
+  const h = canvas.height;
+  const visited = new Uint8Array(w * h);
+  const queue = new Uint32Array(w * h);
+  let head = 0;
+  let tail = 0;
+
+  const tryPush = (x, y) => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return;
+    const idx = y * w + x;
+    if (visited[idx]) return;
+    const di = idx * 4;
+    if (!isNearWhite(data[di], data[di + 1], data[di + 2], data[di + 3])) return;
+    visited[idx] = 1;
+    queue[tail++] = idx;
+  };
+
+  for (let x = 0; x < w; x++) {
+    tryPush(x, 0);
+    tryPush(x, h - 1);
+  }
+  for (let y = 1; y < h - 1; y++) {
+    tryPush(0, y);
+    tryPush(w - 1, y);
+  }
+
+  while (head < tail) {
+    const idx = queue[head++];
+    const di = idx * 4;
+    data[di + 3] = 0;
+    const x = idx % w;
+    const y = Math.floor(idx / w);
+    tryPush(x + 1, y);
+    tryPush(x - 1, y);
+    tryPush(x, y + 1);
+    tryPush(x, y - 1);
+  }
+
+  softenWhiteEdge(data, w, h);
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+function softenWhiteEdge(data, width, height){
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const idx = (y * width + x) * 4;
+      if (data[idx + 3] === 0) continue;
+      if (!isNearWhite(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) continue;
+      let transparentNeighbors = 0;
+      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const ni = ((y + dy) * width + (x + dx)) * 4;
+        if (data[ni + 3] === 0) transparentNeighbors++;
+      }
+      if (transparentNeighbors > 0) {
+        data[idx + 3] = Math.min(data[idx + 3], 120);
+      }
+    }
+  }
+}
+
+function isNearWhite(r, g, b, a){
+  if (a < 8) return false;
+  const min = Math.min(r, g, b);
+  const max = Math.max(r, g, b);
+  return r >= 234 && g >= 234 && b >= 234 && (max - min) <= 28;
 }
 
 function getCoverCrop(imageWidth, imageHeight, targetAspect){
@@ -432,6 +577,15 @@ function getCoverCrop(imageWidth, imageHeight, targetAspect){
 
 function getSphereCoverScale(image, size){
   return Math.max(size / image.width, size / image.height);
+}
+
+function drawImageContain(ctx, image, x, y, width, height){
+  const scale = Math.min(width / image.width, height / image.height);
+  const drawWidth = image.width * scale;
+  const drawHeight = image.height * scale;
+  const dx = x + (width - drawWidth) / 2;
+  const dy = y + (height - drawHeight) / 2;
+  ctx.drawImage(image, dx, dy, drawWidth, drawHeight);
 }
 
 function drawEmptyState(ctx, width, height){
@@ -450,7 +604,7 @@ function drawEmptyState(ctx, width, height){
   ctx.textAlign = "center";
   ctx.fillText("請開啟照片", width / 2, height * 0.38 + 64);
   ctx.font = "500 28px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  ctx.fillText("選擇場景並放入水晶球", width / 2, height * 0.38 + 112);
+  ctx.fillText("建立水晶球相片展示", width / 2, height * 0.38 + 112);
   ctx.restore();
 }
 
