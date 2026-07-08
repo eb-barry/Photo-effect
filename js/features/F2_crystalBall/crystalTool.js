@@ -1,4 +1,4 @@
-// F2 水晶球 - Canvas 影像處理 v0.3.3
+// F2 水晶球 - Canvas 影像處理 v0.3.4
 // 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射與玻璃光層。
 
 import {
@@ -123,7 +123,7 @@ export function clampPhotoPlacement(state, image, layout){
 }
 
 function drawSceneBackground(ctx, image, width, height, blurAmount){
-  const blur = mapBackgroundBlur(blurAmount);
+  const { downscale, pixelBlur } = mapBackgroundBlur(blurAmount);
 
   if (!image) {
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
@@ -134,35 +134,48 @@ function drawSceneBackground(ctx, image, width, height, blurAmount){
     return;
   }
 
-  ctx.save();
-  if (blur > 0) ctx.filter = `blur(${blur}px)`;
-  const expand = blur > 0 ? blur * 5 : 0;
   const crop = getCoverCrop(image.width, image.height, CRYSTAL_ASPECT);
-  ctx.drawImage(
-    image,
-    crop.sx,
-    crop.sy,
-    crop.sw,
-    crop.sh,
-    -expand,
-    -expand,
-    width + expand * 2,
-    height + expand * 2
-  );
+  const sharp = downscale >= 0.995 && pixelBlur <= 0;
+
+  if (sharp) {
+    ctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, width, height);
+    return;
+  }
+
+  const temp = document.createElement("canvas");
+  const tempW = Math.max(1, Math.round(width * downscale));
+  const tempH = Math.max(1, Math.round(height * downscale));
+  temp.width = tempW;
+  temp.height = tempH;
+  const tctx = temp.getContext("2d");
+  tctx.imageSmoothingEnabled = true;
+  tctx.imageSmoothingQuality = "low";
+  tctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, tempW, tempH);
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "low";
+  if (pixelBlur > 0) ctx.filter = `blur(${pixelBlur}px)`;
+  const expand = pixelBlur > 0 ? pixelBlur * 4 : 0;
+  ctx.drawImage(temp, -expand, -expand, width + expand * 2, height + expand * 2);
   ctx.filter = "none";
   ctx.restore();
 }
 
 function mapBackgroundBlur(sliderValue){
   const value = clamp(Number(sliderValue ?? 0), 0, 40);
-  if (value <= 0) return 0;
+  if (value <= 0) return { downscale: 1, pixelBlur: 0 };
   const t = value / 40;
-  return Math.round(t * t * 34 + value * 0.35);
+  return {
+    downscale: 1 - t * 0.78,
+    pixelBlur: Math.round(t * t * 18 + value * 0.45)
+  };
 }
 
 function drawSoftBackdrop(ctx, width, height, blurAmount = 0){
-  const blur = mapBackgroundBlur(blurAmount);
-  const soften = blur > 0 ? Math.min(1, blur / 24) : 0;
+  const { downscale, pixelBlur } = mapBackgroundBlur(blurAmount);
+  const blurStrength = Math.max(1 - downscale, pixelBlur / 24);
+  const soften = clamp(blurStrength, 0, 1);
   const topOpacity = 0.22 * (1 - soften * 0.72);
   const midOpacity = 0.04 * (1 - soften * 0.5);
   const bottomOpacity = 0.16 * (1 - soften * 0.35);
@@ -347,8 +360,8 @@ function applyPhotoColorAdjust(canvas, contrastPercent, saturationPercent){
   const { width, height } = canvas;
   const image = ctx.getImageData(0, 0, width, height);
   const data = image.data;
-  const contrast = clamp(contrastPercent, 70, 150) / 100;
-  const saturation = clamp(saturationPercent, 50, 170) / 100;
+  const contrast = clamp((contrastPercent - 100) / 50 + 1, 0.45, 2.1);
+  const saturation = clamp((saturationPercent - 100) / 55 + 1, 0.05, 2.2);
 
   for (let i = 0; i < data.length; i += 4) {
     if (data[i + 3] <= 0) continue;

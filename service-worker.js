@@ -1,4 +1,4 @@
-const CACHE_NAME = "photo-effects-v0.3.1";
+const CACHE_NAME = "photo-effects-v0.3.4";
 
 const CORE_ASSETS = [
   "./",
@@ -17,7 +17,12 @@ const CORE_ASSETS = [
   "./js/features/F1_mirror/mirrorPage.js",
   "./js/features/F1_mirror/mirrorTool.js",
   "./js/features/F1_mirror/mirrorUI.js",
-  "./js/features/F1_mirror/mirrorState.js"
+  "./js/features/F1_mirror/mirrorState.js",
+  "./js/features/F2_crystalBall/crystalPage.js",
+  "./js/features/F2_crystalBall/crystalTool.js",
+  "./js/features/F2_crystalBall/crystalUI.js",
+  "./js/features/F2_crystalBall/crystalState.js",
+  "./js/features/F2_crystalBall/crystalFeature.js"
 ];
 
 self.addEventListener("install", event => {
@@ -32,13 +37,20 @@ self.addEventListener("activate", event => {
   self.clients.claim();
 });
 
+function isAppCodeRequest(url){
+  return /\.(html|css|js)(\?|$)/i.test(url.pathname) || url.pathname.endsWith("/");
+}
+
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
+
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, { cache: "no-store" })
       .then(response => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+        if (response && response.ok && isAppCodeRequest(new URL(event.request.url))) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+        }
         return response;
       })
       .catch(() => caches.match(event.request).then(cached => cached || caches.match("./index.html")))

@@ -14,23 +14,35 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
 @media(max-width:430px){.mirror-topbar{padding-left:58px;padding-right:174px}.topbar-actions{gap:2px}.topbar-actions .icon-button,.feature-home{width:54px;height:54px}.topbar-actions .icon-button img,.feature-home img{width:43px;height:43px}}
 @media(max-width:380px){body.font-medium{--feature-icon-size:62px}body.font-large{--feature-icon-size:78px}.icon-grid{gap:16px 8px}.mirror-topbar{padding-left:50px;padding-right:150px}.topbar-title h1{font-size:1.12rem}.topbar-actions .icon-button,.feature-home{width:48px;height:48px}.topbar-actions .icon-button img,.feature-home img{width:38px;height:38px}.segment button{padding:11px 6px;font-size:.9rem}.selection-row{grid-template-columns:1fr;gap:6px}.selection-label{font-size:.95rem}.select-control,.select-control.selected{min-height:50px;font-size:.95rem}}
 
-/* F2 水晶球 v0.3.3 */
+/* F2 水晶球 v0.3.4 */
 .app-shell.crystal-page {
-  padding: calc(4px + env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom));
+  padding: env(safe-area-inset-top) 10px calc(12px + env(safe-area-inset-bottom));
 }
 
 .crystal-page .crystal-topbar {
-  min-height: 56px;
-  padding: 2px 64px 8px;
+  min-height: 50px;
+  padding: 0 64px 4px;
 }
 
 .crystal-page .panel {
-  padding: 12px;
+  padding: 10px;
 }
 
 .crystal-page .canvas-wrap {
-  margin-bottom: 10px;
-  padding: 6px;
+  margin-bottom: 8px;
+  padding: 4px;
+}
+
+.crystal-topbar .topbar-title h1 {
+  line-height: 1.1;
+}
+
+.crystal-version {
+  margin: 2px 0 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  opacity: 0.72;
+  letter-spacing: 0.02em;
 }
 
 .crystal-topbar {
@@ -46,7 +58,7 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
 .crystal-canvas-wrap {
   position: relative;
   aspect-ratio: 3 / 4;
-  max-height: min(86vh, 1240px);
+  max-height: min(92vh, 1320px);
   margin-inline: auto;
 }
 
