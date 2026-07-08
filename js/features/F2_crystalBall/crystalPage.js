@@ -1,4 +1,4 @@
-// F2 水晶球 - Page Controller v0.2.0
+// F2 水晶球 - Page Controller v0.2.2
 // UI follows F1 editor page: topbar, preview panel, controls, one dropdown + one slider.
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -43,17 +43,22 @@ export function renderCrystalBallPage(root, navigate){
 
       <section class="panel">
         <div class="canvas-wrap crystal-canvas-wrap" id="canvasWrap">
+          <button
+            type="button"
+            id="centerPhotoBtn"
+            class="crystal-center-marker hidden"
+            aria-label="照片置中"
+            title="照片置中"
+          >
+            <span class="crystal-center-marker-dot" aria-hidden="true"></span>
+          </button>
           <div class="empty-canvas" id="emptyCanvas">請點右上方開啟照片</div>
           <canvas id="editorCanvas" class="hidden crystal-canvas" width="${CRYSTAL_OUTPUT_WIDTH}" height="${CRYSTAL_OUTPUT_HEIGHT}"></canvas>
         </div>
 
-        <div class="controls hidden" id="controls">
+        <div class="controls crystal-controls hidden" id="controls">
           <div class="crystal-seat-grid" role="group" aria-label="水晶球底座">
             ${renderSeatButtons()}
-          </div>
-
-          <div class="crystal-action-row">
-            <button type="button" id="centerPhotoBtn" class="crystal-center-button">照片置中</button>
           </div>
 
           <div class="selection-row">
@@ -104,6 +109,7 @@ export function renderCrystalBallPage(root, navigate){
     root.querySelector("#emptyCanvas")?.classList.add("hidden");
     canvas.classList.remove("hidden");
     root.querySelector("#controls")?.classList.remove("hidden");
+    root.querySelector("#centerPhotoBtn")?.classList.remove("hidden");
   };
 
   const persistDraft = () => {
