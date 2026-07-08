@@ -1,8 +1,8 @@
-// F2 水晶球 - 狀態管理 v0.3.4
+// F2 水晶球 - 狀態管理 v0.3.5
 // 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射與玻璃光層。
 
 export const CRYSTAL_FEATURE_ID = "F2_crystalBall";
-export const CRYSTAL_FEATURE_VERSION = "0.3.4";
+export const CRYSTAL_FEATURE_VERSION = "0.3.5";
 export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v9";
 
 export const CRYSTAL_MATERIAL_TYPES = [

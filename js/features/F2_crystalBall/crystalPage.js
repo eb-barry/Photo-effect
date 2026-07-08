@@ -1,4 +1,4 @@
-// F2 水晶球 - Page Controller v0.3.4
+// F2 水晶球 - Page Controller v0.3.5
 // UI follows F1 editor page: topbar, preview panel, controls, one dropdown + one slider.
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -32,7 +32,7 @@ export function renderCrystalBallPage(root, navigate){
 
         <div class="topbar-title">
           <h1>水晶球</h1>
-          <p class="crystal-version" aria-hidden="true">v0.3.4</p>
+          <p class="crystal-version" aria-hidden="true">v0.3.5</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
