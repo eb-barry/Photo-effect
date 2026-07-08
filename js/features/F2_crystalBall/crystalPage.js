@@ -1,5 +1,5 @@
-// F2 水晶球 - Page Controller v0.3.6
-// UI follows F1 editor page: topbar, preview panel, controls, one dropdown + one slider.
+// F2 水晶球 - Page Controller v0.3.7
+// Topbar + canvas + 三按鈕分頁控制區。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -16,7 +16,7 @@ import {
   loadImageFromDataUrl,
   renderCrystalBall
 } from "./crystalTool.js";
-import { renderSceneButtons, renderSeatButtons, setupCrystalUI } from "./crystalUI.js";
+import { renderControlTabs, renderSceneButtons, renderSeatButtons, setupCrystalUI } from "./crystalUI.js";
 
 export function initCrystalBallPage(root, shared = {}){
   return renderCrystalBallPage(root, shared.goHome || shared.navigate || (() => {}));
@@ -32,7 +32,7 @@ export function renderCrystalBallPage(root, navigate){
 
         <div class="topbar-title">
           <h1>水晶球</h1>
-          <p class="crystal-version" aria-hidden="true">v0.3.6</p>
+          <p class="crystal-version" aria-hidden="true">v0.3.7</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -47,7 +47,7 @@ export function renderCrystalBallPage(root, navigate){
           <button
             type="button"
             id="resetAdjustmentsBtn"
-            class="crystal-canvas-tool crystal-reset-marker hidden"
+            class="crystal-canvas-tool crystal-reset-marker crystal-canvas-tool-left hidden"
             aria-label="重設調整"
             title="重設調整"
           >
@@ -56,7 +56,7 @@ export function renderCrystalBallPage(root, navigate){
           <button
             type="button"
             id="centerPhotoBtn"
-            class="crystal-canvas-tool crystal-center-marker hidden"
+            class="crystal-canvas-tool crystal-center-marker crystal-canvas-tool-right hidden"
             aria-label="照片置中"
             title="照片置中"
           >
@@ -66,31 +66,35 @@ export function renderCrystalBallPage(root, navigate){
           <canvas id="editorCanvas" class="hidden crystal-canvas" width="${CRYSTAL_OUTPUT_WIDTH}" height="${CRYSTAL_OUTPUT_HEIGHT}"></canvas>
         </div>
 
-        <div class="controls crystal-controls hidden" id="controls">
-          <div class="selection-row">
-            <label for="materialPicker" class="selection-label">選擇素材</label>
-            <select id="materialPicker" class="select-control" aria-label="選擇素材"></select>
-          </div>
+        <div class="crystal-tab-bar hidden" id="crystalTabBar" role="tablist" aria-label="水晶球功能">
+          ${renderControlTabs()}
+        </div>
 
-          <div id="sceneAssetGrid" class="crystal-asset-grid" role="group" aria-label="場景背景">
-            ${renderSceneButtons()}
-          </div>
-
-          <div id="seatAssetGrid" class="crystal-asset-grid hidden" role="group" aria-label="水晶球底座">
-            ${renderSeatButtons()}
-          </div>
-
-          <div class="selection-row">
-            <label for="sliderTarget" class="selection-label">調整項目</label>
-            <select id="sliderTarget" class="select-control" aria-label="調整項目"></select>
-          </div>
-
-          <div class="slider-row">
-            <div class="slider-head">
-              <span id="sliderLabel">照片縮放</span>
-              <span id="sliderValue">118%</span>
+        <div class="crystal-tab-panels hidden" id="crystalTabPanels">
+          <div id="scenePanel" class="crystal-tab-panel" role="tabpanel" aria-label="場景背景">
+            <div id="sceneAssetGrid" class="crystal-asset-grid" role="group" aria-label="場景背景">
+              ${renderSceneButtons()}
             </div>
-            <input id="mainSlider" type="range" />
+          </div>
+
+          <div id="seatPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="水晶球底座">
+            <div id="seatAssetGrid" class="crystal-asset-grid" role="group" aria-label="水晶球底座">
+              ${renderSeatButtons()}
+            </div>
+          </div>
+
+          <div id="adjustPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="畫面微調">
+            <div class="selection-row crystal-adjust-row">
+              <label for="sliderTarget" class="selection-label">調整項目</label>
+              <select id="sliderTarget" class="select-control" aria-label="調整項目"></select>
+            </div>
+            <div class="slider-row" id="sliderRow">
+              <div class="slider-head">
+                <span id="sliderLabel">照片縮放</span>
+                <span id="sliderValue">118%</span>
+              </div>
+              <input id="mainSlider" type="range" />
+            </div>
           </div>
         </div>
       </section>
@@ -127,9 +131,12 @@ export function renderCrystalBallPage(root, navigate){
   const showEditor = () => {
     root.querySelector("#emptyCanvas")?.classList.add("hidden");
     canvas.classList.remove("hidden");
-    root.querySelector("#controls")?.classList.remove("hidden");
+    root.querySelector("#crystalTabBar")?.classList.remove("hidden");
     root.querySelector("#centerPhotoBtn")?.classList.remove("hidden");
     root.querySelector("#resetAdjustmentsBtn")?.classList.remove("hidden");
+    if (!state.activeControlTab) {
+      Object.assign(state, updateCrystalState(state, { activeControlTab: "scene" }));
+    }
   };
 
   const persistDraft = () => {
@@ -161,6 +168,7 @@ export function renderCrystalBallPage(root, navigate){
       sourceImage = await loadImageFromDataUrl(dataUrl);
       Object.assign(state, updateCrystalState(state, {
         sourceImageDataUrl: dataUrl,
+        activeControlTab: "scene",
         photoOffsetX: 0,
         photoOffsetY: 0,
         photoScale: 118,
@@ -178,7 +186,7 @@ export function renderCrystalBallPage(root, navigate){
     }
   });
 
-  setupCrystalUI(root, state, renderAndPersist);
+  setupCrystalUI(root, state, renderAndPersist, persistDraft);
 
   root.querySelector("#savePhotoBtn")?.addEventListener("click", async event => {
     event.preventDefault();
