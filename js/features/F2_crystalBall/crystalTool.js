@@ -1,4 +1,4 @@
-// F2 水晶球 - Canvas 影像處理 v0.2.0
+// F2 水晶球 - Canvas 影像處理 v0.2.1
 // 固定 3:4 畫框。1150×1150 底座錨點定位、球面折射放大、邊緣色散與玻璃光層。
 
 import {
@@ -6,7 +6,7 @@ import {
   SEAT_CRADLE_ANCHOR,
   SEAT_DISPLAY_WIDTH_RATIO,
   SPHERE_DIAMETER_RATIO,
-  SPHERE_SINK_RATIO
+  SPHERE_LIFT_RATIO
 } from "./crystalState.js";
 
 export const CRYSTAL_OUTPUT_WIDTH = 1200;
@@ -72,10 +72,10 @@ export function getCrystalLayout(width = CRYSTAL_OUTPUT_WIDTH, height = CRYSTAL_
   const cradleX = seatX + seatWidth * SEAT_CRADLE_ANCHOR.x;
   const cradleY = seatY + seatHeight * SEAT_CRADLE_ANCHOR.y;
 
-  const sphereDiameter = seatWidth * SPHERE_DIAMETER_RATIO;
+  const sphereDiameter = Math.min(seatWidth * SPHERE_DIAMETER_RATIO, width * 0.84);
   const sphereRadius = sphereDiameter / 2;
   const sphereX = cradleX;
-  const sphereY = cradleY - sphereRadius + seatHeight * SPHERE_SINK_RATIO;
+  const sphereY = cradleY - sphereRadius - seatHeight * SPHERE_LIFT_RATIO;
   const topMargin = Math.max(24, sphereY - sphereRadius);
 
   return {
@@ -93,7 +93,7 @@ export function getCrystalLayout(width = CRYSTAL_OUTPUT_WIDTH, height = CRYSTAL_
     seatY,
     seatWidth,
     seatHeight,
-    seatTopOverlapY: cradleY + seatHeight * SPHERE_SINK_RATIO,
+    seatTopOverlapY: cradleY - seatHeight * 0.02,
     frameBottomGap
   };
 }
@@ -222,7 +222,7 @@ function applySphericalLensEffect(sourceCanvas, size, state){
   const magnify = 0.16 + refraction * 0.28;
   const edgeStart = 0.66 - refraction * 0.06;
   const chroma = refraction * 3.4;
-  const fresnelStrength = 0.10 + refraction * 0.22;
+  const fresnelStrength = 0.03 + refraction * 0.07;
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -267,8 +267,8 @@ function applySphericalLensEffect(sourceCanvas, size, state){
       const blue = sampleAt(ca, 0);
 
       const z = Math.sqrt(Math.max(0, 1 - dist * dist));
-      const fresnel = 1 - fresnelStrength * (1 - z);
-      const edgeAlpha = 1 - Math.pow(dist, 10) * 0.05;
+      const fresnel = 1 - fresnelStrength * (1 - z) * (1 - z);
+      const edgeAlpha = 1 - Math.pow(dist, 14) * 0.02;
 
       dest[di] = red[0] * fresnel;
       dest[di + 1] = green[1] * fresnel;
@@ -320,13 +320,13 @@ function applyCircularFeather(canvas, feather){
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const size = canvas.width;
   const r = size / 2;
-  const fadeStart = clamp(0.88 - feather * 0.16, 0.64, 0.95);
+  const fadeStart = clamp(0.96 - feather * 0.06, 0.90, 0.98);
   ctx.save();
   ctx.globalCompositeOperation = "destination-in";
   const mask = ctx.createRadialGradient(r, r, r * fadeStart, r, r, r);
   mask.addColorStop(0, "rgba(0,0,0,1)");
-  mask.addColorStop(0.76, "rgba(0,0,0,0.96)");
-  mask.addColorStop(1, "rgba(0,0,0,0)");
+  mask.addColorStop(0.88, "rgba(0,0,0,1)");
+  mask.addColorStop(1, "rgba(0,0,0,0.98)");
   ctx.fillStyle = mask;
   ctx.fillRect(0, 0, size, size);
   ctx.restore();
@@ -336,9 +336,7 @@ function drawGlassOverlay(ctx, layout, state){
   const { sphereX: cx, sphereY: cy, sphereRadius: r } = layout;
   const highlight = clamp(Number(state.highlight || 82), 0, 100) / 100;
   const position = clamp(Number(state.highlightPosition || 18), 0, 100) / 100;
-  const edge = clamp(Number(state.edgeFeather || 58), 0, 100) / 100;
   const shadow = clamp(Number(state.shadow || 56), 0, 100) / 100;
-  const refraction = clamp(Number(state.refraction ?? 62), 0, 100) / 100;
   const hx = cx + (position - 0.5) * r * 0.85;
   const hy = cy - r * 0.42;
 
@@ -351,7 +349,8 @@ function drawGlassOverlay(ctx, layout, state){
   inner.addColorStop(0, `rgba(255,255,255,${0.22 + highlight * 0.14})`);
   inner.addColorStop(0.38, "rgba(255,255,255,0.04)");
   inner.addColorStop(0.74, "rgba(210,245,255,0.06)");
-  inner.addColorStop(1, `rgba(0,18,32,${0.20 + edge * 0.10 + shadow * 0.10 + refraction * 0.06})`);
+  inner.addColorStop(0.92, "rgba(220,248,255,0.10)");
+  inner.addColorStop(1, `rgba(255,255,255,${0.06 + highlight * 0.08})`);
   ctx.fillStyle = inner;
   ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
 
@@ -391,29 +390,18 @@ function drawGlassOverlay(ctx, layout, state){
 
   const baseShade = ctx.createLinearGradient(0, cy + r * 0.10, 0, cy + r);
   baseShade.addColorStop(0, "rgba(255,255,255,0)");
-  baseShade.addColorStop(1, `rgba(0,0,0,${0.24 * shadow})`);
+  baseShade.addColorStop(1, `rgba(0,0,0,${0.18 * shadow})`);
   ctx.fillStyle = baseShade;
   ctx.fillRect(cx - r, cy, r * 2, r);
 
-  const fresnel = ctx.createRadialGradient(cx, cy, r * 0.62, cx, cy, r);
-  fresnel.addColorStop(0, "rgba(255,255,255,0)");
-  fresnel.addColorStop(0.82, "rgba(180,220,240,0.04)");
-  fresnel.addColorStop(1, `rgba(0,24,48,${0.14 + refraction * 0.10})`);
-  ctx.fillStyle = fresnel;
+  const edgeHighlight = ctx.createRadialGradient(cx, cy, r * 0.84, cx, cy, r);
+  edgeHighlight.addColorStop(0, "rgba(255,255,255,0)");
+  edgeHighlight.addColorStop(0.72, `rgba(255,255,255,${0.04 + highlight * 0.06})`);
+  edgeHighlight.addColorStop(0.90, `rgba(220,248,255,${0.22 + highlight * 0.18})`);
+  edgeHighlight.addColorStop(0.97, `rgba(255,255,255,${0.14 + highlight * 0.10})`);
+  edgeHighlight.addColorStop(1, `rgba(200,235,255,${0.06 + highlight * 0.04})`);
+  ctx.fillStyle = edgeHighlight;
   ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-  ctx.restore();
-
-  ctx.save();
-  ctx.lineWidth = Math.max(5, r * 0.034);
-  const rim = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
-  rim.addColorStop(0, `rgba(255,255,255,${0.52 + edge * 0.26})`);
-  rim.addColorStop(0.45, "rgba(255,255,255,0.10)");
-  rim.addColorStop(0.75, "rgba(192,232,248,0.22)");
-  rim.addColorStop(1, `rgba(255,255,255,${0.22 + edge * 0.24})`);
-  ctx.strokeStyle = rim;
-  ctx.beginPath();
-  ctx.arc(cx, cy, r * 0.992, 0, Math.PI * 2);
-  ctx.stroke();
   ctx.restore();
 }
 
