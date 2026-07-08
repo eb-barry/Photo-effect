@@ -1,9 +1,14 @@
-// F2 水晶球 - 狀態管理 v0.3.1
+// F2 水晶球 - 狀態管理 v0.3.2
 // 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射與玻璃光層。
 
 export const CRYSTAL_FEATURE_ID = "F2_crystalBall";
-export const CRYSTAL_FEATURE_VERSION = "0.3.1";
-export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v7";
+export const CRYSTAL_FEATURE_VERSION = "0.3.2";
+export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v8";
+
+export const CRYSTAL_MATERIAL_TYPES = [
+  { id: "scene", label: "場景背景" },
+  { id: "seat", label: "水晶球底座" }
+];
 
 /** 1150×1150 底座素材中，球座凹槽中心（標準化座標 0–1） */
 export const SEAT_CRADLE_ANCHOR = { x: 0.5, y: 0.248 };
@@ -60,10 +65,15 @@ export function normalizeSceneId(sceneId){
   return "scene1";
 }
 
+export function normalizeMaterialType(materialType){
+  return CRYSTAL_MATERIAL_TYPES.some(item => item.id === materialType) ? materialType : "scene";
+}
+
 export function createDefaultCrystalState(){
   return {
     featureId: CRYSTAL_FEATURE_ID,
     featureVersion: CRYSTAL_FEATURE_VERSION,
+    selectedMaterialType: "scene",
     selectedSceneId: "scene1",
     selectedSeatId: "seat1",
     selectedParameter: "photoScale",
@@ -100,6 +110,7 @@ export function updateCrystalState(currentState, partial){
   };
 
   next.selectedSceneId = normalizeSceneId(next.selectedSceneId);
+  next.selectedMaterialType = normalizeMaterialType(next.selectedMaterialType);
   next.selectedSeatId = CRYSTAL_SEATS.some(seat => seat.id === next.selectedSeatId) ? next.selectedSeatId : "seat1";
   next.selectedParameter = CRYSTAL_PARAMETERS.some(item => item.id === next.selectedParameter) ? next.selectedParameter : "photoScale";
 

@@ -97,6 +97,7 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
   color: var(--base-dark);
 }
 
+.crystal-asset-grid,
 .crystal-scene-grid,
 .crystal-seat-grid {
   display: grid;
@@ -206,6 +207,7 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
     padding-right: 174px;
   }
 
+  .crystal-asset-grid,
   .crystal-scene-grid,
   .crystal-seat-grid {
     gap: 4px;

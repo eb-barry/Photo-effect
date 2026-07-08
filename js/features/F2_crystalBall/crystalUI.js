@@ -1,7 +1,8 @@
-// F2 水晶球 - UI v0.3.1
-// 場景背景列 + 底座列 + 單一下拉選單 / 單一 slider + 球內拖曳 / 雙指縮放。
+// F2 水晶球 - UI v0.3.2
+// 選擇素材下拉選單 + 條件顯示縮圖列 + 調整 slider + 球內手勢。
 
 import {
+  CRYSTAL_MATERIAL_TYPES,
   CRYSTAL_PARAMETERS,
   CRYSTAL_SCENES,
   CRYSTAL_SEATS,
@@ -13,6 +14,9 @@ import { getCrystalLayout } from "./crystalTool.js";
 export function setupCrystalUI(root, state, render){
   const sceneButtons = root.querySelectorAll("[data-scene]");
   const seatButtons = root.querySelectorAll("[data-seat]");
+  const materialPicker = root.querySelector("#materialPicker");
+  const sceneAssetGrid = root.querySelector("#sceneAssetGrid");
+  const seatAssetGrid = root.querySelector("#seatAssetGrid");
   const centerButton = root.querySelector("#centerPhotoBtn");
   const sliderTarget = root.querySelector("#sliderTarget");
   const slider = root.querySelector("#mainSlider");
@@ -34,6 +38,20 @@ export function setupCrystalUI(root, state, render){
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
+  }
+
+  function refreshMaterialPicker(){
+    if (!CRYSTAL_MATERIAL_TYPES.some(item => item.id === state.selectedMaterialType)) {
+      state.selectedMaterialType = "scene";
+    }
+    materialPicker.innerHTML = CRYSTAL_MATERIAL_TYPES
+      .map(item => `<option value="${item.id}" ${item.id === state.selectedMaterialType ? "selected" : ""}>${item.label}</option>`)
+      .join("");
+    materialPicker.classList.add("selected");
+
+    const showScenes = state.selectedMaterialType === "scene";
+    sceneAssetGrid?.classList.toggle("hidden", !showScenes);
+    seatAssetGrid?.classList.toggle("hidden", showScenes);
   }
 
   function refreshSelectOptions(){
@@ -75,6 +93,12 @@ export function setupCrystalUI(root, state, render){
     render();
   }));
 
+  materialPicker?.addEventListener("change", () => {
+    Object.assign(state, updateCrystalState(state, { selectedMaterialType: materialPicker.value }));
+    refreshMaterialPicker();
+    render();
+  });
+
   centerButton?.addEventListener("click", event => {
     event.preventDefault();
     Object.assign(state, resetPhotoPlacement(state));
@@ -101,6 +125,7 @@ export function setupCrystalUI(root, state, render){
     render();
   });
 
+  refreshMaterialPicker();
   refreshSceneButtons();
   refreshSeatButtons();
   refreshSelectOptions();
