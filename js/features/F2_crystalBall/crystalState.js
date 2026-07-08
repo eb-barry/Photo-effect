@@ -1,13 +1,14 @@
-// F2 水晶球 - 狀態管理 v0.3.6
-// 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射與玻璃光層。
+// F2 水晶球 - 狀態管理 v0.3.7
+// 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射。
 
 export const CRYSTAL_FEATURE_ID = "F2_crystalBall";
-export const CRYSTAL_FEATURE_VERSION = "0.3.6";
+export const CRYSTAL_FEATURE_VERSION = "0.3.7";
 export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v9";
 
-export const CRYSTAL_MATERIAL_TYPES = [
+export const CRYSTAL_CONTROL_TABS = [
   { id: "scene", label: "場景背景" },
-  { id: "seat", label: "水晶球底座" }
+  { id: "seat", label: "水晶球底座" },
+  { id: "adjust", label: "畫面微調" }
 ];
 
 /** 1150×1150 底座素材中，球座凹槽中心（標準化座標 0–1） */
@@ -61,15 +62,19 @@ export function normalizeSceneId(sceneId){
   return "scene1";
 }
 
-export function normalizeMaterialType(materialType){
-  return CRYSTAL_MATERIAL_TYPES.some(item => item.id === materialType) ? materialType : "scene";
+export function normalizeActiveControlTab(tab, legacyMaterialType = null){
+  if (tab === null || tab === "none" || tab === "") return null;
+  if (CRYSTAL_CONTROL_TABS.some(item => item.id === tab)) return tab;
+  if (legacyMaterialType === "seat") return "seat";
+  if (legacyMaterialType === "scene") return "scene";
+  return "scene";
 }
 
 export function createDefaultCrystalState(){
   return {
     featureId: CRYSTAL_FEATURE_ID,
     featureVersion: CRYSTAL_FEATURE_VERSION,
-    selectedMaterialType: "scene",
+    activeControlTab: "scene",
     selectedSceneId: "scene1",
     selectedSeatId: "seat1",
     selectedParameter: "photoScale",
@@ -89,7 +94,7 @@ export function createDefaultCrystalState(){
 export function resetCrystalAdjustments(currentState){
   const defaults = createDefaultCrystalState();
   return updateCrystalState(currentState, {
-    selectedMaterialType: defaults.selectedMaterialType,
+    activeControlTab: defaults.activeControlTab,
     selectedSceneId: defaults.selectedSceneId,
     selectedSeatId: defaults.selectedSeatId,
     selectedParameter: defaults.selectedParameter,
@@ -120,7 +125,11 @@ export function updateCrystalState(currentState, partial){
   };
 
   next.selectedSceneId = normalizeSceneId(next.selectedSceneId);
-  next.selectedMaterialType = normalizeMaterialType(next.selectedMaterialType);
+  next.activeControlTab = normalizeActiveControlTab(
+    next.activeControlTab,
+    next.selectedMaterialType
+  );
+  delete next.selectedMaterialType;
   next.selectedSeatId = CRYSTAL_SEATS.some(seat => seat.id === next.selectedSeatId) ? next.selectedSeatId : "seat1";
   next.selectedParameter = CRYSTAL_PARAMETERS.some(item => item.id === next.selectedParameter) ? next.selectedParameter : "photoScale";
 
@@ -139,6 +148,7 @@ export function saveCrystalDraft(state){
       featureVersion: CRYSTAL_FEATURE_VERSION,
       updatedAt: Date.now()
     };
+    delete saved.selectedMaterialType;
     localStorage.setItem(CRYSTAL_DRAFT_KEY, JSON.stringify(saved));
   } catch (error) {
     console.warn("[F2 水晶球] 無法儲存草稿：", error);

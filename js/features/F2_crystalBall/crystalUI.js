@@ -1,8 +1,8 @@
-// F2 水晶球 - UI v0.3.6
-// 選擇素材下拉選單 + 條件顯示縮圖列 + 調整 slider + 球內手勢。
+// F2 水晶球 - UI v0.3.7
+// 三按鈕分頁 + 3×2 正方形縮圖 + 畫面微調 slider + 球內手勢。
 
 import {
-  CRYSTAL_MATERIAL_TYPES,
+  CRYSTAL_CONTROL_TABS,
   CRYSTAL_PARAMETERS,
   CRYSTAL_SCENES,
   CRYSTAL_SEATS,
@@ -12,16 +12,19 @@ import {
 } from "./crystalState.js";
 import { getCrystalLayout } from "./crystalTool.js";
 
-export function setupCrystalUI(root, state, render){
+export function setupCrystalUI(root, state, render, persistDraft = () => {}){
   const sceneButtons = root.querySelectorAll("[data-scene]");
   const seatButtons = root.querySelectorAll("[data-seat]");
-  const materialPicker = root.querySelector("#materialPicker");
-  const sceneAssetGrid = root.querySelector("#sceneAssetGrid");
-  const seatAssetGrid = root.querySelector("#seatAssetGrid");
+  const tabButtons = root.querySelectorAll("[data-control-tab]");
+  const tabPanels = root.querySelector("#crystalTabPanels");
+  const scenePanel = root.querySelector("#scenePanel");
+  const seatPanel = root.querySelector("#seatPanel");
+  const adjustPanel = root.querySelector("#adjustPanel");
   const centerButton = root.querySelector("#centerPhotoBtn");
   const resetButton = root.querySelector("#resetAdjustmentsBtn");
   const sliderTarget = root.querySelector("#sliderTarget");
   const slider = root.querySelector("#mainSlider");
+  const sliderRow = root.querySelector("#sliderRow");
   const sliderLabel = root.querySelector("#sliderLabel");
   const sliderValue = root.querySelector("#sliderValue");
   const canvas = root.querySelector("#editorCanvas");
@@ -42,18 +45,21 @@ export function setupCrystalUI(root, state, render){
     });
   }
 
-  function refreshMaterialPicker(){
-    if (!CRYSTAL_MATERIAL_TYPES.some(item => item.id === state.selectedMaterialType)) {
-      state.selectedMaterialType = "scene";
-    }
-    materialPicker.innerHTML = CRYSTAL_MATERIAL_TYPES
-      .map(item => `<option value="${item.id}" ${item.id === state.selectedMaterialType ? "selected" : ""}>${item.label}</option>`)
-      .join("");
-    materialPicker.classList.add("selected");
+  function refreshTabBar(){
+    tabButtons.forEach(button => {
+      const active = state.activeControlTab === button.dataset.controlTab;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  }
 
-    const showScenes = state.selectedMaterialType === "scene";
-    sceneAssetGrid?.classList.toggle("hidden", !showScenes);
-    seatAssetGrid?.classList.toggle("hidden", showScenes);
+  function refreshTabPanels(){
+    const tab = state.activeControlTab;
+    const expanded = Boolean(tab);
+    tabPanels?.classList.toggle("hidden", !expanded);
+    scenePanel?.classList.toggle("hidden", tab !== "scene");
+    seatPanel?.classList.toggle("hidden", tab !== "seat");
+    adjustPanel?.classList.toggle("hidden", tab !== "adjust");
   }
 
   function refreshSelectOptions(){
@@ -71,6 +77,10 @@ export function setupCrystalUI(root, state, render){
   }
 
   function refreshSlider(){
+    const showAdjust = state.activeControlTab === "adjust";
+    sliderRow?.classList.toggle("hidden", !showAdjust);
+    if (!showAdjust) return;
+
     const config = getCurrentConfig();
     const value = Number(state[config.id] ?? config.min);
     slider.min = config.min;
@@ -80,6 +90,27 @@ export function setupCrystalUI(root, state, render){
     sliderLabel.textContent = config.label;
     sliderValue.textContent = formatParameterValue(value, config);
   }
+
+  function refreshAllControls(){
+    refreshTabBar();
+    refreshTabPanels();
+    refreshSceneButtons();
+    refreshSeatButtons();
+    refreshSelectOptions();
+    refreshSlider();
+  }
+
+  function toggleControlTab(tabId){
+    const nextTab = state.activeControlTab === tabId ? null : tabId;
+    Object.assign(state, updateCrystalState(state, { activeControlTab: nextTab }));
+    refreshAllControls();
+    persistDraft();
+  }
+
+  tabButtons.forEach(button => button.addEventListener("click", event => {
+    event.preventDefault();
+    toggleControlTab(button.dataset.controlTab);
+  }));
 
   sceneButtons.forEach(button => button.addEventListener("click", event => {
     event.preventDefault();
@@ -94,20 +125,6 @@ export function setupCrystalUI(root, state, render){
     refreshSeatButtons();
     render();
   }));
-
-  materialPicker?.addEventListener("change", () => {
-    Object.assign(state, updateCrystalState(state, { selectedMaterialType: materialPicker.value }));
-    refreshMaterialPicker();
-    render();
-  });
-
-  function refreshAllControls(){
-    refreshMaterialPicker();
-    refreshSceneButtons();
-    refreshSeatButtons();
-    refreshSelectOptions();
-    refreshSlider();
-  }
 
   centerButton?.addEventListener("click", event => {
     event.preventDefault();
@@ -142,7 +159,22 @@ export function setupCrystalUI(root, state, render){
     render();
   });
 
+  if (!state.activeControlTab) {
+    Object.assign(state, updateCrystalState(state, { activeControlTab: "scene" }));
+  }
+
   refreshAllControls();
+}
+
+export function renderControlTabs(){
+  return CRYSTAL_CONTROL_TABS.map(tab => `
+    <button
+      type="button"
+      class="crystal-tab-button"
+      data-control-tab="${tab.id}"
+      aria-pressed="false"
+    >${tab.label}</button>
+  `).join("");
 }
 
 export function renderSceneButtons(){
