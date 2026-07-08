@@ -1,8 +1,8 @@
-// F2 水晶球 - 狀態管理 v0.3.5
+// F2 水晶球 - 狀態管理 v0.3.6
 // 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射與玻璃光層。
 
 export const CRYSTAL_FEATURE_ID = "F2_crystalBall";
-export const CRYSTAL_FEATURE_VERSION = "0.3.5";
+export const CRYSTAL_FEATURE_VERSION = "0.3.6";
 export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v9";
 
 export const CRYSTAL_MATERIAL_TYPES = [
@@ -84,6 +84,24 @@ export function createDefaultCrystalState(){
     refraction: 62,
     updatedAt: Date.now()
   };
+}
+
+export function resetCrystalAdjustments(currentState){
+  const defaults = createDefaultCrystalState();
+  return updateCrystalState(currentState, {
+    selectedMaterialType: defaults.selectedMaterialType,
+    selectedSceneId: defaults.selectedSceneId,
+    selectedSeatId: defaults.selectedSeatId,
+    selectedParameter: defaults.selectedParameter,
+    photoOffsetX: defaults.photoOffsetX,
+    photoOffsetY: defaults.photoOffsetY,
+    photoScale: defaults.photoScale,
+    contrast: defaults.contrast,
+    saturation: defaults.saturation,
+    warmth: defaults.warmth,
+    backgroundBlur: defaults.backgroundBlur,
+    refraction: defaults.refraction
+  });
 }
 
 export function resetPhotoPlacement(currentState){

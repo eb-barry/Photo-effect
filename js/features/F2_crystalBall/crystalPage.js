@@ -1,4 +1,4 @@
-// F2 水晶球 - Page Controller v0.3.5
+// F2 水晶球 - Page Controller v0.3.6
 // UI follows F1 editor page: topbar, preview panel, controls, one dropdown + one slider.
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -32,7 +32,7 @@ export function renderCrystalBallPage(root, navigate){
 
         <div class="topbar-title">
           <h1>水晶球</h1>
-          <p class="crystal-version" aria-hidden="true">v0.3.5</p>
+          <p class="crystal-version" aria-hidden="true">v0.3.6</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -46,8 +46,17 @@ export function renderCrystalBallPage(root, navigate){
         <div class="canvas-wrap crystal-canvas-wrap" id="canvasWrap">
           <button
             type="button"
+            id="resetAdjustmentsBtn"
+            class="crystal-canvas-tool crystal-reset-marker hidden"
+            aria-label="重設調整"
+            title="重設調整"
+          >
+            <span class="crystal-reset-marker-icon" aria-hidden="true"></span>
+          </button>
+          <button
+            type="button"
             id="centerPhotoBtn"
-            class="crystal-center-marker hidden"
+            class="crystal-canvas-tool crystal-center-marker hidden"
             aria-label="照片置中"
             title="照片置中"
           >
@@ -120,6 +129,7 @@ export function renderCrystalBallPage(root, navigate){
     canvas.classList.remove("hidden");
     root.querySelector("#controls")?.classList.remove("hidden");
     root.querySelector("#centerPhotoBtn")?.classList.remove("hidden");
+    root.querySelector("#resetAdjustmentsBtn")?.classList.remove("hidden");
   };
 
   const persistDraft = () => {

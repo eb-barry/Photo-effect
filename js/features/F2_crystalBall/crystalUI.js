@@ -1,4 +1,4 @@
-// F2 水晶球 - UI v0.3.5
+// F2 水晶球 - UI v0.3.6
 // 選擇素材下拉選單 + 條件顯示縮圖列 + 調整 slider + 球內手勢。
 
 import {
@@ -6,6 +6,7 @@ import {
   CRYSTAL_PARAMETERS,
   CRYSTAL_SCENES,
   CRYSTAL_SEATS,
+  resetCrystalAdjustments,
   resetPhotoPlacement,
   updateCrystalState
 } from "./crystalState.js";
@@ -18,6 +19,7 @@ export function setupCrystalUI(root, state, render){
   const sceneAssetGrid = root.querySelector("#sceneAssetGrid");
   const seatAssetGrid = root.querySelector("#seatAssetGrid");
   const centerButton = root.querySelector("#centerPhotoBtn");
+  const resetButton = root.querySelector("#resetAdjustmentsBtn");
   const sliderTarget = root.querySelector("#sliderTarget");
   const slider = root.querySelector("#mainSlider");
   const sliderLabel = root.querySelector("#sliderLabel");
@@ -99,10 +101,25 @@ export function setupCrystalUI(root, state, render){
     render();
   });
 
+  function refreshAllControls(){
+    refreshMaterialPicker();
+    refreshSceneButtons();
+    refreshSeatButtons();
+    refreshSelectOptions();
+    refreshSlider();
+  }
+
   centerButton?.addEventListener("click", event => {
     event.preventDefault();
     Object.assign(state, resetPhotoPlacement(state));
     refreshSlider();
+    render();
+  });
+
+  resetButton?.addEventListener("click", event => {
+    event.preventDefault();
+    Object.assign(state, resetCrystalAdjustments(state));
+    refreshAllControls();
     render();
   });
 
@@ -125,11 +142,7 @@ export function setupCrystalUI(root, state, render){
     render();
   });
 
-  refreshMaterialPicker();
-  refreshSceneButtons();
-  refreshSeatButtons();
-  refreshSelectOptions();
-  refreshSlider();
+  refreshAllControls();
 }
 
 export function renderSceneButtons(){
