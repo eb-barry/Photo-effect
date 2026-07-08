@@ -1,8 +1,8 @@
-// F2 水晶球 - 狀態管理 v0.2.1
+// F2 水晶球 - 狀態管理 v0.2.2
 // 水晶球展示照片版本：1150×1150 底座錨點定位、球面折射、色散與玻璃光層。
 
 export const CRYSTAL_FEATURE_ID = "F2_crystalBall";
-export const CRYSTAL_FEATURE_VERSION = "0.2.1";
+export const CRYSTAL_FEATURE_VERSION = "0.2.2";
 export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v5";
 
 /** 1150×1150 底座素材中，球座凹槽中心（標準化座標 0–1） */
