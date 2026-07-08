@@ -1,4 +1,4 @@
-// F2 水晶球 - Page Controller v0.3.1
+// F2 水晶球 - Page Controller v0.3.2
 // UI follows F1 editor page: topbar, preview panel, controls, one dropdown + one slider.
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -57,13 +57,16 @@ export function renderCrystalBallPage(root, navigate){
         </div>
 
         <div class="controls crystal-controls hidden" id="controls">
-          <p class="crystal-picker-label">場景背景</p>
-          <div class="crystal-scene-grid" role="group" aria-label="場景背景">
+          <div class="selection-row">
+            <label for="materialPicker" class="selection-label">選擇素材</label>
+            <select id="materialPicker" class="select-control" aria-label="選擇素材"></select>
+          </div>
+
+          <div id="sceneAssetGrid" class="crystal-asset-grid" role="group" aria-label="場景背景">
             ${renderSceneButtons()}
           </div>
 
-          <p class="crystal-picker-label">水晶球底座</p>
-          <div class="crystal-seat-grid" role="group" aria-label="水晶球底座">
+          <div id="seatAssetGrid" class="crystal-asset-grid hidden" role="group" aria-label="水晶球底座">
             ${renderSeatButtons()}
           </div>
 
