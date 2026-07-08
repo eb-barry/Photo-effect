@@ -1,4 +1,4 @@
-// F2 水晶球 - Canvas 影像處理 v0.3.1
+// F2 水晶球 - Canvas 影像處理 v0.3.4
 // 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射與玻璃光層。
 
 import {
@@ -17,6 +17,12 @@ export const CRYSTAL_ASPECT = 3 / 4;
 
 const imageCache = new Map();
 const LENS_WORK_SIZE = 560;
+
+/** 固定玻璃光層與邊緣參數（已從調整項目移除） */
+const GLASS_HIGHLIGHT = 0.82;
+const GLASS_HIGHLIGHT_POSITION = 0.18;
+const EDGE_FEATHER = 0.58;
+const SEAT_CONTACT_SHADOW = 0.56;
 
 export function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -56,11 +62,11 @@ export async function renderCrystalBall(ctx, sourceImage, state){
   const layout = getCrystalLayout(width, height, seat);
 
   drawSceneBackground(ctx, sceneImage, width, height, state.backgroundBlur);
-  drawSoftBackdrop(ctx, width, height);
+  drawSoftBackdrop(ctx, width, height, state.backgroundBlur);
   drawSeat(ctx, seat, layout, state.selectedSeatId);
-  drawSeatContactShadow(ctx, layout, state.shadow);
+  drawSeatContactShadow(ctx, layout);
   drawPhotoInsideSphere(ctx, sourceImage, layout, state);
-  drawGlassOverlay(ctx, layout, state);
+  drawGlassOverlay(ctx, layout);
 }
 
 export function getCrystalLayout(width = CRYSTAL_OUTPUT_WIDTH, height = CRYSTAL_OUTPUT_HEIGHT, seatImage = null){
@@ -117,7 +123,7 @@ export function clampPhotoPlacement(state, image, layout){
 }
 
 function drawSceneBackground(ctx, image, width, height, blurAmount){
-  const blur = clamp(Number(blurAmount || 18), 0, 28);
+  const { downscale, pixelBlur } = mapBackgroundBlur(blurAmount);
 
   if (!image) {
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
@@ -128,30 +134,55 @@ function drawSceneBackground(ctx, image, width, height, blurAmount){
     return;
   }
 
-  ctx.save();
-  if (blur > 0) ctx.filter = `blur(${blur}px)`;
-  const expand = blur * 4;
   const crop = getCoverCrop(image.width, image.height, CRYSTAL_ASPECT);
-  ctx.drawImage(
-    image,
-    crop.sx,
-    crop.sy,
-    crop.sw,
-    crop.sh,
-    -expand,
-    -expand,
-    width + expand * 2,
-    height + expand * 2
-  );
+  const sharp = downscale >= 0.995 && pixelBlur <= 0;
+
+  if (sharp) {
+    ctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, width, height);
+    return;
+  }
+
+  const temp = document.createElement("canvas");
+  const tempW = Math.max(1, Math.round(width * downscale));
+  const tempH = Math.max(1, Math.round(height * downscale));
+  temp.width = tempW;
+  temp.height = tempH;
+  const tctx = temp.getContext("2d");
+  tctx.imageSmoothingEnabled = true;
+  tctx.imageSmoothingQuality = "low";
+  tctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, tempW, tempH);
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "low";
+  if (pixelBlur > 0) ctx.filter = `blur(${pixelBlur}px)`;
+  const expand = pixelBlur > 0 ? pixelBlur * 4 : 0;
+  ctx.drawImage(temp, -expand, -expand, width + expand * 2, height + expand * 2);
   ctx.filter = "none";
   ctx.restore();
 }
 
-function drawSoftBackdrop(ctx, width, height){
+function mapBackgroundBlur(sliderValue){
+  const value = clamp(Number(sliderValue ?? 0), 0, 40);
+  if (value <= 0) return { downscale: 1, pixelBlur: 0 };
+  const t = value / 40;
+  return {
+    downscale: 1 - t * 0.78,
+    pixelBlur: Math.round(t * t * 18 + value * 0.45)
+  };
+}
+
+function drawSoftBackdrop(ctx, width, height, blurAmount = 0){
+  const { downscale, pixelBlur } = mapBackgroundBlur(blurAmount);
+  const blurStrength = Math.max(1 - downscale, pixelBlur / 24);
+  const soften = clamp(blurStrength, 0, 1);
+  const topOpacity = 0.22 * (1 - soften * 0.72);
+  const midOpacity = 0.04 * (1 - soften * 0.5);
+  const bottomOpacity = 0.16 * (1 - soften * 0.35);
   const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, "rgba(255,255,255,0.22)");
-  gradient.addColorStop(0.42, "rgba(255,255,255,0.04)");
-  gradient.addColorStop(1, "rgba(0,0,0,0.16)");
+  gradient.addColorStop(0, `rgba(255,255,255,${topOpacity})`);
+  gradient.addColorStop(0.42, `rgba(255,255,255,${midOpacity})`);
+  gradient.addColorStop(1, `rgba(0,0,0,${bottomOpacity})`);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
 }
@@ -178,7 +209,6 @@ function drawPhotoInsideSphere(ctx, image, layout, state){
   const sctx = srcCanvas.getContext("2d", { willReadFrequently: true });
   sctx.imageSmoothingEnabled = true;
   sctx.imageSmoothingQuality = "high";
-  sctx.filter = `contrast(${state.contrast}%) saturate(${state.saturation}%)`;
   sctx.drawImage(
     image,
     srcPad + r - drawWidth / 2 + offsetX,
@@ -186,7 +216,6 @@ function drawPhotoInsideSphere(ctx, image, layout, state){
     drawWidth,
     drawHeight
   );
-  sctx.filter = "none";
   applyWarmth(sctx, srcSize, Number(state.warmth || 0));
 
   const workSize = Math.min(LENS_WORK_SIZE, d);
@@ -199,9 +228,9 @@ function drawPhotoInsideSphere(ctx, image, layout, state){
   lctx.imageSmoothingEnabled = true;
   lctx.imageSmoothingQuality = "high";
   lctx.drawImage(warped, 0, 0, workSize, workSize, 0, 0, d, d);
+  applyPhotoColorAdjust(layer, Number(state.contrast ?? 100), Number(state.saturation ?? 100));
 
-  const feather = clamp(Number(state.edgeFeather || 52), 0, 100) / 100;
-  applyCircularFeather(layer, feather);
+  applyCircularFeather(layer, EDGE_FEATHER);
 
   ctx.save();
   ctx.drawImage(layer, layout.sphereX - r, layout.sphereY - r, d, d);
@@ -326,11 +355,40 @@ function applyWarmth(ctx, size, warmth){
   ctx.restore();
 }
 
-function applyCircularFeather(canvas, feather){
+function applyPhotoColorAdjust(canvas, contrastPercent, saturationPercent){
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const { width, height } = canvas;
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  const contrast = clamp((contrastPercent - 100) / 50 + 1, 0.45, 2.1);
+  const saturation = clamp((saturationPercent - 100) / 55 + 1, 0.05, 2.2);
+
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] <= 0) continue;
+
+    let r = data[i];
+    let g = data[i + 1];
+    let b = data[i + 2];
+
+    const gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    r = gray + (r - gray) * saturation;
+    g = gray + (g - gray) * saturation;
+    b = gray + (b - gray) * saturation;
+
+    data[i] = clamp((r - 128) * contrast + 128, 0, 255);
+    data[i + 1] = clamp((g - 128) * contrast + 128, 0, 255);
+    data[i + 2] = clamp((b - 128) * contrast + 128, 0, 255);
+  }
+
+  ctx.putImageData(image, 0, 0);
+}
+
+function applyCircularFeather(canvas, feather = EDGE_FEATHER){
+  const normalized = clamp(Number(feather), 0, 1);
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const size = canvas.width;
   const r = size / 2;
-  const fadeStart = clamp(0.96 - feather * 0.06, 0.90, 0.98);
+  const fadeStart = clamp(0.96 - normalized * 0.06, 0.90, 0.98);
   ctx.save();
   ctx.globalCompositeOperation = "destination-in";
   const mask = ctx.createRadialGradient(r, r, r * fadeStart, r, r, r);
@@ -342,11 +400,11 @@ function applyCircularFeather(canvas, feather){
   ctx.restore();
 }
 
-function drawGlassOverlay(ctx, layout, state){
+function drawGlassOverlay(ctx, layout){
   const { sphereX: cx, sphereY: cy, sphereRadius: r } = layout;
-  const highlight = clamp(Number(state.highlight || 82), 0, 100) / 100;
-  const position = clamp(Number(state.highlightPosition || 18), 0, 100) / 100;
-  const shadow = clamp(Number(state.shadow || 56), 0, 100) / 100;
+  const highlight = GLASS_HIGHLIGHT;
+  const position = GLASS_HIGHLIGHT_POSITION;
+  const shadow = SEAT_CONTACT_SHADOW;
   const hx = cx + (position - 0.5) * r * 0.85;
   const hy = cy - r * 0.42;
 
@@ -447,8 +505,8 @@ function drawSeatFallback(ctx, layout, seatId){
   ctx.restore();
 }
 
-function drawSeatContactShadow(ctx, layout, shadowValue){
-  const strength = clamp(Number(shadowValue || 56), 0, 100) / 100;
+function drawSeatContactShadow(ctx, layout){
+  const strength = SEAT_CONTACT_SHADOW;
   if (strength <= 0.01) return;
   const { sphereX: cx, cradleY, seatX, seatWidth, seatHeight, sphereRadius: r } = layout;
   ctx.save();

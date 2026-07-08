@@ -1,4 +1,4 @@
-// F2 水晶球 - Page Controller v0.3.2
+// F2 水晶球 - Page Controller v0.3.4
 // UI follows F1 editor page: topbar, preview panel, controls, one dropdown + one slider.
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -26,12 +26,13 @@ export function renderCrystalBallPage(root, navigate){
   const savedState = loadCrystalDraft() || createDefaultCrystalState();
 
   root.innerHTML = `
-    <main class="app-shell page">
+    <main class="app-shell page crystal-page">
       <nav class="topbar crystal-topbar">
         ${iconButton({ icon: "home", label: "首頁", id: "homeBtn", className: "feature-home" })}
 
         <div class="topbar-title">
           <h1>水晶球</h1>
+          <p class="crystal-version" aria-hidden="true">v0.3.4</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">

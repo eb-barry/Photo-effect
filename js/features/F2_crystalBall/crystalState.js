@@ -1,9 +1,9 @@
-// F2 水晶球 - 狀態管理 v0.3.2
+// F2 水晶球 - 狀態管理 v0.3.4
 // 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射與玻璃光層。
 
 export const CRYSTAL_FEATURE_ID = "F2_crystalBall";
-export const CRYSTAL_FEATURE_VERSION = "0.3.2";
-export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v8";
+export const CRYSTAL_FEATURE_VERSION = "0.3.4";
+export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v9";
 
 export const CRYSTAL_MATERIAL_TYPES = [
   { id: "scene", label: "場景背景" },
@@ -43,11 +43,7 @@ export const CRYSTAL_PARAMETERS = [
   { id: "contrast", label: "照片對比", min: 70, max: 150, step: 1, suffix: "%" },
   { id: "saturation", label: "照片飽和", min: 50, max: 170, step: 1, suffix: "%" },
   { id: "warmth", label: "照片色溫", min: -100, max: 100, step: 1, suffix: "" },
-  { id: "backgroundBlur", label: "背景模糊", min: 0, max: 28, step: 1, suffix: "" },
-  { id: "highlight", label: "反光強度", min: 0, max: 100, step: 1, suffix: "%" },
-  { id: "highlightPosition", label: "反光位置", min: 0, max: 100, step: 1, suffix: "%" },
-  { id: "edgeFeather", label: "邊緣柔光", min: 0, max: 100, step: 1, suffix: "%" },
-  { id: "shadow", label: "球體陰影", min: 0, max: 100, step: 1, suffix: "%" },
+  { id: "backgroundBlur", label: "背景模糊", min: 0, max: 40, step: 1, suffix: "" },
   { id: "refraction", label: "球面折射", min: 0, max: 100, step: 1, suffix: "%" }
 ];
 
@@ -85,10 +81,6 @@ export function createDefaultCrystalState(){
     saturation: 112,
     warmth: 8,
     backgroundBlur: 0,
-    highlight: 82,
-    highlightPosition: 18,
-    edgeFeather: 58,
-    shadow: 56,
     refraction: 62,
     updatedAt: Date.now()
   };
