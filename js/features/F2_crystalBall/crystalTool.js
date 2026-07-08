@@ -1,13 +1,20 @@
-// F2 水晶球 - Canvas 影像處理 v0.1.8
-// 固定 3:4 畫框。背景為使用者照片大幅模糊，球內展示照片不變形，只做裁切、縮放、移動、邊緣柔化與玻璃光層。
+// F2 水晶球 - Canvas 影像處理 v0.2.0
+// 固定 3:4 畫框。1150×1150 底座錨點定位、球面折射放大、邊緣色散與玻璃光層。
 
-import { CRYSTAL_SEATS } from "./crystalState.js";
+import {
+  CRYSTAL_SEATS,
+  SEAT_CRADLE_ANCHOR,
+  SEAT_DISPLAY_WIDTH_RATIO,
+  SPHERE_DIAMETER_RATIO,
+  SPHERE_SINK_RATIO
+} from "./crystalState.js";
 
 export const CRYSTAL_OUTPUT_WIDTH = 1200;
 export const CRYSTAL_OUTPUT_HEIGHT = 1600;
 export const CRYSTAL_ASPECT = 3 / 4;
 
 const imageCache = new Map();
+const LENS_WORK_SIZE = 560;
 
 export function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -55,18 +62,20 @@ export async function renderCrystalBall(ctx, sourceImage, state){
 
 export function getCrystalLayout(width = CRYSTAL_OUTPUT_WIDTH, height = CRYSTAL_OUTPUT_HEIGHT, seatImage = null){
   const frameBottomGap = 10;
-  const seatWidth = width * 0.45;
-  const seatRatio = seatImage ? (seatImage.height / seatImage.width) : 0.70;
+  const seatWidth = width * SEAT_DISPLAY_WIDTH_RATIO;
+  const seatRatio = seatImage ? (seatImage.height / seatImage.width) : 1;
   const rawSeatHeight = seatWidth * seatRatio;
-  const seatHeight = clamp(rawSeatHeight, height * 0.20, height * 0.36);
+  const seatHeight = clamp(rawSeatHeight, height * 0.22, height * 0.42);
   const seatX = (width - seatWidth) / 2;
   const seatY = height - frameBottomGap - seatHeight;
 
-  const sphereDiameter = width * 0.82;
+  const cradleX = seatX + seatWidth * SEAT_CRADLE_ANCHOR.x;
+  const cradleY = seatY + seatHeight * SEAT_CRADLE_ANCHOR.y;
+
+  const sphereDiameter = seatWidth * SPHERE_DIAMETER_RATIO;
   const sphereRadius = sphereDiameter / 2;
-  const overlap = Math.max(34, seatHeight * 0.14);
-  const sphereBottom = seatY + overlap;
-  const sphereY = sphereBottom - sphereRadius;
+  const sphereX = cradleX;
+  const sphereY = cradleY - sphereRadius + seatHeight * SPHERE_SINK_RATIO;
   const topMargin = Math.max(24, sphereY - sphereRadius);
 
   return {
@@ -74,15 +83,17 @@ export function getCrystalLayout(width = CRYSTAL_OUTPUT_WIDTH, height = CRYSTAL_
     height,
     topMargin,
     bottomMargin: frameBottomGap,
-    sphereX: width / 2,
+    sphereX,
     sphereY,
     sphereRadius,
     sphereDiameter,
+    cradleX,
+    cradleY,
     seatX,
     seatY,
     seatWidth,
     seatHeight,
-    seatTopOverlapY: seatY + overlap,
+    seatTopOverlapY: cradleY + seatHeight * SPHERE_SINK_RATIO,
     frameBottomGap
   };
 }
@@ -138,10 +149,6 @@ function drawSoftBackdrop(ctx, width, height){
 function drawPhotoInsideSphere(ctx, image, layout, state){
   const d = Math.ceil(layout.sphereDiameter);
   const r = d / 2;
-  const layer = document.createElement("canvas");
-  layer.width = d;
-  layer.height = d;
-  const lctx = layer.getContext("2d", { willReadFrequently: true });
 
   const placement = clampPhotoPlacement(state, image, layout);
   const baseScale = getSphereCoverScale(image, d);
@@ -152,27 +159,150 @@ function drawPhotoInsideSphere(ctx, image, layout, state){
   const maxY = Math.max(0, (drawHeight - d) / 2);
   const offsetX = maxX * (placement.photoOffsetX / 100);
   const offsetY = maxY * (placement.photoOffsetY / 100);
-  const dx = r - drawWidth / 2 + offsetX;
-  const dy = r - drawHeight / 2 + offsetY;
 
-  lctx.save();
-  lctx.beginPath();
-  lctx.arc(r, r, r, 0, Math.PI * 2);
-  lctx.clip();
+  const srcPad = Math.ceil(d * 0.18);
+  const srcSize = d + srcPad * 2;
+  const srcCanvas = document.createElement("canvas");
+  srcCanvas.width = srcSize;
+  srcCanvas.height = srcSize;
+  const sctx = srcCanvas.getContext("2d", { willReadFrequently: true });
+  sctx.imageSmoothingEnabled = true;
+  sctx.imageSmoothingQuality = "high";
+  sctx.filter = `contrast(${state.contrast}%) saturate(${state.saturation}%)`;
+  sctx.drawImage(
+    image,
+    srcPad + r - drawWidth / 2 + offsetX,
+    srcPad + r - drawHeight / 2 + offsetY,
+    drawWidth,
+    drawHeight
+  );
+  sctx.filter = "none";
+  applyWarmth(sctx, srcSize, Number(state.warmth || 0));
+
+  const workSize = Math.min(LENS_WORK_SIZE, d);
+  const warped = applySphericalLensEffect(srcCanvas, workSize, state);
+
+  const layer = document.createElement("canvas");
+  layer.width = d;
+  layer.height = d;
+  const lctx = layer.getContext("2d", { willReadFrequently: true });
   lctx.imageSmoothingEnabled = true;
   lctx.imageSmoothingQuality = "high";
-  lctx.filter = `contrast(${state.contrast}%) saturate(${state.saturation}%)`;
-  lctx.drawImage(image, dx, dy, drawWidth, drawHeight);
-  lctx.filter = "none";
-  applyWarmth(lctx, d, Number(state.warmth || 0));
-  lctx.restore();
+  lctx.drawImage(warped, 0, 0, workSize, workSize, 0, 0, d, d);
 
   const feather = clamp(Number(state.edgeFeather || 52), 0, 100) / 100;
   applyCircularFeather(layer, feather);
 
   ctx.save();
-  ctx.drawImage(layer, layout.sphereX - layout.sphereRadius, layout.sphereY - layout.sphereRadius, layout.sphereDiameter, layout.sphereDiameter);
+  ctx.drawImage(layer, layout.sphereX - r, layout.sphereY - r, d, d);
   ctx.restore();
+}
+
+function applySphericalLensEffect(sourceCanvas, size, state){
+  const refraction = clamp(Number(state.refraction ?? 62), 0, 100) / 100;
+  const srcCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  const srcW = sourceCanvas.width;
+  const srcH = sourceCanvas.height;
+  const srcImage = srcCtx.getImageData(0, 0, srcW, srcH);
+  const src = srcImage.data;
+
+  const destCanvas = document.createElement("canvas");
+  destCanvas.width = size;
+  destCanvas.height = size;
+  const destCtx = destCanvas.getContext("2d", { willReadFrequently: true });
+  const destImage = destCtx.createImageData(size, size);
+  const dest = destImage.data;
+
+  const cx = size / 2;
+  const cy = size / 2;
+  const radius = size / 2;
+  const srcCx = srcW / 2;
+  const srcCy = srcH / 2;
+
+  const magnify = 0.16 + refraction * 0.28;
+  const edgeStart = 0.66 - refraction * 0.06;
+  const chroma = refraction * 3.4;
+  const fresnelStrength = 0.10 + refraction * 0.22;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const ndx = (x - cx) / radius;
+      const ndy = (y - cy) / radius;
+      const dist = Math.sqrt(ndx * ndx + ndy * ndy);
+      const di = (y * size + x) * 4;
+
+      if (dist > 1) {
+        dest[di + 3] = 0;
+        continue;
+      }
+
+      let sx = ndx;
+      let sy = ndy;
+
+      const barrel = 1 + magnify * (1 - dist * dist);
+      sx /= barrel;
+      sy /= barrel;
+
+      if (dist > edgeStart) {
+        const t = (dist - edgeStart) / Math.max(0.001, 1 - edgeStart);
+        const invert = t * t * refraction * 0.68;
+        sx *= (1 - 2 * invert);
+        sy *= (1 - 2 * invert);
+        const edgePull = t * refraction * 0.12;
+        sx *= (1 + edgePull);
+        sy *= (1 + edgePull);
+      }
+
+      const ca = (dist > 0.52 ? (dist - 0.52) / 0.48 : 0) * chroma;
+      const sampleAt = (ox, oy) => sampleBilinear(
+        src,
+        srcW,
+        srcH,
+        srcCx + sx * srcCx + ox,
+        srcCy + sy * srcCy + oy
+      );
+
+      const red = sampleAt(-ca, 0);
+      const green = sampleAt(0, 0);
+      const blue = sampleAt(ca, 0);
+
+      const z = Math.sqrt(Math.max(0, 1 - dist * dist));
+      const fresnel = 1 - fresnelStrength * (1 - z);
+      const edgeAlpha = 1 - Math.pow(dist, 10) * 0.05;
+
+      dest[di] = red[0] * fresnel;
+      dest[di + 1] = green[1] * fresnel;
+      dest[di + 2] = blue[2] * fresnel;
+      dest[di + 3] = Math.min(255, green[3] * edgeAlpha);
+    }
+  }
+
+  destCtx.putImageData(destImage, 0, 0);
+  return destCanvas;
+}
+
+function sampleBilinear(data, width, height, x, y){
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = x0 + 1;
+  const y1 = y0 + 1;
+  if (x0 < 0 || y0 < 0 || x1 >= width || y1 >= height) return [0, 0, 0, 0];
+
+  const fx = x - x0;
+  const fy = y - y0;
+  const i00 = (y0 * width + x0) * 4;
+  const i10 = (y0 * width + x1) * 4;
+  const i01 = (y1 * width + x0) * 4;
+  const i11 = (y1 * width + x1) * 4;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const out = [0, 0, 0, 0];
+
+  for (let c = 0; c < 4; c++) {
+    const top = lerp(data[i00 + c], data[i10 + c], fx);
+    const bottom = lerp(data[i01 + c], data[i11 + c], fx);
+    out[c] = lerp(top, bottom, fy);
+  }
+  return out;
 }
 
 function applyWarmth(ctx, size, warmth){
@@ -208,6 +338,7 @@ function drawGlassOverlay(ctx, layout, state){
   const position = clamp(Number(state.highlightPosition || 18), 0, 100) / 100;
   const edge = clamp(Number(state.edgeFeather || 58), 0, 100) / 100;
   const shadow = clamp(Number(state.shadow || 56), 0, 100) / 100;
+  const refraction = clamp(Number(state.refraction ?? 62), 0, 100) / 100;
   const hx = cx + (position - 0.5) * r * 0.85;
   const hy = cy - r * 0.42;
 
@@ -219,8 +350,8 @@ function drawGlassOverlay(ctx, layout, state){
   const inner = ctx.createRadialGradient(cx - r * 0.28, cy - r * 0.46, r * 0.04, cx, cy, r);
   inner.addColorStop(0, `rgba(255,255,255,${0.22 + highlight * 0.14})`);
   inner.addColorStop(0.38, "rgba(255,255,255,0.04)");
-  inner.addColorStop(0.74, "rgba(210,245,255,0.04)");
-  inner.addColorStop(1, `rgba(0,18,32,${0.18 + edge * 0.10 + shadow * 0.08})`);
+  inner.addColorStop(0.74, "rgba(210,245,255,0.06)");
+  inner.addColorStop(1, `rgba(0,18,32,${0.20 + edge * 0.10 + shadow * 0.10 + refraction * 0.06})`);
   ctx.fillStyle = inner;
   ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
 
@@ -232,6 +363,15 @@ function drawGlassOverlay(ctx, layout, state){
   ctx.beginPath();
   ctx.ellipse(hx, hy, r * 0.32, r * 0.17, -0.68 + position * 0.38, 0, Math.PI * 2);
   ctx.fill();
+
+  const rx = cx - (hx - cx) * 0.58;
+  const ry = cy - (hy - cy) * 0.42;
+  const reflection = ctx.createRadialGradient(rx, ry, 0, rx, ry, r * 0.36);
+  reflection.addColorStop(0, `rgba(255,255,255,${0.16 * highlight})`);
+  reflection.addColorStop(0.55, `rgba(200,235,255,${0.06 * highlight})`);
+  reflection.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = reflection;
+  ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
 
   ctx.globalAlpha = 0.78 * highlight;
   ctx.strokeStyle = "rgba(255,255,255,0.88)";
@@ -251,9 +391,16 @@ function drawGlassOverlay(ctx, layout, state){
 
   const baseShade = ctx.createLinearGradient(0, cy + r * 0.10, 0, cy + r);
   baseShade.addColorStop(0, "rgba(255,255,255,0)");
-  baseShade.addColorStop(1, `rgba(0,0,0,${0.22 * shadow})`);
+  baseShade.addColorStop(1, `rgba(0,0,0,${0.24 * shadow})`);
   ctx.fillStyle = baseShade;
   ctx.fillRect(cx - r, cy, r * 2, r);
+
+  const fresnel = ctx.createRadialGradient(cx, cy, r * 0.62, cx, cy, r);
+  fresnel.addColorStop(0, "rgba(255,255,255,0)");
+  fresnel.addColorStop(0.82, "rgba(180,220,240,0.04)");
+  fresnel.addColorStop(1, `rgba(0,24,48,${0.14 + refraction * 0.10})`);
+  ctx.fillStyle = fresnel;
+  ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
   ctx.restore();
 
   ctx.save();
@@ -261,7 +408,7 @@ function drawGlassOverlay(ctx, layout, state){
   const rim = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
   rim.addColorStop(0, `rgba(255,255,255,${0.52 + edge * 0.26})`);
   rim.addColorStop(0.45, "rgba(255,255,255,0.10)");
-  rim.addColorStop(0.75, "rgba(192,232,248,0.18)");
+  rim.addColorStop(0.75, "rgba(192,232,248,0.22)");
   rim.addColorStop(1, `rgba(255,255,255,${0.22 + edge * 0.24})`);
   ctx.strokeStyle = rim;
   ctx.beginPath();
@@ -305,18 +452,18 @@ function drawSeatFallback(ctx, layout, seatId){
 function drawSeatContactShadow(ctx, layout, shadowValue){
   const strength = clamp(Number(shadowValue || 56), 0, 100) / 100;
   if (strength <= 0.01) return;
-  const { sphereX: cx, seatY, seatWidth, seatX, seatHeight, sphereRadius: r } = layout;
+  const { sphereX: cx, cradleY, seatX, seatWidth, seatHeight, sphereRadius: r } = layout;
   ctx.save();
   ctx.beginPath();
-  ctx.rect(seatX, seatY, seatWidth, Math.max(20, seatHeight * 0.24));
+  ctx.rect(seatX, cradleY - seatHeight * 0.04, seatWidth, Math.max(24, seatHeight * 0.14));
   ctx.clip();
-  const g = ctx.createRadialGradient(cx, seatY + 8, r * 0.08, cx, seatY + 6, r * 0.72);
-  g.addColorStop(0, `rgba(0,0,0,${0.24 * strength})`);
-  g.addColorStop(0.5, `rgba(0,0,0,${0.10 * strength})`);
+  const g = ctx.createRadialGradient(cx, cradleY + 4, r * 0.06, cx, cradleY + 2, r * 0.58);
+  g.addColorStop(0, `rgba(0,0,0,${0.30 * strength})`);
+  g.addColorStop(0.45, `rgba(0,0,0,${0.12 * strength})`);
   g.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.ellipse(cx, seatY + 12, r * 0.62, Math.max(10, seatHeight * 0.10), 0, 0, Math.PI * 2);
+  ctx.ellipse(cx, cradleY + 8, r * 0.50, Math.max(8, seatHeight * 0.048), 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
@@ -328,7 +475,7 @@ async function loadSeatImage(seatId){
 
   const promise = new Promise(resolve => {
     const image = new Image();
-    image.onload = () => resolve(makeTransparentSeat(image));
+    image.onload = () => resolve(imageHasAlpha(image) ? image : makeTransparentSeat(image));
     image.onerror = () => {
       console.warn(`[F2 水晶球] 找不到底座素材：${seat.asset}`);
       resolve(null);
@@ -337,6 +484,21 @@ async function loadSeatImage(seatId){
   });
   imageCache.set(seat.asset, promise);
   return promise;
+}
+
+function imageHasAlpha(image){
+  const canvas = document.createElement("canvas");
+  const sampleW = Math.min(image.width, 96);
+  const sampleH = Math.min(image.height, 96);
+  canvas.width = sampleW;
+  canvas.height = sampleH;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(image, 0, 0, sampleW, sampleH);
+  const data = ctx.getImageData(0, 0, sampleW, sampleH).data;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] < 250) return true;
+  }
+  return false;
 }
 
 function makeTransparentSeat(image){

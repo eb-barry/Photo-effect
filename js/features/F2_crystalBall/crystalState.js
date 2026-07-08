@@ -1,9 +1,15 @@
-// F2 水晶球 - 狀態管理 v0.1.8
-// 水晶球展示照片版本：底座、球內照片位置/縮放、照片層調色、玻璃光層調整。
+// F2 水晶球 - 狀態管理 v0.2.0
+// 水晶球展示照片版本：1150×1150 底座錨點定位、球面折射、色散與玻璃光層。
 
 export const CRYSTAL_FEATURE_ID = "F2_crystalBall";
-export const CRYSTAL_FEATURE_VERSION = "0.1.8";
-export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v4";
+export const CRYSTAL_FEATURE_VERSION = "0.2.0";
+export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v5";
+
+/** 1150×1150 底座素材中，球座凹槽中心（標準化座標 0–1） */
+export const SEAT_CRADLE_ANCHOR = { x: 0.5, y: 0.268 };
+export const SEAT_DISPLAY_WIDTH_RATIO = 0.46;
+export const SPHERE_DIAMETER_RATIO = 0.74;
+export const SPHERE_SINK_RATIO = 0.038;
 
 export const CRYSTAL_SEATS = [
   { id: "seat1", label: "白大理石", asset: "./assets/features/F2_crystalBall/seats/seat1.webp" },
@@ -25,7 +31,8 @@ export const CRYSTAL_PARAMETERS = [
   { id: "highlight", label: "反光強度", min: 0, max: 100, step: 1, suffix: "%" },
   { id: "highlightPosition", label: "反光位置", min: 0, max: 100, step: 1, suffix: "%" },
   { id: "edgeFeather", label: "邊緣柔光", min: 0, max: 100, step: 1, suffix: "%" },
-  { id: "shadow", label: "球體陰影", min: 0, max: 100, step: 1, suffix: "%" }
+  { id: "shadow", label: "球體陰影", min: 0, max: 100, step: 1, suffix: "%" },
+  { id: "refraction", label: "球面折射", min: 0, max: 100, step: 1, suffix: "%" }
 ];
 
 export function createDefaultCrystalState(){
@@ -46,6 +53,7 @@ export function createDefaultCrystalState(){
     highlightPosition: 18,
     edgeFeather: 58,
     shadow: 56,
+    refraction: 62,
     updatedAt: Date.now()
   };
 }

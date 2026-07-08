@@ -1,4 +1,4 @@
-// F2 水晶球 - Page Controller v0.1.6
+// F2 水晶球 - Page Controller v0.2.0
 // UI follows F1 editor page: topbar, preview panel, controls, one dropdown + one slider.
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
