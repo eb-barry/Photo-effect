@@ -1,7 +1,4 @@
 {
-  "items": [
-    { "id": "sunny1", "label": "晴天 1", "file": "sunny1.webp" },
-    { "id": "sunny2", "label": "晴天 2", "file": "sunny2.webp" },
-    { "id": "sunny3", "label": "晴天 3", "file": "sunny3.webp" }
-  ]
+  "labelPrefix": "晴天",
+  "count": 6
 }

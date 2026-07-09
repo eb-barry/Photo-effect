@@ -83,6 +83,19 @@ async function loadManifest(url, basePath, prefix, fallback){
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) return [...fallback];
     const data = await response.json();
+
+    const count = Number(data?.count);
+    if (Number.isFinite(count) && count > 0) {
+      const labelPrefix = typeof data?.labelPrefix === "string" && data.labelPrefix
+        ? data.labelPrefix
+        : prefix;
+      return Array.from({ length: count }, (_, index) => ({
+        id: `${prefix}${index + 1}`,
+        label: `${labelPrefix} ${index + 1}`,
+        asset: `${basePath}${prefix}${index + 1}.webp`
+      }));
+    }
+
     const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : null;
     if (!items?.length) return [...fallback];
     return items.map((item, index) => normalizeManifestItem(item, prefix, basePath, index));
