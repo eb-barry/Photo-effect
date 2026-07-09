@@ -1,8 +1,10 @@
-// F2 水晶球 - 狀態管理 v0.3.7
+// F2 水晶球 - 狀態管理 v0.3.8
 // 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射。
 
+import { getCrystalScenes, getCrystalSeats } from "./crystalAssets.js";
+
 export const CRYSTAL_FEATURE_ID = "F2_crystalBall";
-export const CRYSTAL_FEATURE_VERSION = "0.3.7";
+export const CRYSTAL_FEATURE_VERSION = "0.3.8";
 export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v9";
 
 export const CRYSTAL_CONTROL_TABS = [
@@ -19,24 +21,6 @@ export const SPHERE_DIAMETER_RATIO = 1.72;
 /** 球心額外上移量（相對底座高度） */
 export const SPHERE_LIFT_RATIO = 0.058;
 
-export const CRYSTAL_SCENES = [
-  { id: "scene1", label: "書房", asset: "./assets/features/F2_crystalBall/scenes/scene1.webp" },
-  { id: "scene2", label: "峽谷", asset: "./assets/features/F2_crystalBall/scenes/scene2.webp" },
-  { id: "scene3", label: "辦公室", asset: "./assets/features/F2_crystalBall/scenes/scene3.webp" },
-  { id: "scene4", label: "巴黎", asset: "./assets/features/F2_crystalBall/scenes/scene4.webp" },
-  { id: "scene5", label: "客廳", asset: "./assets/features/F2_crystalBall/scenes/scene5.webp" },
-  { id: "scene6", label: "臥室", asset: "./assets/features/F2_crystalBall/scenes/scene6.webp" }
-];
-
-export const CRYSTAL_SEATS = [
-  { id: "seat1", label: "白大理石", asset: "./assets/features/F2_crystalBall/seats/seat1.webp" },
-  { id: "seat2", label: "七彩水晶", asset: "./assets/features/F2_crystalBall/seats/seat2.webp" },
-  { id: "seat3", label: "黃金寶石", asset: "./assets/features/F2_crystalBall/seats/seat3.webp" },
-  { id: "seat4", label: "楠木雕刻", asset: "./assets/features/F2_crystalBall/seats/seat4.webp" },
-  { id: "seat5", label: "藍綠寶石", asset: "./assets/features/F2_crystalBall/seats/seat5.webp" },
-  { id: "seat6", label: "檜木雕刻", asset: "./assets/features/F2_crystalBall/seats/seat6.webp" }
-];
-
 export const CRYSTAL_PARAMETERS = [
   { id: "photoOffsetX", label: "照片左右", min: -100, max: 100, step: 1, suffix: "%" },
   { id: "photoOffsetY", label: "照片上下", min: -100, max: 100, step: 1, suffix: "%" },
@@ -49,17 +33,19 @@ export const CRYSTAL_PARAMETERS = [
 ];
 
 export function getSceneById(sceneId){
+  const scenes = getCrystalScenes();
   const normalized = normalizeSceneId(sceneId);
-  return CRYSTAL_SCENES.find(scene => scene.id === normalized) || CRYSTAL_SCENES[0];
+  return scenes.find(scene => scene.id === normalized) || scenes[0];
 }
 
 export function normalizeSceneId(sceneId){
-  if (CRYSTAL_SCENES.some(scene => scene.id === sceneId)) return sceneId;
+  const scenes = getCrystalScenes();
+  if (scenes.some(scene => scene.id === sceneId)) return sceneId;
   if (typeof sceneId === "string" && sceneId.startsWith("seat")) {
     const mapped = sceneId.replace("seat", "scene");
-    if (CRYSTAL_SCENES.some(scene => scene.id === mapped)) return mapped;
+    if (scenes.some(scene => scene.id === mapped)) return mapped;
   }
-  return "scene1";
+  return scenes[0]?.id || "scene1";
 }
 
 export function normalizeActiveControlTab(tab, legacyMaterialType = null){
@@ -130,7 +116,7 @@ export function updateCrystalState(currentState, partial){
     next.selectedMaterialType
   );
   delete next.selectedMaterialType;
-  next.selectedSeatId = CRYSTAL_SEATS.some(seat => seat.id === next.selectedSeatId) ? next.selectedSeatId : "seat1";
+  next.selectedSeatId = getCrystalSeats().some(seat => seat.id === next.selectedSeatId) ? next.selectedSeatId : (getCrystalSeats()[0]?.id || "seat1");
   next.selectedParameter = CRYSTAL_PARAMETERS.some(item => item.id === next.selectedParameter) ? next.selectedParameter : "photoScale";
 
   for (const parameter of CRYSTAL_PARAMETERS) {

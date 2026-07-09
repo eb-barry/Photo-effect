@@ -1,8 +1,9 @@
-// F2 水晶球 - Page Controller v0.3.7
-// Topbar + canvas + 三按鈕分頁控制區。
+// F2 水晶球 - Page Controller v0.3.8
+// Topbar + canvas + 三按鈕分頁 + 橫向滑動素材列。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
+import { loadCrystalAssetCatalog } from "./crystalAssets.js";
 import {
   createDefaultCrystalState,
   loadCrystalDraft,
@@ -16,13 +17,13 @@ import {
   loadImageFromDataUrl,
   renderCrystalBall
 } from "./crystalTool.js";
-import { renderControlTabs, renderSceneButtons, renderSeatButtons, setupCrystalUI } from "./crystalUI.js";
+import { mountAssetCarousels, renderControlTabs, setupCrystalUI } from "./crystalUI.js";
 
 export function initCrystalBallPage(root, shared = {}){
   return renderCrystalBallPage(root, shared.goHome || shared.navigate || (() => {}));
 }
 
-export function renderCrystalBallPage(root, navigate){
+export async function renderCrystalBallPage(root, navigate){
   const savedState = loadCrystalDraft() || createDefaultCrystalState();
 
   root.innerHTML = `
@@ -32,7 +33,7 @@ export function renderCrystalBallPage(root, navigate){
 
         <div class="topbar-title">
           <h1>水晶球</h1>
-          <p class="crystal-version" aria-hidden="true">v0.3.7</p>
+          <p class="crystal-version" aria-hidden="true">v0.3.8</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -72,15 +73,11 @@ export function renderCrystalBallPage(root, navigate){
 
         <div class="crystal-tab-panels hidden" id="crystalTabPanels">
           <div id="scenePanel" class="crystal-tab-panel" role="tabpanel" aria-label="場景背景">
-            <div id="sceneAssetGrid" class="crystal-asset-grid" role="group" aria-label="場景背景">
-              ${renderSceneButtons()}
-            </div>
+            <div id="sceneAssetHost"></div>
           </div>
 
           <div id="seatPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="水晶球底座">
-            <div id="seatAssetGrid" class="crystal-asset-grid" role="group" aria-label="水晶球底座">
-              ${renderSeatButtons()}
-            </div>
+            <div id="seatAssetHost"></div>
           </div>
 
           <div id="adjustPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="畫面微調">
@@ -186,6 +183,12 @@ export function renderCrystalBallPage(root, navigate){
     }
   });
 
+  try {
+    await loadCrystalAssetCatalog();
+  } catch (error) {
+    console.warn("[F2 水晶球] 素材清單載入失敗，使用預設清單：", error);
+  }
+  mountAssetCarousels(root);
   setupCrystalUI(root, state, renderAndPersist, persistDraft);
 
   root.querySelector("#savePhotoBtn")?.addEventListener("click", async event => {

@@ -1,0 +1,10 @@
+{
+  "items": [
+    { "id": "scene1", "label": "書房", "file": "scene1.webp" },
+    { "id": "scene2", "label": "峽谷", "file": "scene2.webp" },
+    { "id": "scene3", "label": "辦公室", "file": "scene3.webp" },
+    { "id": "scene4", "label": "巴黎", "file": "scene4.webp" },
+    { "id": "scene5", "label": "客廳", "file": "scene5.webp" },
+    { "id": "scene6", "label": "臥室", "file": "scene6.webp" }
+  ]
+}
