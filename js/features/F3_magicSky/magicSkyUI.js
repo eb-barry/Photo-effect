@@ -1,7 +1,8 @@
-// F3 魔法天空 - UI v0.1.0
-// 四按鈕分頁 + 橫向滑動天空素材列 + 影像微調 slider。
+// F3 魔法天空 - UI v0.2.0
+// 四按鈕分頁 + 橫向滑動天空素材列 + 影像微調 slider + 天空平移手勢。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
+import { sampleSkyMaskAt } from "./magicSkySegment.js";
 import {
   MAGIC_SKY_CONTROL_TABS,
   MAGIC_SKY_PARAMETERS,
@@ -26,7 +27,7 @@ export function refreshAllCarouselHints(root){
   });
 }
 
-export function setupMagicSkyUI(root, state, render, persistDraft = () => {}){
+export function setupMagicSkyUI(root, state, render, persistDraft = () => {}, gestureContext = {}){
   const tabButtons = root.querySelectorAll("[data-control-tab]");
   const tabPanels = root.querySelector("#magicSkyTabPanels");
   const sunnyPanel = root.querySelector("#sunnyPanel");
@@ -148,8 +149,16 @@ export function setupMagicSkyUI(root, state, render, persistDraft = () => {}){
     const config = getCurrentConfig();
     Object.assign(state, updateMagicSkyState(state, { [config.id]: Number(slider.value) }));
     sliderValue.textContent = formatParameterValue(state[config.id], config);
-    persistDraft();
+    render();
   });
+
+  const canvas = gestureContext.canvas;
+  if (canvas) {
+    enableSkyPanGesture(canvas, state, gestureContext, partial => {
+      Object.assign(state, updateMagicSkyState(state, partial));
+      render();
+    });
+  }
 
   if (!state.activeControlTab) {
     Object.assign(state, updateMagicSkyState(state, { activeControlTab: "sunny" }));
@@ -222,4 +231,75 @@ function updateCarouselHints(track, leftHint, rightHint){
 function formatParameterValue(value, config){
   const number = Number(value ?? 0);
   return `${Math.round(number)}${config.suffix || ""}`;
+}
+
+function enableSkyPanGesture(canvas, state, gestureContext, setPartialState){
+  const pointers = new Map();
+  let lastDrag = null;
+
+  canvas.style.touchAction = "none";
+  canvas.style.cursor = "grab";
+
+  const toCanvasPoint = (clientX, clientY) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / Math.max(1, rect.width);
+    const scaleY = canvas.height / Math.max(1, rect.height);
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  };
+
+  const insideSky = (clientX, clientY) => {
+    const maskEntry = gestureContext.getMaskEntry?.();
+    const layout = gestureContext.getPhotoLayout?.();
+    if (!maskEntry || !layout) return true;
+    const point = toCanvasPoint(clientX, clientY);
+    return sampleSkyMaskAt(maskEntry, layout, point.x, point.y) > 0.35;
+  };
+
+  canvas.addEventListener("pointerdown", event => {
+    if (!state.sourceImageDataUrl || !insideSky(event.clientX, event.clientY)) return;
+    event.preventDefault();
+    canvas.setPointerCapture?.(event.pointerId);
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    canvas.style.cursor = "grabbing";
+    lastDrag = { x: event.clientX, y: event.clientY };
+  });
+
+  canvas.addEventListener("pointermove", event => {
+    if (!pointers.has(event.pointerId)) return;
+    event.preventDefault();
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (!lastDrag) {
+      lastDrag = { x: event.clientX, y: event.clientY };
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const dx = (event.clientX - lastDrag.x) / Math.max(1, rect.width);
+    const dy = (event.clientY - lastDrag.y) / Math.max(1, rect.height);
+    lastDrag = { x: event.clientX, y: event.clientY };
+
+    setPartialState({
+      skyOffsetX: clamp(Number(state.skyOffsetX || 0) + dx * 165, -100, 100),
+      skyOffsetY: clamp(Number(state.skyOffsetY || 0) + dy * 165, -100, 100)
+    });
+  });
+
+  const endPointer = event => {
+    if (pointers.has(event.pointerId)) pointers.delete(event.pointerId);
+    canvas.releasePointerCapture?.(event.pointerId);
+    if (pointers.size === 0) {
+      lastDrag = null;
+      canvas.style.cursor = "grab";
+    }
+  };
+
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
+}
+
+function clamp(value, min, max){
+  return Math.max(min, Math.min(max, Number(value)));
 }
