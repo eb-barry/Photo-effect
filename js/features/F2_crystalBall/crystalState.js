@@ -1,10 +1,10 @@
-// F2 水晶球 - 狀態管理 v0.3.8
+// F2 水晶球 - 狀態管理 v0.3.8.1
 // 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射。
 
 import { getCrystalScenes, getCrystalSeats } from "./crystalAssets.js";
 
 export const CRYSTAL_FEATURE_ID = "F2_crystalBall";
-export const CRYSTAL_FEATURE_VERSION = "0.3.8";
+export const CRYSTAL_FEATURE_VERSION = "0.3.8.1";
 export const CRYSTAL_DRAFT_KEY = "photoEffects.F2_crystalBall.draft.v9";
 
 export const CRYSTAL_CONTROL_TABS = [

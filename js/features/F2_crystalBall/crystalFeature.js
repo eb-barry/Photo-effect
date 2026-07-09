@@ -18,7 +18,7 @@ export const crystalBallFeature = {
   enabled: true,
   disabled: false,
   isAvailable: true,
-  version: '0.3.8',
+  version: '0.3.8.1',
   mount: initCrystalBallPage
 };
 

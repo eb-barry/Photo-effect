@@ -1,8 +1,8 @@
-// F2 水晶球 - Canvas 影像處理 v0.3.6
+// F2 水晶球 - Canvas 影像處理 v0.3.8.1
 // 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射與玻璃光層。
 
+import { getCrystalSeats } from "./crystalAssets.js";
 import {
-  getCrystalSeats,
   getSceneById,
   normalizeSceneId,
   SEAT_CRADLE_ANCHOR,
