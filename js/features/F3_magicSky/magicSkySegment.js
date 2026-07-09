@@ -101,7 +101,7 @@ async function fetchModelBuffer(onStatus){
     }
   }
 
-  onStatus("下載 AI 模型…");
+  onStatus("下載 AI 模型（首次約 88MB，請稍候）…");
   const response = await fetch(MODEL_URL);
   if (!response.ok) {
     throw new Error(`模型下載失敗（${response.status}）`);
