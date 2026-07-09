@@ -1,7 +1,4 @@
 {
-  "items": [
-    { "id": "night1", "label": "夜晚 1", "file": "night1.webp" },
-    { "id": "night2", "label": "夜晚 2", "file": "night2.webp" },
-    { "id": "night3", "label": "夜晚 3", "file": "night3.webp" }
-  ]
+  "labelPrefix": "夜晚",
+  "count": 8
 }
