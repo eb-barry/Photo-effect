@@ -33,7 +33,7 @@ export async function renderCrystalBallPage(root, navigate){
 
         <div class="topbar-title">
           <h1>水晶球</h1>
-          <p class="crystal-version" aria-hidden="true">v0.3.8</p>
+          <p class="crystal-version" aria-hidden="true">v0.3.8.1</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">

@@ -21,7 +21,7 @@ function navigate(routeName){
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./service-worker.js?v=0.3.8").catch(console.warn);
+    navigator.serviceWorker.register("./service-worker.js?v=0.3.8.1").catch(console.warn);
   });
 }
 
