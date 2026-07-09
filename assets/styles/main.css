@@ -484,6 +484,37 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
   }
 }
 
+.magic-sky-page .crystal-canvas-wrap.magic-sky-canvas-wrap {
+  aspect-ratio: auto;
+  width: 100%;
+  max-width: 100%;
+}
+
+.magic-sky-page .crystal-canvas-wrap.magic-sky-canvas-wrap[data-orientation="landscape"] {
+  max-height: min(72vh, 920px);
+}
+
+.magic-sky-page .crystal-canvas-wrap.magic-sky-canvas-wrap[data-orientation="portrait"] {
+  max-height: min(92vh, 1320px);
+}
+
+.magic-sky-page .magic-sky-canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: contain;
+}
+
+.magic-sky-hint {
+  display: block;
+  margin-top: 10px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 280px;
+  margin-inline: auto;
+}
+
 .magic-sky-analyzing {
   position: absolute;
   inset: 0;
@@ -511,4 +542,6 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
   font-weight: 800;
   color: var(--base-dark);
   font-size: 0.95rem;
+  line-height: 1.45;
+  white-space: pre-line;
 }

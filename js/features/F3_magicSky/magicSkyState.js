@@ -4,7 +4,7 @@
 import { getMagicSkyItems } from "./magicSkyAssets.js";
 
 export const MAGIC_SKY_FEATURE_ID = "F3_magicSky";
-export const MAGIC_SKY_FEATURE_VERSION = "0.2.1";
+export const MAGIC_SKY_FEATURE_VERSION = "0.2.2";
 export const MAGIC_SKY_DRAFT_KEY = "photoEffects.F3_magicSky.draft.v1";
 
 export const MAGIC_SKY_CONTROL_TABS = [

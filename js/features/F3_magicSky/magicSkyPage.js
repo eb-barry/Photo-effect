@@ -1,9 +1,10 @@
-// F3 魔法天空 - Page Controller v0.2.0
-// Topbar + canvas + AI 天空分割 + 天空替換 + 四按鈕分頁。
+// F3 魔法天空 - Page Controller v0.2.2
+// 依照片比例輸出 + 處理中提示。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
 import { loadMagicSkyAssetCatalog } from "./magicSkyAssets.js";
+import { createProcessingOverlay } from "./magicSkyBusy.js";
 import {
   ensureSkyMask,
   getCachedSkyMask,
@@ -17,12 +18,11 @@ import {
   updateMagicSkyState
 } from "./magicSkyState.js";
 import {
-  MAGIC_SKY_OUTPUT_HEIGHT,
-  MAGIC_SKY_OUTPUT_WIDTH,
   fileToDataUrl,
   getPhotoLayout,
   loadImageFromDataUrl,
-  renderMagicSky
+  renderMagicSky,
+  resolveOutputSize
 } from "./magicSkyTool.js";
 import { mountSkyCarousels, renderControlTabs, setupMagicSkyUI } from "./magicSkyUI.js";
 
@@ -40,7 +40,7 @@ export async function renderMagicSkyPage(root, navigate){
 
         <div class="topbar-title">
           <h1>魔法天空</h1>
-          <p class="crystal-version" aria-hidden="true">v0.2.1</p>
+          <p class="crystal-version" aria-hidden="true">v0.2.2</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -51,12 +51,15 @@ export async function renderMagicSkyPage(root, navigate){
       </nav>
 
       <section class="panel">
-        <div class="canvas-wrap crystal-canvas-wrap" id="canvasWrap">
-          <div class="empty-canvas" id="emptyCanvas">請點右上方開啟照片</div>
-          <canvas id="editorCanvas" class="hidden crystal-canvas" width="${MAGIC_SKY_OUTPUT_WIDTH}" height="${MAGIC_SKY_OUTPUT_HEIGHT}"></canvas>
-          <div class="magic-sky-analyzing hidden" id="skyAnalyzingOverlay" role="status" aria-live="polite">
+        <div class="canvas-wrap crystal-canvas-wrap magic-sky-canvas-wrap" id="canvasWrap">
+          <div class="empty-canvas" id="emptyCanvas">
+            請點右上方開啟照片
+            <span class="magic-sky-hint">首次換天需下載 AI 模型（約 88MB），請保持網路連線</span>
+          </div>
+          <canvas id="editorCanvas" class="hidden crystal-canvas magic-sky-canvas"></canvas>
+          <div class="magic-sky-analyzing hidden" id="skyProcessingOverlay" role="status" aria-live="polite">
             <div class="magic-sky-analyzing-card">
-              <p id="skyAnalyzingText">分析天空中…</p>
+              <p id="skyProcessingText">處理中，請稍候…</p>
             </div>
           </div>
         </div>
@@ -100,9 +103,12 @@ export async function renderMagicSkyPage(root, navigate){
 
   const imageInput = root.querySelector("#imageInput");
   const canvas = root.querySelector("#editorCanvas");
+  const canvasWrap = root.querySelector("#canvasWrap");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  const analyzingOverlay = root.querySelector("#skyAnalyzingOverlay");
-  const analyzingText = root.querySelector("#skyAnalyzingText");
+  const processing = createProcessingOverlay(
+    root.querySelector("#skyProcessingOverlay"),
+    root.querySelector("#skyProcessingText")
+  );
 
   const state = {
     ...savedState,
@@ -112,6 +118,7 @@ export async function renderMagicSkyPage(root, navigate){
   let sourceImage = null;
   let maskEntry = null;
   let photoKey = "";
+  let outputSize = null;
   let renderSerial = 0;
   let analyzeSerial = 0;
 
@@ -119,10 +126,34 @@ export async function renderMagicSkyPage(root, navigate){
     console.warn("[F3 魔法天空] AI 模型預載失敗：", error);
   });
 
-  const setAnalyzing = (visible, message = "分析天空中…") => {
-    analyzingText.textContent = message;
-    analyzingOverlay?.classList.toggle("hidden", !visible);
+  const applyCanvasSize = size => {
+    outputSize = size;
+    canvas.width = size.width;
+    canvas.height = size.height;
+    canvasWrap.style.aspectRatio = `${size.width} / ${size.height}`;
+    canvasWrap.dataset.orientation = size.width >= size.height ? "landscape" : "portrait";
   };
+
+  const renderCore = async () => {
+    if (!sourceImage || !outputSize) return;
+    const serial = ++renderSerial;
+    canvas.width = outputSize.width;
+    canvas.height = outputSize.height;
+    try {
+      await renderMagicSky(ctx, sourceImage, state, maskEntry);
+      if (serial !== renderSerial) return;
+    } catch (error) {
+      console.error("[F3 魔法天空] 繪製失敗：", error);
+    }
+  };
+
+  const render = () => renderCore();
+
+  const renderBusy = (message, options = {}) => processing.run(
+    message || "合成天空效果，請稍候…",
+    renderCore,
+    options
+  );
 
   const ensureMaskForCurrentPhoto = async () => {
     if (!sourceImage || !photoKey) return null;
@@ -133,11 +164,11 @@ export async function renderMagicSkyPage(root, navigate){
       return cached;
     }
 
-    setAnalyzing(true, "分析天空中…");
+    processing.begin("分析天空中…", 0);
     try {
       const entry = await ensureSkyMask(sourceImage, photoKey, {
         onStatus: message => {
-          if (serial === analyzeSerial) setAnalyzing(true, message);
+          if (serial === analyzeSerial) processing.setMessage(message);
         }
       });
       if (serial !== analyzeSerial) return maskEntry;
@@ -150,20 +181,7 @@ export async function renderMagicSkyPage(root, navigate){
       }
       return null;
     } finally {
-      if (serial === analyzeSerial) setAnalyzing(false);
-    }
-  };
-
-  const render = async () => {
-    if (!sourceImage) return;
-    const serial = ++renderSerial;
-    canvas.width = MAGIC_SKY_OUTPUT_WIDTH;
-    canvas.height = MAGIC_SKY_OUTPUT_HEIGHT;
-    try {
-      await renderMagicSky(ctx, sourceImage, state, maskEntry);
-      if (serial !== renderSerial) return;
-    } catch (error) {
-      console.error("[F3 魔法天空] 繪製失敗：", error);
+      if (serial === analyzeSerial) processing.end();
     }
   };
 
@@ -180,8 +198,9 @@ export async function renderMagicSkyPage(root, navigate){
     saveMagicSkyDraft(state);
   };
 
-  const renderAndPersist = async () => {
-    await render();
+  const renderAndPersist = async (message, options) => {
+    if (message) await renderBusy(message, options);
+    else await render();
     persistDraft();
   };
 
@@ -189,6 +208,7 @@ export async function renderMagicSkyPage(root, navigate){
     sourceImage = await loadImageFromDataUrl(dataUrl);
     photoKey = getSkyMaskCacheKey(dataUrl);
     maskEntry = getCachedSkyMask(photoKey);
+    applyCanvasSize(resolveOutputSize(sourceImage));
     Object.assign(state, updateMagicSkyState(state, {
       sourceImageDataUrl: dataUrl,
       activeControlTab: "sunny",
@@ -198,7 +218,8 @@ export async function renderMagicSkyPage(root, navigate){
     }));
     showEditor();
     await ensureMaskForCurrentPhoto();
-    await renderAndPersist();
+    await renderBusy("合成天空效果，請稍候…", { delay: 0 });
+    persistDraft();
   };
 
   root.querySelector("#homeBtn")?.addEventListener("click", event => {
@@ -217,10 +238,13 @@ export async function renderMagicSkyPage(root, navigate){
     if (!file) return;
 
     try {
+      processing.begin("讀取照片中…", 0);
       const dataUrl = await fileToDataUrl(file);
+      processing.end();
       await openPhoto(dataUrl);
     } catch (error) {
       console.error(error);
+      processing.end();
       alert("照片開啟失敗，請換一張圖片再試。");
     } finally {
       imageInput.value = "";
@@ -233,11 +257,15 @@ export async function renderMagicSkyPage(root, navigate){
     console.warn("[F3 魔法天空] 素材清單載入失敗，使用預設清單：", error);
   }
   mountSkyCarousels(root);
-  setupMagicSkyUI(root, state, renderAndPersist, persistDraft, {
+  setupMagicSkyUI(root, state, {
+    render,
+    renderBusy,
+    persistDraft
+  }, {
     canvas,
     getMaskEntry: () => maskEntry,
     getSourceImage: () => sourceImage,
-    getPhotoLayout: () => (sourceImage ? getPhotoLayout(sourceImage) : null)
+    getPhotoLayout: () => (outputSize ? getPhotoLayout(outputSize.width, outputSize.height) : null)
   });
 
   root.querySelector("#savePhotoBtn")?.addEventListener("click", async event => {
@@ -247,7 +275,7 @@ export async function renderMagicSkyPage(root, navigate){
       return;
     }
     try {
-      await render();
+      await renderBusy("準備儲存，請稍候…", { delay: 0 });
       await downloadCanvas(canvas, "image/jpeg", 0.92);
       persistDraft();
     } catch (error) {
@@ -263,7 +291,7 @@ export async function renderMagicSkyPage(root, navigate){
       return;
     }
     try {
-      await render();
+      await renderBusy("準備分享，請稍候…", { delay: 0 });
       const shared = await shareCanvas(canvas, "image/jpeg", 0.92);
       if (!shared) await downloadCanvas(canvas, "image/jpeg", 0.92);
       persistDraft();

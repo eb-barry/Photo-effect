@@ -1,12 +1,14 @@
-// F3 魔法天空 - Canvas 影像處理 v0.2.1
-// AI 天空遮罩 + 天空材質替換 + 前景保護合成。
+// F3 魔法天空 - Canvas 影像處理 v0.2.2
+// AI 天空遮罩 + 天空材質替換 + 依照片比例輸出。
 
 import { buildForegroundProtectMask } from "./magicSkySegment.js";
 import { getSkyByCategory, getSelectedSkyIdKey } from "./magicSkyState.js";
 
+export const MAGIC_SKY_MAX_EDGE = 1600;
+/** @deprecated Use resolveOutputSize() for the active photo. */
 export const MAGIC_SKY_OUTPUT_WIDTH = 1200;
+/** @deprecated Use resolveOutputSize() for the active photo. */
 export const MAGIC_SKY_OUTPUT_HEIGHT = 1600;
-export const MAGIC_SKY_ASPECT = 3 / 4;
 
 const skyImageCache = new Map();
 
@@ -46,32 +48,35 @@ export async function loadSkyImage(assetUrl){
   return image;
 }
 
-export function getPhotoLayout(image, width = MAGIC_SKY_OUTPUT_WIDTH, height = MAGIC_SKY_OUTPUT_HEIGHT){
-  const imageRatio = image.width / image.height;
-  const canvasRatio = width / height;
-  let drawWidth;
-  let drawHeight;
-  let x;
-  let y;
-
-  if (imageRatio > canvasRatio) {
-    drawHeight = height;
-    drawWidth = height * imageRatio;
-    x = (width - drawWidth) / 2;
-    y = 0;
-  } else {
-    drawWidth = width;
-    drawHeight = width / imageRatio;
-    x = 0;
-    y = (height - drawHeight) / 2;
+export function resolveOutputSize(image, maxEdge = MAGIC_SKY_MAX_EDGE){
+  if (!image?.width || !image?.height) {
+    return { width: MAGIC_SKY_OUTPUT_WIDTH, height: MAGIC_SKY_OUTPUT_HEIGHT };
   }
 
-  return { x, y, width: drawWidth, height: drawHeight };
+  const ratio = image.width / image.height;
+  if (ratio >= 1) {
+    const width = Math.min(image.width, maxEdge);
+    const height = Math.max(1, Math.round(width / ratio));
+    return { width, height };
+  }
+
+  const height = Math.min(image.height, maxEdge);
+  const width = Math.max(1, Math.round(height * ratio));
+  return { width, height };
+}
+
+export function getPhotoLayout(canvasWidth, canvasHeight){
+  return {
+    x: 0,
+    y: 0,
+    width: canvasWidth,
+    height: canvasHeight
+  };
 }
 
 export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
-  const width = MAGIC_SKY_OUTPUT_WIDTH;
-  const height = MAGIC_SKY_OUTPUT_HEIGHT;
+  const width = ctx.canvas.width;
+  const height = ctx.canvas.height;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
@@ -80,7 +85,7 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
     return;
   }
 
-  const layout = getPhotoLayout(sourceImage, width, height);
+  const layout = getPhotoLayout(width, height);
   if (!maskEntry?.maskCanvas) {
     drawPhotoCover(ctx, sourceImage, layout);
     return;

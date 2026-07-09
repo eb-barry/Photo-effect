@@ -1,7 +1,8 @@
-// F3 魔法天空 - UI v0.2.0
+// F3 魔法天空 - UI v0.2.2
 // 四按鈕分頁 + 橫向滑動天空素材列 + 影像微調 slider + 天空平移手勢。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
+import { INTENSIVE_RENDER_PARAMS } from "./magicSkyBusy.js";
 import { sampleSkyMaskAt } from "./magicSkySegment.js";
 import {
   MAGIC_SKY_CONTROL_TABS,
@@ -27,7 +28,9 @@ export function refreshAllCarouselHints(root){
   });
 }
 
-export function setupMagicSkyUI(root, state, render, persistDraft = () => {}, gestureContext = {}){
+export function setupMagicSkyUI(root, state, renderApi, persistDraft = () => {}, gestureContext = {}){
+  const render = renderApi.render;
+  const renderBusy = renderApi.renderBusy;
   const tabButtons = root.querySelectorAll("[data-control-tab]");
   const tabPanels = root.querySelector("#magicSkyTabPanels");
   const sunnyPanel = root.querySelector("#sunnyPanel");
@@ -39,6 +42,7 @@ export function setupMagicSkyUI(root, state, render, persistDraft = () => {}, ge
   const sliderRow = root.querySelector("#sliderRow");
   const sliderLabel = root.querySelector("#sliderLabel");
   const sliderValue = root.querySelector("#sliderValue");
+  let sliderRenderTimer = null;
 
   function refreshSkyButtons(category){
     const selectedId = state[getSelectedSkyIdKey(category)];
@@ -135,7 +139,7 @@ export function setupMagicSkyUI(root, state, render, persistDraft = () => {}, ge
         activeSkyCategory: category
       }));
       refreshAllSkyButtons();
-      render();
+      renderBusy("切換天空效果，請稍候…", { delay: 0 });
     });
   }
 
@@ -149,7 +153,19 @@ export function setupMagicSkyUI(root, state, render, persistDraft = () => {}, ge
     const config = getCurrentConfig();
     Object.assign(state, updateMagicSkyState(state, { [config.id]: Number(slider.value) }));
     sliderValue.textContent = formatParameterValue(state[config.id], config);
-    render();
+
+    clearTimeout(sliderRenderTimer);
+    const intensive = INTENSIVE_RENDER_PARAMS.has(config.id);
+    if (intensive) {
+      sliderRenderTimer = setTimeout(() => {
+        renderBusy("調整天空效果，請稍候…", { delay: 0 });
+      }, 50);
+      return;
+    }
+
+    sliderRenderTimer = setTimeout(() => {
+      render();
+    }, 16);
   });
 
   const canvas = gestureContext.canvas;
@@ -157,6 +173,9 @@ export function setupMagicSkyUI(root, state, render, persistDraft = () => {}, ge
     enableSkyPanGesture(canvas, state, gestureContext, partial => {
       Object.assign(state, updateMagicSkyState(state, partial));
       render();
+    }, async () => {
+      await renderBusy("調整天空位置，請稍候…", { delay: 120 });
+      persistDraft();
     });
   }
 
@@ -233,9 +252,10 @@ function formatParameterValue(value, config){
   return `${Math.round(number)}${config.suffix || ""}`;
 }
 
-function enableSkyPanGesture(canvas, state, gestureContext, setPartialState){
+function enableSkyPanGesture(canvas, state, gestureContext, setPartialState, onPanEnd){
   const pointers = new Map();
   let lastDrag = null;
+  let didMove = false;
 
   canvas.style.touchAction = "none";
   canvas.style.cursor = "grab";
@@ -285,12 +305,15 @@ function enableSkyPanGesture(canvas, state, gestureContext, setPartialState){
       skyOffsetX: clamp(Number(state.skyOffsetX || 0) + dx * 165, -100, 100),
       skyOffsetY: clamp(Number(state.skyOffsetY || 0) + dy * 165, -100, 100)
     });
+    didMove = true;
   });
 
   const endPointer = event => {
     if (pointers.has(event.pointerId)) pointers.delete(event.pointerId);
     canvas.releasePointerCapture?.(event.pointerId);
     if (pointers.size === 0) {
+      if (didMove) onPanEnd?.();
+      didMove = false;
       lastDrag = null;
       canvas.style.cursor = "grab";
     }
