@@ -1,4 +1,4 @@
-const CACHE_NAME = "photo-effects-v0.3.7";
+const CACHE_NAME = "photo-effects-v0.3.8";
 
 const CORE_ASSETS = [
   "./",
@@ -22,7 +22,10 @@ const CORE_ASSETS = [
   "./js/features/F2_crystalBall/crystalTool.js",
   "./js/features/F2_crystalBall/crystalUI.js",
   "./js/features/F2_crystalBall/crystalState.js",
-  "./js/features/F2_crystalBall/crystalFeature.js"
+  "./js/features/F2_crystalBall/crystalAssets.js",
+  "./js/features/F2_crystalBall/crystalFeature.js",
+  "./assets/features/F2_crystalBall/scenes/manifest.json",
+  "./assets/features/F2_crystalBall/seats/manifest.json"
 ];
 
 self.addEventListener("install", event => {

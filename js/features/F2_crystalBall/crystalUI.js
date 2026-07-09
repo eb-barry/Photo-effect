@@ -1,20 +1,34 @@
-// F2 水晶球 - UI v0.3.7
-// 三按鈕分頁 + 3×2 正方形縮圖 + 畫面微調 slider + 球內手勢。
+// F2 水晶球 - UI v0.3.8
+// 三按鈕分頁 + 橫向滑動素材列 + 畫面微調 slider + 球內手勢。
 
+import { getCrystalScenes, getCrystalSeats } from "./crystalAssets.js";
 import {
   CRYSTAL_CONTROL_TABS,
   CRYSTAL_PARAMETERS,
-  CRYSTAL_SCENES,
-  CRYSTAL_SEATS,
   resetCrystalAdjustments,
   resetPhotoPlacement,
   updateCrystalState
 } from "./crystalState.js";
 import { getCrystalLayout } from "./crystalTool.js";
 
+export function mountAssetCarousels(root){
+  const sceneHost = root.querySelector("#sceneAssetHost");
+  const seatHost = root.querySelector("#seatAssetHost");
+  if (sceneHost) sceneHost.innerHTML = renderAssetCarousel(getCrystalScenes(), "scene");
+  if (seatHost) seatHost.innerHTML = renderAssetCarousel(getCrystalSeats(), "seat");
+  root.querySelectorAll("[data-asset-carousel]").forEach(setupAssetCarousel);
+}
+
+export function refreshAllCarouselHints(root){
+  root.querySelectorAll("[data-asset-carousel]").forEach(carousel => {
+    const track = carousel.querySelector(".crystal-asset-track");
+    const left = carousel.querySelector(".crystal-carousel-hint-left");
+    const right = carousel.querySelector(".crystal-carousel-hint-right");
+    updateCarouselHints(track, left, right);
+  });
+}
+
 export function setupCrystalUI(root, state, render, persistDraft = () => {}){
-  const sceneButtons = root.querySelectorAll("[data-scene]");
-  const seatButtons = root.querySelectorAll("[data-seat]");
   const tabButtons = root.querySelectorAll("[data-control-tab]");
   const tabPanels = root.querySelector("#crystalTabPanels");
   const scenePanel = root.querySelector("#scenePanel");
@@ -30,7 +44,7 @@ export function setupCrystalUI(root, state, render, persistDraft = () => {}){
   const canvas = root.querySelector("#editorCanvas");
 
   function refreshSceneButtons(){
-    sceneButtons.forEach(button => {
+    root.querySelectorAll("[data-scene]").forEach(button => {
       const active = button.dataset.scene === state.selectedSceneId;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
@@ -38,7 +52,7 @@ export function setupCrystalUI(root, state, render, persistDraft = () => {}){
   }
 
   function refreshSeatButtons(){
-    seatButtons.forEach(button => {
+    root.querySelectorAll("[data-seat]").forEach(button => {
       const active = button.dataset.seat === state.selectedSeatId;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
@@ -60,6 +74,7 @@ export function setupCrystalUI(root, state, render, persistDraft = () => {}){
     scenePanel?.classList.toggle("hidden", tab !== "scene");
     seatPanel?.classList.toggle("hidden", tab !== "seat");
     adjustPanel?.classList.toggle("hidden", tab !== "adjust");
+    if (expanded) requestAnimationFrame(() => refreshAllCarouselHints(root));
   }
 
   function refreshSelectOptions(){
@@ -112,19 +127,23 @@ export function setupCrystalUI(root, state, render, persistDraft = () => {}){
     toggleControlTab(button.dataset.controlTab);
   }));
 
-  sceneButtons.forEach(button => button.addEventListener("click", event => {
+  scenePanel?.addEventListener("click", event => {
+    const button = event.target.closest("[data-scene]");
+    if (!button) return;
     event.preventDefault();
     Object.assign(state, updateCrystalState(state, { selectedSceneId: button.dataset.scene }));
     refreshSceneButtons();
     render();
-  }));
+  });
 
-  seatButtons.forEach(button => button.addEventListener("click", event => {
+  seatPanel?.addEventListener("click", event => {
+    const button = event.target.closest("[data-seat]");
+    if (!button) return;
     event.preventDefault();
     Object.assign(state, updateCrystalState(state, { selectedSeatId: button.dataset.seat }));
     refreshSeatButtons();
     render();
-  }));
+  });
 
   centerButton?.addEventListener("click", event => {
     event.preventDefault();
@@ -177,20 +196,49 @@ export function renderControlTabs(){
   `).join("");
 }
 
-export function renderSceneButtons(){
-  return CRYSTAL_SCENES.map(scene => `
-    <button type="button" class="crystal-scene-button" data-scene="${scene.id}" aria-label="${scene.label}" title="${scene.label}">
-      <span class="crystal-scene-thumb"><img src="${scene.asset}" alt="" loading="lazy" /></span>
+export function renderAssetCarousel(items, kind){
+  const buttonClass = kind === "scene" ? "crystal-scene-button" : "crystal-seat-button";
+  const thumbClass = kind === "scene" ? "crystal-scene-thumb" : "crystal-seat-thumb";
+  const dataAttr = kind === "scene" ? "scene" : "seat";
+  const buttons = items.map(item => `
+    <button type="button" class="${buttonClass}" data-${dataAttr}="${item.id}" aria-label="${item.label}" title="${item.label}">
+      <span class="${thumbClass}"><img src="${item.asset}" alt="" loading="lazy" /></span>
     </button>
   `).join("");
+
+  return `
+    <div class="crystal-asset-carousel" data-asset-carousel="${kind}">
+      <span class="crystal-carousel-hint crystal-carousel-hint-left hidden" aria-hidden="true"></span>
+      <div class="crystal-asset-track" role="group" aria-label="${kind === "scene" ? "場景背景" : "水晶球底座"}">${buttons}</div>
+      <span class="crystal-carousel-hint crystal-carousel-hint-right hidden" aria-hidden="true"></span>
+    </div>
+  `;
 }
 
-export function renderSeatButtons(){
-  return CRYSTAL_SEATS.map(seat => `
-    <button type="button" class="crystal-seat-button" data-seat="${seat.id}" aria-label="${seat.label}" title="${seat.label}">
-      <span class="crystal-seat-thumb"><img src="${seat.asset}" alt="" loading="lazy" /></span>
-    </button>
-  `).join("");
+function setupAssetCarousel(carousel){
+  const track = carousel.querySelector(".crystal-asset-track");
+  const left = carousel.querySelector(".crystal-carousel-hint-left");
+  const right = carousel.querySelector(".crystal-carousel-hint-right");
+  if (!track) return;
+
+  const update = () => updateCarouselHints(track, left, right);
+  track.addEventListener("scroll", update, { passive: true });
+  if (typeof ResizeObserver !== "undefined") {
+    const observer = new ResizeObserver(update);
+    observer.observe(track);
+    carousel._resizeObserver = observer;
+  }
+  requestAnimationFrame(update);
+}
+
+function updateCarouselHints(track, leftHint, rightHint){
+  if (!track) return;
+  const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
+  const offset = track.scrollLeft;
+  const showLeft = offset > 4;
+  const showRight = maxScroll - offset > 4;
+  leftHint?.classList.toggle("hidden", !showLeft);
+  rightHint?.classList.toggle("hidden", !showRight);
 }
 
 function formatParameterValue(value, config){

@@ -2,7 +2,7 @@
 // 系統場景背景 + 1150×1150 底座 + 球內使用者照片折射與玻璃光層。
 
 import {
-  CRYSTAL_SEATS,
+  getCrystalSeats,
   getSceneById,
   normalizeSceneId,
   SEAT_CRADLE_ANCHOR,
@@ -545,7 +545,7 @@ async function loadSceneImage(sceneId){
 }
 
 async function loadSeatImage(seatId){
-  const seat = CRYSTAL_SEATS.find(item => item.id === seatId) || CRYSTAL_SEATS[0];
+  const seat = getCrystalSeats().find(item => item.id === seatId) || getCrystalSeats()[0];
   if (!seat?.asset) return null;
   if (imageCache.has(seat.asset)) return imageCache.get(seat.asset);
 
