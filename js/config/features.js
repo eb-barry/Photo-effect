@@ -10,7 +10,8 @@ export const FEATURE_FILES = [
 
 const FEATURE_ROUTES = {
   F1: "F1_mirror",
-  F2: "F2_crystalBall"
+  F2: "F2_crystalBall",
+  F3: "F3_magicSky"
 };
 
 export function buildFeatures(){

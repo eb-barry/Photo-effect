@@ -1,0 +1,7 @@
+{
+  "items": [
+    { "id": "sunset1", "label": "夕陽 1", "file": "sunset1.webp" },
+    { "id": "sunset2", "label": "夕陽 2", "file": "sunset2.webp" },
+    { "id": "sunset3", "label": "夕陽 3", "file": "sunset3.webp" }
+  ]
+}

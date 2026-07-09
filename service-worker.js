@@ -1,4 +1,4 @@
-const CACHE_NAME = "photo-effects-v0.3.8.1";
+const CACHE_NAME = "photo-effects-v0.4.0.0";
 
 const CORE_ASSETS = [
   "./",
@@ -25,7 +25,16 @@ const CORE_ASSETS = [
   "./js/features/F2_crystalBall/crystalAssets.js",
   "./js/features/F2_crystalBall/crystalFeature.js",
   "./assets/features/F2_crystalBall/scenes/manifest.json",
-  "./assets/features/F2_crystalBall/seats/manifest.json"
+  "./assets/features/F2_crystalBall/seats/manifest.json",
+  "./js/features/F3_magicSky/magicSkyPage.js",
+  "./js/features/F3_magicSky/magicSkyTool.js",
+  "./js/features/F3_magicSky/magicSkyUI.js",
+  "./js/features/F3_magicSky/magicSkyState.js",
+  "./js/features/F3_magicSky/magicSkyAssets.js",
+  "./js/features/F3_magicSky/magicSkyFeature.js",
+  "./assets/features/F3_magicSky/sunny/manifest.json",
+  "./assets/features/F3_magicSky/night/manifest.json",
+  "./assets/features/F3_magicSky/sunset/manifest.json"
 ];
 
 self.addEventListener("install", event => {
