@@ -1,6 +1,7 @@
-// F3 魔法天空 - Canvas 影像處理 v0.2.0
-// AI 天空遮罩 + 天空材質替換 + 平移。
+// F3 魔法天空 - Canvas 影像處理 v0.2.1
+// AI 天空遮罩 + 天空材質替換 + 前景保護合成。
 
+import { buildForegroundProtectMask } from "./magicSkySegment.js";
 import { getSkyByCategory, getSelectedSkyIdKey } from "./magicSkyState.js";
 
 export const MAGIC_SKY_OUTPUT_WIDTH = 1200;
@@ -101,7 +102,19 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
   layoutMask.width = width;
   layoutMask.height = height;
   const layoutMaskCtx = layoutMask.getContext("2d", { willReadFrequently: true });
-  layoutMaskCtx.drawImage(maskEntry.maskCanvas, layout.x, layout.y, layout.width, layout.height);
+  layoutMaskCtx.drawImage(
+    maskEntry.maskCanvas,
+    0,
+    0,
+    maskEntry.width,
+    maskEntry.height,
+    layout.x,
+    layout.y,
+    layout.width,
+    layout.height
+  );
+
+  const rawProtectMask = buildForegroundProtectMask(layoutMask);
   const processedMask = buildProcessedMask(layoutMask, state.edgeFeather, state.maskExpansion);
 
   const skyLayer = document.createElement("canvas");
@@ -118,6 +131,14 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
   maskedSkyCtx.globalCompositeOperation = "destination-in";
   maskedSkyCtx.drawImage(processedMask, 0, 0);
 
+  const foregroundLayer = document.createElement("canvas");
+  foregroundLayer.width = width;
+  foregroundLayer.height = height;
+  const foregroundCtx = foregroundLayer.getContext("2d", { willReadFrequently: true });
+  foregroundCtx.drawImage(sourceImage, layout.x, layout.y, layout.width, layout.height);
+  foregroundCtx.globalCompositeOperation = "destination-in";
+  foregroundCtx.drawImage(rawProtectMask, 0, 0);
+
   ctx.drawImage(sourceImage, layout.x, layout.y, layout.width, layout.height);
   const opacity = clamp(state.skyOpacity, 0, 100) / 100;
   if (opacity > 0) {
@@ -125,6 +146,7 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
     ctx.drawImage(maskedSky, 0, 0);
     ctx.globalAlpha = 1;
   }
+  ctx.drawImage(foregroundLayer, 0, 0);
 }
 
 function drawSkyTexture(ctx, skyImage, width, height, offsetX = 0, offsetY = 0){
@@ -166,13 +188,23 @@ function buildProcessedMask(maskCanvas, edgeFeather, maskExpansion){
     blurCanvas.width = output.width;
     blurCanvas.height = output.height;
     const blurCtx = blurCanvas.getContext("2d");
-    blurCtx.filter = `blur(${Math.max(1, feather * 0.14)}px)`;
+    blurCtx.filter = `blur(${Math.max(1, feather * 0.1)}px)`;
     blurCtx.drawImage(output, 0, 0);
     ctx.clearRect(0, 0, output.width, output.height);
     ctx.drawImage(blurCanvas, 0, 0);
+    crushWeakMaskAlpha(ctx, output.width, output.height, 24);
   }
 
   return output;
+}
+
+function crushWeakMaskAlpha(ctx, width, height, minAlpha){
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] < minAlpha) data[i] = 0;
+  }
+  ctx.putImageData(imageData, 0, 0);
 }
 
 function applyMaskExpansion(ctx, width, height, expansion){

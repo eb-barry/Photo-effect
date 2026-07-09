@@ -5,7 +5,12 @@ const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/voyagerfromeast/skyseg/resolve/main/skyseg_fp16.onnx";
 const MODEL_CACHE_NAME = "photo-effects-skyseg-model-v1";
+const MASK_PIPELINE_VERSION = 2;
 const INPUT_SIZE = 320;
+const SKY_CONFIDENCE_THRESHOLD = 0.58;
+const SKY_CONFIDENCE_SOFTNESS = 0.1;
+const SKY_CONNECT_THRESHOLD = 0.38;
+const FOREGROUND_PROTECT_THRESHOLD = 0.5;
 const MEAN = [0.485, 0.456, 0.406];
 const STD = [0.229, 0.224, 0.225];
 
@@ -34,7 +39,11 @@ export function preloadSkySegmentModel(onStatus = () => {}){
 export async function ensureSkyMask(sourceImage, photoKey, options = {}){
   const key = photoKey || "default";
   const cached = maskCache.get(key);
-  if (cached?.width === sourceImage.width && cached?.height === sourceImage.height) {
+  if (
+    cached?.width === sourceImage.width
+    && cached?.height === sourceImage.height
+    && cached?.pipelineVersion === MASK_PIPELINE_VERSION
+  ) {
     return cached;
   }
 
@@ -46,7 +55,8 @@ export async function ensureSkyMask(sourceImage, photoKey, options = {}){
   const entry = {
     width: sourceImage.width,
     height: sourceImage.height,
-    maskCanvas
+    maskCanvas,
+    pipelineVersion: MASK_PIPELINE_VERSION
   };
   maskCache.set(key, entry);
   return entry;
@@ -147,6 +157,12 @@ function preprocessImage(image, ort){
 }
 
 function buildMaskCanvas(outputData, width, height){
+  const probabilities = new Float32Array(INPUT_SIZE * INPUT_SIZE);
+  for (let i = 0; i < probabilities.length; i++) {
+    probabilities[i] = clamp01(outputData[i]);
+  }
+
+  const connectedSky = buildTopConnectedSkyMask(probabilities, INPUT_SIZE, INPUT_SIZE);
   const lowCanvas = document.createElement("canvas");
   lowCanvas.width = INPUT_SIZE;
   lowCanvas.height = INPUT_SIZE;
@@ -154,9 +170,12 @@ function buildMaskCanvas(outputData, width, height){
   const imageData = lowCtx.createImageData(INPUT_SIZE, INPUT_SIZE);
   const pixels = imageData.data;
 
-  for (let i = 0; i < INPUT_SIZE * INPUT_SIZE; i++) {
-    const value = clamp01(outputData[i]);
-    const alpha = Math.round(value * 255);
+  for (let i = 0; i < probabilities.length; i++) {
+    if (!connectedSky[i]) {
+      pixels[i * 4 + 3] = 0;
+      continue;
+    }
+    const alpha = confidenceToAlpha(probabilities[i]);
     pixels[i * 4] = 255;
     pixels[i * 4 + 1] = 255;
     pixels[i * 4 + 2] = 255;
@@ -172,6 +191,68 @@ function buildMaskCanvas(outputData, width, height){
   maskCtx.imageSmoothingQuality = "high";
   maskCtx.drawImage(lowCanvas, 0, 0, width, height);
   return maskCanvas;
+}
+
+function buildTopConnectedSkyMask(probabilities, width, height){
+  const visited = new Uint8Array(width * height);
+  const connected = new Uint8Array(width * height);
+  const queue = [];
+
+  for (let x = 0; x < width; x++) {
+    const index = x;
+    if (probabilities[index] < SKY_CONNECT_THRESHOLD) continue;
+    visited[index] = 1;
+    queue.push(index);
+  }
+
+  while (queue.length) {
+    const index = queue.shift();
+    connected[index] = 1;
+    const x = index % width;
+    const y = (index / width) | 0;
+    const neighbors = [];
+
+    if (x > 0) neighbors.push(index - 1);
+    if (x < width - 1) neighbors.push(index + 1);
+    if (y > 0) neighbors.push(index - width);
+    if (y < height - 1) neighbors.push(index + width);
+
+    for (const neighbor of neighbors) {
+      if (visited[neighbor] || probabilities[neighbor] < SKY_CONNECT_THRESHOLD) continue;
+      visited[neighbor] = 1;
+      queue.push(neighbor);
+    }
+  }
+
+  return connected;
+}
+
+function confidenceToAlpha(probability){
+  const low = SKY_CONFIDENCE_THRESHOLD - SKY_CONFIDENCE_SOFTNESS;
+  const high = SKY_CONFIDENCE_THRESHOLD + SKY_CONFIDENCE_SOFTNESS;
+  let value = 0;
+  if (probability <= low) value = 0;
+  else if (probability >= high) value = 1;
+  else value = (probability - low) / (high - low);
+  return Math.round(value * 255);
+}
+
+export function buildForegroundProtectMask(maskCanvas){
+  const output = document.createElement("canvas");
+  output.width = maskCanvas.width;
+  output.height = maskCanvas.height;
+  const ctx = output.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(maskCanvas, 0, 0);
+  const imageData = ctx.getImageData(0, 0, output.width, output.height);
+  const data = imageData.data;
+  const cutoff = Math.round(FOREGROUND_PROTECT_THRESHOLD * 255);
+
+  for (let i = 3; i < data.length; i += 4) {
+    data[i] = data[i] < cutoff ? 255 : 0;
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return output;
 }
 
 export function sampleSkyMaskAt(maskEntry, layout, canvasX, canvasY){
