@@ -1,9 +1,15 @@
-// F3 魔法天空 - Page Controller v0.1.0
-// Topbar + canvas + 四按鈕分頁 + 橫向滑動天空素材列。
+// F3 魔法天空 - Page Controller v0.2.0
+// Topbar + canvas + AI 天空分割 + 天空替換 + 四按鈕分頁。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
 import { loadMagicSkyAssetCatalog } from "./magicSkyAssets.js";
+import {
+  ensureSkyMask,
+  getCachedSkyMask,
+  getSkyMaskCacheKey,
+  preloadSkySegmentModel
+} from "./magicSkySegment.js";
 import {
   createDefaultMagicSkyState,
   loadMagicSkyDraft,
@@ -14,6 +20,7 @@ import {
   MAGIC_SKY_OUTPUT_HEIGHT,
   MAGIC_SKY_OUTPUT_WIDTH,
   fileToDataUrl,
+  getPhotoLayout,
   loadImageFromDataUrl,
   renderMagicSky
 } from "./magicSkyTool.js";
@@ -33,7 +40,7 @@ export async function renderMagicSkyPage(root, navigate){
 
         <div class="topbar-title">
           <h1>魔法天空</h1>
-          <p class="crystal-version" aria-hidden="true">v0.1.1</p>
+          <p class="crystal-version" aria-hidden="true">v0.2.0</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -47,6 +54,11 @@ export async function renderMagicSkyPage(root, navigate){
         <div class="canvas-wrap crystal-canvas-wrap" id="canvasWrap">
           <div class="empty-canvas" id="emptyCanvas">請點右上方開啟照片</div>
           <canvas id="editorCanvas" class="hidden crystal-canvas" width="${MAGIC_SKY_OUTPUT_WIDTH}" height="${MAGIC_SKY_OUTPUT_HEIGHT}"></canvas>
+          <div class="magic-sky-analyzing hidden" id="skyAnalyzingOverlay" role="status" aria-live="polite">
+            <div class="magic-sky-analyzing-card">
+              <p id="skyAnalyzingText">分析天空中…</p>
+            </div>
+          </div>
         </div>
 
         <div class="crystal-tab-bar magic-sky-tab-bar hidden" id="magicSkyTabBar" role="tablist" aria-label="魔法天空功能">
@@ -89,6 +101,8 @@ export async function renderMagicSkyPage(root, navigate){
   const imageInput = root.querySelector("#imageInput");
   const canvas = root.querySelector("#editorCanvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const analyzingOverlay = root.querySelector("#skyAnalyzingOverlay");
+  const analyzingText = root.querySelector("#skyAnalyzingText");
 
   const state = {
     ...savedState,
@@ -96,7 +110,49 @@ export async function renderMagicSkyPage(root, navigate){
   };
 
   let sourceImage = null;
+  let maskEntry = null;
+  let photoKey = "";
   let renderSerial = 0;
+  let analyzeSerial = 0;
+
+  preloadSkySegmentModel().catch(error => {
+    console.warn("[F3 魔法天空] AI 模型預載失敗：", error);
+  });
+
+  const setAnalyzing = (visible, message = "分析天空中…") => {
+    analyzingText.textContent = message;
+    analyzingOverlay?.classList.toggle("hidden", !visible);
+  };
+
+  const ensureMaskForCurrentPhoto = async () => {
+    if (!sourceImage || !photoKey) return null;
+    const serial = ++analyzeSerial;
+    const cached = getCachedSkyMask(photoKey);
+    if (cached) {
+      maskEntry = cached;
+      return cached;
+    }
+
+    setAnalyzing(true, "分析天空中…");
+    try {
+      const entry = await ensureSkyMask(sourceImage, photoKey, {
+        onStatus: message => {
+          if (serial === analyzeSerial) setAnalyzing(true, message);
+        }
+      });
+      if (serial !== analyzeSerial) return maskEntry;
+      maskEntry = entry;
+      return entry;
+    } catch (error) {
+      console.error("[F3 魔法天空] 天空分析失敗：", error);
+      if (serial === analyzeSerial) {
+        alert("天空分析失敗，請換一張照片或稍後再試。");
+      }
+      return null;
+    } finally {
+      if (serial === analyzeSerial) setAnalyzing(false);
+    }
+  };
 
   const render = async () => {
     if (!sourceImage) return;
@@ -104,7 +160,7 @@ export async function renderMagicSkyPage(root, navigate){
     canvas.width = MAGIC_SKY_OUTPUT_WIDTH;
     canvas.height = MAGIC_SKY_OUTPUT_HEIGHT;
     try {
-      await renderMagicSky(ctx, sourceImage, state);
+      await renderMagicSky(ctx, sourceImage, state, maskEntry);
       if (serial !== renderSerial) return;
     } catch (error) {
       console.error("[F3 魔法天空] 繪製失敗：", error);
@@ -129,6 +185,22 @@ export async function renderMagicSkyPage(root, navigate){
     persistDraft();
   };
 
+  const openPhoto = async dataUrl => {
+    sourceImage = await loadImageFromDataUrl(dataUrl);
+    photoKey = getSkyMaskCacheKey(dataUrl);
+    maskEntry = getCachedSkyMask(photoKey);
+    Object.assign(state, updateMagicSkyState(state, {
+      sourceImageDataUrl: dataUrl,
+      activeControlTab: "sunny",
+      activeSkyCategory: "sunny",
+      skyOffsetX: 0,
+      skyOffsetY: 0
+    }));
+    showEditor();
+    await ensureMaskForCurrentPhoto();
+    await renderAndPersist();
+  };
+
   root.querySelector("#homeBtn")?.addEventListener("click", event => {
     event.preventDefault();
     persistDraft();
@@ -146,16 +218,7 @@ export async function renderMagicSkyPage(root, navigate){
 
     try {
       const dataUrl = await fileToDataUrl(file);
-      sourceImage = await loadImageFromDataUrl(dataUrl);
-      Object.assign(state, updateMagicSkyState(state, {
-        sourceImageDataUrl: dataUrl,
-        activeControlTab: "sunny",
-        activeSkyCategory: "sunny",
-        skyOffsetX: 0,
-        skyOffsetY: 0
-      }));
-      showEditor();
-      await renderAndPersist();
+      await openPhoto(dataUrl);
     } catch (error) {
       console.error(error);
       alert("照片開啟失敗，請換一張圖片再試。");
@@ -170,7 +233,12 @@ export async function renderMagicSkyPage(root, navigate){
     console.warn("[F3 魔法天空] 素材清單載入失敗，使用預設清單：", error);
   }
   mountSkyCarousels(root);
-  setupMagicSkyUI(root, state, renderAndPersist, persistDraft);
+  setupMagicSkyUI(root, state, renderAndPersist, persistDraft, {
+    canvas,
+    getMaskEntry: () => maskEntry,
+    getSourceImage: () => sourceImage,
+    getPhotoLayout: () => (sourceImage ? getPhotoLayout(sourceImage) : null)
+  });
 
   root.querySelector("#savePhotoBtn")?.addEventListener("click", async event => {
     event.preventDefault();
@@ -210,9 +278,7 @@ export async function renderMagicSkyPage(root, navigate){
   async function restoreDraftOnOpen(){
     if (!state.sourceImageDataUrl) return;
     try {
-      sourceImage = await loadImageFromDataUrl(state.sourceImageDataUrl);
-      showEditor();
-      await render();
+      await openPhoto(state.sourceImageDataUrl);
     } catch (error) {
       console.warn("[F3 魔法天空] 草稿還原失敗：", error);
     }
