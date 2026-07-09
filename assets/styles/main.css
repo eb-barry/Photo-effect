@@ -418,3 +418,68 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
     font-size: 1.12rem;
   }
 }
+
+/* F3 魔法天空 v0.1.0 */
+.magic-sky-tab-bar {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.magic-sky-button {
+  flex: 0 0 104px;
+  min-height: 0;
+  border: 0;
+  border-radius: 12px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #073f3d;
+  font: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 4px 10px rgba(0, 0, 0, 0.08);
+  display: block;
+  scroll-snap-align: start;
+}
+
+.magic-sky-button.active {
+  background: linear-gradient(135deg, rgba(10, 186, 181, 0.22), rgba(47, 85, 212, 0.9));
+  box-shadow: 0 0 0 2px rgba(10, 186, 181, 0.28), 0 6px 14px rgba(0, 0, 0, 0.14);
+}
+
+.magic-sky-thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  height: auto;
+  border-radius: 9px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.56);
+  display: block;
+}
+
+.magic-sky-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center center;
+  display: block;
+}
+
+.magic-sky-button:active {
+  transform: scale(0.98);
+}
+
+@media (max-width: 430px) {
+  .magic-sky-button {
+    flex-basis: 92px;
+  }
+
+  .magic-sky-tab-bar .crystal-tab-button {
+    min-height: 44px;
+    font-size: 0.74rem;
+    padding: 8px 3px;
+  }
+}
+
+@media (max-width: 380px) {
+  .magic-sky-tab-bar .crystal-tab-button {
+    font-size: 0.7rem;
+    padding: 7px 2px;
+  }
+}
