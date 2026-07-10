@@ -17,7 +17,7 @@ export const magicSkyFeature = {
   enabled: true,
   disabled: false,
   isAvailable: true,
-  version: "0.3.0",
+  version: "0.3.1",
   mount: initMagicSkyPage
 };
 
