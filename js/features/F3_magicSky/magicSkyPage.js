@@ -1,4 +1,4 @@
-// F3 魔法天空 - Page Controller v0.3.1
+// F3 魔法天空 - Page Controller v0.3.2
 // 三按鈕分頁 + 遮罩上傳後固定 + iOS 拖曳鎖定。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -46,7 +46,7 @@ export async function renderMagicSkyPage(root, navigate){
 
         <div class="topbar-title">
           <h1>魔法天空</h1>
-          <p class="crystal-version" aria-hidden="true">v0.3.1</p>
+          <p class="crystal-version" aria-hidden="true">v0.3.2</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -216,7 +216,8 @@ export async function renderMagicSkyPage(root, navigate){
       Object.assign(partial, {
         maskPhotoKey: maskEntry ? photoKey : null,
         skyOffsetX: 0,
-        skyOffsetY: 0
+        skyOffsetY: 0,
+        skyScale: 100
       });
     }
 

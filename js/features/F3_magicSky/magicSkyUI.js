@@ -1,5 +1,5 @@
-// F3 魔法天空 - UI v0.3.1
-// 三按鈕分頁 + 天空類別 + 天空/照片微調 + 鎖定拖曳。
+// F3 魔法天空 - UI v0.3.2
+// 三按鈕分頁 + 天空類別 + 天空/照片微調 + 拖曳/縮放手勢。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
 import { INTENSIVE_RENDER_PARAMS } from "./magicSkyBusy.js";
@@ -10,7 +10,6 @@ import {
   SKY_CATEGORY_LABELS,
   getParametersForControlTab,
   getSelectedSkyIdKey,
-  getSliderTitle,
   updateMagicSkyState
 } from "./magicSkyState.js";
 
@@ -44,7 +43,6 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
   const sliderTarget = root.querySelector("#sliderTarget");
   const slider = root.querySelector("#mainSlider");
   const sliderRow = root.querySelector("#sliderRow");
-  const sliderLabel = root.querySelector("#sliderLabel");
   const sliderValue = root.querySelector("#sliderValue");
   let sliderRenderTimer = null;
 
@@ -112,10 +110,7 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
     slider.max = config.max;
     slider.step = config.step;
     slider.value = value;
-    sliderLabel.textContent = getSliderTitle(state.activeControlTab, config);
     sliderValue.textContent = formatParameterValue(value, config);
-    sliderRow?.classList.toggle("magic-sky-slider-photo", state.activeControlTab === "photoAdjust");
-    sliderRow?.classList.toggle("magic-sky-slider-sky", state.activeControlTab === "skyAdjust");
   }
 
   function refreshAllControls(){
@@ -252,15 +247,14 @@ export function renderSkyCategoryBar(){
   `;
 }
 
-export function renderAdjustControls(defaultLabel = "天空 · 位置 · 水平移動"){
+export function renderAdjustControls(){
   return `
     <div class="selection-row crystal-adjust-row">
       <label for="sliderTarget" class="selection-label">調整項目</label>
       <select id="sliderTarget" class="select-control" aria-label="調整項目"></select>
     </div>
-    <div class="slider-row magic-sky-slider-sky" id="sliderRow">
-      <div class="slider-head">
-        <span id="sliderLabel">${defaultLabel}</span>
+    <div class="slider-row magic-sky-slider-row" id="sliderRow">
+      <div class="slider-head magic-sky-slider-head">
         <span id="sliderValue">0</span>
       </div>
       <input id="mainSlider" type="range" />
@@ -324,8 +318,10 @@ function formatParameterValue(value, config){
 function enableSkyPanGesture(canvas, canvasWrap, state, gestureContext, setPartialState, onPanEnd){
   const pointers = new Map();
   let lastDrag = null;
+  let lastPinchDistance = null;
   let didMove = false;
   let scrollLocked = false;
+  let gestureStartedInSky = false;
 
   const lockScroll = locked => {
     if (scrollLocked === locked) return;
@@ -356,18 +352,30 @@ function enableSkyPanGesture(canvas, canvasWrap, state, gestureContext, setParti
     return sampleSkyMaskAt(maskEntry, layout, point.x, point.y) > 0.35;
   };
 
+  const pointerDistance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
   const blockTouchMove = event => {
     if (!pointers.size) return;
     event.preventDefault();
   };
 
   canvas.addEventListener("pointerdown", event => {
-    if (!state.sourceImageDataUrl || !insideSky(event.clientX, event.clientY)) return;
+    if (!state.sourceImageDataUrl) return;
+    const inSky = insideSky(event.clientX, event.clientY);
+    if (!inSky && pointers.size === 0) return;
     event.preventDefault();
     canvas.setPointerCapture?.(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    canvas.style.cursor = "grabbing";
-    lastDrag = { x: event.clientX, y: event.clientY };
+    if (pointers.size === 1) {
+      gestureStartedInSky = inSky;
+      canvas.style.cursor = "grabbing";
+      lastDrag = { x: event.clientX, y: event.clientY };
+    }
+    if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      lastPinchDistance = pointerDistance(pts[0], pts[1]);
+      lastDrag = null;
+    }
     lockScroll(true);
   });
 
@@ -375,6 +383,22 @@ function enableSkyPanGesture(canvas, canvasWrap, state, gestureContext, setParti
     if (!pointers.has(event.pointerId)) return;
     event.preventDefault();
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+    if (pointers.size >= 2 && gestureStartedInSky) {
+      const pts = [...pointers.values()];
+      const distance = pointerDistance(pts[0], pts[1]);
+      if (lastPinchDistance) {
+        const ratio = distance / Math.max(1, lastPinchDistance);
+        setPartialState({
+          skyScale: clamp(Number(state.skyScale || 100) * ratio, 50, 300)
+        });
+        didMove = true;
+      }
+      lastPinchDistance = distance;
+      return;
+    }
+
+    if (!gestureStartedInSky || pointers.size !== 1) return;
     if (!lastDrag) {
       lastDrag = { x: event.clientX, y: event.clientY };
       return;
@@ -386,8 +410,8 @@ function enableSkyPanGesture(canvas, canvasWrap, state, gestureContext, setParti
     lastDrag = { x: event.clientX, y: event.clientY };
 
     setPartialState({
-      skyOffsetX: clamp(Number(state.skyOffsetX || 0) + dx * 165, -100, 100),
-      skyOffsetY: clamp(Number(state.skyOffsetY || 0) + dy * 165, -100, 100)
+      skyOffsetX: clamp(Number(state.skyOffsetX || 0) + dx * 180, -150, 150),
+      skyOffsetY: clamp(Number(state.skyOffsetY || 0) + dy * 180, -150, 150)
     });
     didMove = true;
   });
@@ -395,11 +419,13 @@ function enableSkyPanGesture(canvas, canvasWrap, state, gestureContext, setParti
   const endPointer = event => {
     if (pointers.has(event.pointerId)) pointers.delete(event.pointerId);
     canvas.releasePointerCapture?.(event.pointerId);
+    if (pointers.size < 2) lastPinchDistance = null;
     if (pointers.size === 0) {
       lockScroll(false);
       if (didMove) onPanEnd?.();
       didMove = false;
       lastDrag = null;
+      gestureStartedInSky = false;
       canvas.style.cursor = "grab";
     }
   };
