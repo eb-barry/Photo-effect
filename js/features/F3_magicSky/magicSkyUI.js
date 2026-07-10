@@ -1,13 +1,16 @@
-// F3 魔法天空 - UI v0.3.2
+// F3 魔法天空 - UI v0.3.3
 // 三按鈕分頁 + 天空類別 + 天空/照片微調 + 拖曳/縮放手勢。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
 import { INTENSIVE_RENDER_PARAMS } from "./magicSkyBusy.js";
 import { sampleSkyMaskAt } from "./magicSkySegment.js";
 import {
+  ADJUST_SLIDER_MAX,
+  ADJUST_SLIDER_MIN,
   MAGIC_SKY_CATEGORIES,
   MAGIC_SKY_CONTROL_TABS,
   SKY_CATEGORY_LABELS,
+  getDefaultAdjustmentState,
   getParametersForControlTab,
   getSelectedSkyIdKey,
   updateMagicSkyState
@@ -105,12 +108,12 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
 
     const config = getCurrentConfig();
     if (!config) return;
-    const value = Number(state[config.id] ?? config.min);
-    slider.min = config.min;
-    slider.max = config.max;
+    const value = Number(state[config.id] ?? 0);
+    slider.min = ADJUST_SLIDER_MIN;
+    slider.max = ADJUST_SLIDER_MAX;
     slider.step = config.step;
     slider.value = value;
-    sliderValue.textContent = formatParameterValue(value, config);
+    sliderValue.textContent = formatParameterValue(value);
   }
 
   function refreshAllControls(){
@@ -161,11 +164,13 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
     if (category !== state.activeSkyCategory) return;
     event.preventDefault();
     const key = getSelectedSkyIdKey(category);
+    if (button.dataset.skyId === state[key]) return;
     Object.assign(state, updateMagicSkyState(state, {
+      ...getDefaultAdjustmentState(),
       [key]: button.dataset.skyId,
       activeSkyCategory: category
     }));
-    refreshSkyButtons(category);
+    refreshAllControls();
     renderBusy("切換天空效果，請稍候…", { delay: 0 });
     persistDraft();
   });
@@ -179,7 +184,7 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
   slider.addEventListener("input", () => {
     const config = getCurrentConfig();
     Object.assign(state, updateMagicSkyState(state, { [config.id]: Number(slider.value) }));
-    sliderValue.textContent = formatParameterValue(state[config.id], config);
+    sliderValue.textContent = formatParameterValue(state[config.id]);
 
     clearTimeout(sliderRenderTimer);
     const intensive = INTENSIVE_RENDER_PARAMS.has(config.id);
@@ -253,7 +258,7 @@ export function renderAdjustControls(){
       <label for="sliderTarget" class="selection-label">調整項目</label>
       <select id="sliderTarget" class="select-control" aria-label="調整項目"></select>
     </div>
-    <div class="slider-row magic-sky-slider-row" id="sliderRow">
+    <div class="slider-row magic-sky-slider-row magic-sky-bipolar-slider" id="sliderRow">
       <div class="slider-head magic-sky-slider-head">
         <span id="sliderValue">0</span>
       </div>
@@ -310,9 +315,10 @@ function updateCarouselHints(track, leftHint, rightHint){
   rightHint?.classList.toggle("hidden", maxScroll - offset <= 4);
 }
 
-function formatParameterValue(value, config){
-  const number = Number(value ?? 0);
-  return `${Math.round(number)}${config.suffix || ""}`;
+function formatParameterValue(value){
+  const number = Math.round(Number(value ?? 0));
+  if (number > 0) return `+${number}`;
+  return `${number}`;
 }
 
 function enableSkyPanGesture(canvas, canvasWrap, state, gestureContext, setPartialState, onPanEnd){
@@ -390,7 +396,7 @@ function enableSkyPanGesture(canvas, canvasWrap, state, gestureContext, setParti
       if (lastPinchDistance) {
         const ratio = distance / Math.max(1, lastPinchDistance);
         setPartialState({
-          skyScale: clamp(Number(state.skyScale || 100) * ratio, 50, 300)
+          skyScale: clamp(Number(state.skyScale || 0) + (ratio - 1) * 48, ADJUST_SLIDER_MIN, ADJUST_SLIDER_MAX)
         });
         didMove = true;
       }
@@ -410,8 +416,8 @@ function enableSkyPanGesture(canvas, canvasWrap, state, gestureContext, setParti
     lastDrag = { x: event.clientX, y: event.clientY };
 
     setPartialState({
-      skyOffsetX: clamp(Number(state.skyOffsetX || 0) + dx * 180, -150, 150),
-      skyOffsetY: clamp(Number(state.skyOffsetY || 0) + dy * 180, -150, 150)
+      skyOffsetX: clamp(Number(state.skyOffsetX || 0) + dx * 180, ADJUST_SLIDER_MIN, ADJUST_SLIDER_MAX),
+      skyOffsetY: clamp(Number(state.skyOffsetY || 0) + dy * 180, ADJUST_SLIDER_MIN, ADJUST_SLIDER_MAX)
     });
     didMove = true;
   });

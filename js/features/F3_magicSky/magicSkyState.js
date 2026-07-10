@@ -1,11 +1,14 @@
-// F3 魔法天空 - 狀態管理 v0.3.2
-// 天空 / 天空微調 / 照片微調 三按鈕分頁。
+// F3 魔法天空 - 狀態管理 v0.3.3
+// 雙極滑桿（中點 0、±150）+ 換天/換圖重置。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
 
 export const MAGIC_SKY_FEATURE_ID = "F3_magicSky";
-export const MAGIC_SKY_FEATURE_VERSION = "0.3.2";
-export const MAGIC_SKY_DRAFT_KEY = "photoEffects.F3_magicSky.draft.v2";
+export const MAGIC_SKY_FEATURE_VERSION = "0.3.3";
+export const MAGIC_SKY_DRAFT_KEY = "photoEffects.F3_magicSky.draft.v3";
+
+export const ADJUST_SLIDER_MIN = -150;
+export const ADJUST_SLIDER_MAX = 150;
 
 export const MAGIC_SKY_CONTROL_TABS = [
   { id: "sky", label: "天空" },
@@ -21,37 +24,84 @@ export const SKY_CATEGORY_LABELS = {
   sunset: "夕陽"
 };
 
+const SLIDER_DEF = { min: ADJUST_SLIDER_MIN, max: ADJUST_SLIDER_MAX, step: 1, suffix: "" };
+
 export const PHOTO_PARAMETERS = [
-  { id: "photoExposure", label: "曝光", min: -150, max: 150, step: 1, suffix: "" },
-  { id: "photoContrast", label: "對比", min: 20, max: 300, step: 1, suffix: "%" },
-  { id: "photoBrightness", label: "亮度", min: 20, max: 300, step: 1, suffix: "%" },
-  { id: "photoDarken", label: "增暗", min: 0, max: 100, step: 1, suffix: "%" }
+  { id: "photoExposure", label: "曝光", ...SLIDER_DEF },
+  { id: "photoContrast", label: "對比", ...SLIDER_DEF },
+  { id: "photoBrightness", label: "亮度", ...SLIDER_DEF },
+  { id: "photoDarken", label: "增暗", ...SLIDER_DEF }
 ];
 
 export const SKY_PARAMETERS = [
-  { id: "skyOffsetX", label: "水平移動", min: -150, max: 150, step: 1, suffix: "" },
-  { id: "skyOffsetY", label: "垂直移動", min: -150, max: 150, step: 1, suffix: "" },
-  { id: "skyScale", label: "縮放", min: 50, max: 300, step: 1, suffix: "%" },
-  { id: "skyExposure", label: "曝光", min: -150, max: 150, step: 1, suffix: "" },
-  { id: "skyContrast", label: "對比", min: 20, max: 300, step: 1, suffix: "%" },
-  { id: "skyBrightness", label: "亮度", min: 20, max: 300, step: 1, suffix: "%" },
-  { id: "skyDarken", label: "增暗", min: 0, max: 100, step: 1, suffix: "%" },
-  { id: "skyOpacity", label: "透明度", min: 0, max: 100, step: 1, suffix: "%" },
-  { id: "skyWarmth", label: "色溫", min: -100, max: 100, step: 1, suffix: "" },
-  { id: "skySaturation", label: "飽和", min: 0, max: 300, step: 1, suffix: "%" }
+  { id: "skyOffsetX", label: "水平移動", ...SLIDER_DEF },
+  { id: "skyOffsetY", label: "垂直移動", ...SLIDER_DEF },
+  { id: "skyScale", label: "縮放", ...SLIDER_DEF },
+  { id: "skyExposure", label: "曝光", ...SLIDER_DEF },
+  { id: "skyContrast", label: "對比", ...SLIDER_DEF },
+  { id: "skyBrightness", label: "亮度", ...SLIDER_DEF },
+  { id: "skyDarken", label: "增暗", ...SLIDER_DEF },
+  { id: "skyOpacity", label: "透明度", ...SLIDER_DEF },
+  { id: "skyWarmth", label: "色溫", ...SLIDER_DEF },
+  { id: "skySaturation", label: "飽和", ...SLIDER_DEF }
 ];
 
 export const EDGE_PARAMETERS = [
-  { id: "edgeFeather", label: "柔光", min: 0, max: 100, step: 1, suffix: "%" },
-  { id: "maskExpansion", label: "邊界擴張", min: -40, max: 40, step: 1, suffix: "" }
+  { id: "edgeFeather", label: "柔光", ...SLIDER_DEF },
+  { id: "maskExpansion", label: "邊界擴張", ...SLIDER_DEF }
 ];
 
 export const SKY_ADJUST_PARAMETERS = [...SKY_PARAMETERS, ...EDGE_PARAMETERS];
+export const ALL_ADJUSTMENT_PARAMETERS = [...PHOTO_PARAMETERS, ...SKY_ADJUST_PARAMETERS];
 
 export function getParametersForControlTab(tabId){
   if (tabId === "photoAdjust") return PHOTO_PARAMETERS;
   if (tabId === "skyAdjust") return SKY_ADJUST_PARAMETERS;
   return [];
+}
+
+export function getDefaultAdjustmentState(){
+  return {
+    skyOffsetX: 0,
+    skyOffsetY: 0,
+    skyScale: 0,
+    photoExposure: 0,
+    photoContrast: 0,
+    photoBrightness: 0,
+    photoDarken: 0,
+    skyExposure: 0,
+    skyContrast: 0,
+    skyBrightness: 0,
+    skyDarken: 0,
+    skyOpacity: 0,
+    skyWarmth: 0,
+    skySaturation: 0,
+    edgeFeather: 0,
+    maskExpansion: 0
+  };
+}
+
+export function resolveEffectValues(state){
+  const slider = id => clampSlider(state[id]);
+
+  return {
+    photoExposure: slider("photoExposure"),
+    photoContrast: mapPercentSlider(slider("photoContrast")),
+    photoBrightness: mapPercentSlider(slider("photoBrightness")),
+    photoDarken: mapPositivePercentSlider(slider("photoDarken")),
+    skyOffsetX: slider("skyOffsetX"),
+    skyOffsetY: slider("skyOffsetY"),
+    skyScale: clamp(100 + (slider("skyScale") / ADJUST_SLIDER_MAX) * 200, 50, 300),
+    skyExposure: slider("skyExposure"),
+    skyContrast: mapPercentSlider(slider("skyContrast")),
+    skyBrightness: mapPercentSlider(slider("skyBrightness")),
+    skyDarken: mapPositivePercentSlider(slider("skyDarken")),
+    skyOpacity: clamp(100 + Math.min(0, slider("skyOpacity") / ADJUST_SLIDER_MAX) * 100, 0, 100),
+    skyWarmth: (slider("skyWarmth") / ADJUST_SLIDER_MAX) * 100,
+    skySaturation: mapPercentSlider(slider("skySaturation")),
+    edgeFeather: clamp(30 + (slider("edgeFeather") / ADJUST_SLIDER_MAX) * 70, 0, 100),
+    maskExpansion: clamp(-5 + (slider("maskExpansion") / ADJUST_SLIDER_MAX) * 45, -40, 40)
+  };
 }
 
 export function getSelectedSkyIdKey(category){
@@ -89,22 +139,7 @@ export function createDefaultMagicSkyState(){
     selectedParameter: "skyOffsetX",
     sourceImageDataUrl: null,
     maskPhotoKey: null,
-    skyOffsetX: 0,
-    skyOffsetY: 0,
-    skyScale: 100,
-    photoExposure: 0,
-    photoContrast: 100,
-    photoBrightness: 100,
-    photoDarken: 0,
-    skyExposure: 0,
-    skyContrast: 100,
-    skyBrightness: 100,
-    skyDarken: 0,
-    skyOpacity: 100,
-    skyWarmth: 0,
-    skySaturation: 100,
-    edgeFeather: 30,
-    maskExpansion: -5,
+    ...getDefaultAdjustmentState(),
     updatedAt: Date.now()
   };
 }
@@ -131,13 +166,9 @@ export function updateMagicSkyState(currentState, partial){
     next.selectedParameter = tabParams[0]?.id || "photoExposure";
   }
 
-  for (const parameter of [...PHOTO_PARAMETERS, ...SKY_ADJUST_PARAMETERS]) {
-    next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, createDefaultValue(parameter.id));
+  for (const parameter of ALL_ADJUSTMENT_PARAMETERS) {
+    next[parameter.id] = clampSlider(next[parameter.id], createDefaultValue(parameter.id));
   }
-
-  next.skyOffsetX = clampNumber(next.skyOffsetX, -150, 150, 0);
-  next.skyOffsetY = clampNumber(next.skyOffsetY, -150, 150, 0);
-  next.skyScale = clampNumber(next.skyScale, 50, 300, 100);
 
   return next;
 }
@@ -178,17 +209,36 @@ function migrateLegacyDraft(parsed){
   if (next.activeControlTab === "adjust") {
     next.activeControlTab = next.adjustSegment === "photo" ? "photoAdjust" : "skyAdjust";
   }
-  if (next.skyScale == null) next.skyScale = 100;
   delete next.adjustSegment;
+
+  const legacyVersion = String(next.featureVersion || "0");
+  if (legacyVersion < "0.3.3") {
+    Object.assign(next, getDefaultAdjustmentState());
+  }
+
   return next;
 }
 
-function createDefaultValue(parameterId){
-  return createDefaultMagicSkyState()[parameterId];
+function mapPercentSlider(sliderValue){
+  return clamp(100 + (sliderValue / ADJUST_SLIDER_MAX) * 200, 20, 300);
 }
 
-function clampNumber(value, min, max, fallback){
+function mapPositivePercentSlider(sliderValue){
+  return clamp((sliderValue / ADJUST_SLIDER_MAX) * 100, 0, 100);
+}
+
+function clampSlider(value, fallback = 0){
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
+  return Math.max(ADJUST_SLIDER_MIN, Math.min(ADJUST_SLIDER_MAX, number));
+}
+
+function createDefaultValue(parameterId){
+  return getDefaultAdjustmentState()[parameterId] ?? 0;
+}
+
+function clamp(value, min, max){
+  const number = Number(value);
+  if (!Number.isFinite(number)) return min;
   return Math.max(min, Math.min(max, number));
 }

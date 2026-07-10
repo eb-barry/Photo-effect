@@ -1,8 +1,8 @@
-// F3 魔法天空 - Canvas 影像處理 v0.3.2
+// F3 魔法天空 - Canvas 影像處理 v0.3.3
 // AI 天空遮罩 + 天空材質替換 + 像素級色調調整。
 
 import { buildForegroundProtectMask } from "./magicSkySegment.js";
-import { getSkyByCategory, getSelectedSkyIdKey } from "./magicSkyState.js";
+import { getSkyByCategory, getSelectedSkyIdKey, resolveEffectValues } from "./magicSkyState.js";
 
 export const MAGIC_SKY_MAX_EDGE = 1600;
 /** @deprecated Use resolveOutputSize() for the active photo. */
@@ -87,7 +87,7 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
 
   const layout = getPhotoLayout(width, height);
   if (!maskEntry?.maskCanvas) {
-    const adjustedPhoto = renderAdjustedPhotoLayer(sourceImage, layout, state);
+    const adjustedPhoto = renderAdjustedPhotoLayer(sourceImage, layout, resolveEffectValues(state));
     ctx.drawImage(adjustedPhoto, layout.x, layout.y, layout.width, layout.height);
     return;
   }
@@ -103,6 +103,8 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
     drawPhotoCover(ctx, sourceImage, layout);
     return;
   }
+
+  const effects = resolveEffectValues(state);
 
   const layoutMask = document.createElement("canvas");
   layoutMask.width = width;
@@ -121,9 +123,9 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
   );
 
   const rawProtectMask = buildForegroundProtectMask(layoutMask);
-  const processedMask = buildProcessedMask(layoutMask, state.edgeFeather, state.maskExpansion);
+  const processedMask = buildProcessedMask(layoutMask, effects.edgeFeather, effects.maskExpansion);
 
-  const adjustedPhoto = renderAdjustedPhotoLayer(sourceImage, layout, state);
+  const adjustedPhoto = renderAdjustedPhotoLayer(sourceImage, layout, effects);
   const skyLayer = document.createElement("canvas");
   skyLayer.width = width;
   skyLayer.height = height;
@@ -133,11 +135,11 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
     skyImage,
     width,
     height,
-    state.skyOffsetX,
-    state.skyOffsetY,
-    state.skyScale
+    effects.skyOffsetX,
+    effects.skyOffsetY,
+    effects.skyScale
   );
-  applySkyColorAdjustments(skyLayerCtx, skyLayer.width, skyLayer.height, state);
+  applySkyColorAdjustments(skyLayerCtx, skyLayer.width, skyLayer.height, effects);
 
   const maskedSky = document.createElement("canvas");
   maskedSky.width = width;
@@ -156,7 +158,7 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
   foregroundCtx.drawImage(rawProtectMask, 0, 0);
 
   ctx.drawImage(adjustedPhoto, 0, 0);
-  const opacity = clamp(state.skyOpacity, 0, 100) / 100;
+  const opacity = clamp(effects.skyOpacity, 0, 100) / 100;
   if (opacity > 0) {
     ctx.globalAlpha = opacity;
     ctx.drawImage(maskedSky, 0, 0);
@@ -165,30 +167,30 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
   ctx.drawImage(foregroundLayer, 0, 0);
 }
 
-function renderAdjustedPhotoLayer(sourceImage, layout, state){
+function renderAdjustedPhotoLayer(sourceImage, layout, effects){
   const output = document.createElement("canvas");
   output.width = layout.width;
   output.height = layout.height;
   const ctx = output.getContext("2d", { willReadFrequently: true });
   ctx.drawImage(sourceImage, 0, 0, layout.width, layout.height);
   applyLayerToneAdjustments(ctx, output.width, output.height, {
-    exposure: state.photoExposure,
-    contrast: state.photoContrast,
-    brightness: state.photoBrightness,
-    darken: state.photoDarken
+    exposure: effects.photoExposure,
+    contrast: effects.photoContrast,
+    brightness: effects.photoBrightness,
+    darken: effects.photoDarken
   });
   return output;
 }
 
-function applySkyColorAdjustments(ctx, width, height, state){
+function applySkyColorAdjustments(ctx, width, height, effects){
   const imageData = ctx.getImageData(0, 0, width, height);
   applyPixelToneToImageData(imageData, {
-    exposure: state.skyExposure,
-    contrast: state.skyContrast,
-    brightness: state.skyBrightness,
-    darken: state.skyDarken
+    exposure: effects.skyExposure,
+    contrast: effects.skyContrast,
+    brightness: effects.skyBrightness,
+    darken: effects.skyDarken
   });
-  applyPixelSaturationWarmth(imageData, state.skySaturation, state.skyWarmth);
+  applyPixelSaturationWarmth(imageData, effects.skySaturation, effects.skyWarmth);
   ctx.putImageData(imageData, 0, 0);
 }
 
