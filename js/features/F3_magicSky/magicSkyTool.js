@@ -1,5 +1,5 @@
-// F3 魔法天空 - Canvas 影像處理 v0.3.7
-// 柔邊 alpha 合成 + 深色細節前景保護。
+// F3 魔法天空 - Canvas 影像處理 v0.3.8
+// 柔邊 alpha 合成 + 深色細節前景保護 + sky-guided 邊緣精修。
 
 import { getSkyByCategory, getSelectedSkyIdKey, resolveEffectValues } from "./magicSkyState.js";
 
@@ -8,6 +8,9 @@ const FOREGROUND_GUARD_LOW = 0.38;
 const FOREGROUND_GUARD_HIGH = 0.58;
 const DARK_LUM_PROTECT = 0.3;
 const DARK_CONTRAST_MIN = 0.1;
+const SKY_EDGE_REFINE_BAND_LOW = 0.14;
+const SKY_EDGE_REFINE_BAND_HIGH = 0.86;
+const FG_SAMPLE_MAX_ALPHA = 0.32;
 
 export const MAGIC_SKY_MAX_EDGE = 1600;
 /** @deprecated Use resolveOutputSize() for the active photo. */
@@ -145,7 +148,15 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
   );
   applySkyColorAdjustments(skyLayerCtx, skyLayer.width, skyLayer.height, effects);
 
-  compositePhotoAndSky(ctx, adjustedPhoto, skyLayer, processedMask, layoutMask, effects.skyOpacity);
+  compositePhotoAndSky(
+    ctx,
+    adjustedPhoto,
+    skyLayer,
+    processedMask,
+    layoutMask,
+    effects.skyOpacity,
+    effects.skyEdgeRefine
+  );
 }
 
 function renderAdjustedPhotoLayer(sourceImage, layout, effects){
@@ -296,7 +307,15 @@ function buildProcessedMask(maskCanvas, edgeFeather, maskExpansion){
   return output;
 }
 
-function compositePhotoAndSky(ctx, photoCanvas, skyCanvas, skyMaskCanvas, rawMaskCanvas, skyOpacityPercent){
+function compositePhotoAndSky(
+  ctx,
+  photoCanvas,
+  skyCanvas,
+  skyMaskCanvas,
+  rawMaskCanvas,
+  skyOpacityPercent,
+  skyEdgeRefineStrength = 0
+){
   const width = photoCanvas.width;
   const height = photoCanvas.height;
   const photoCtx = photoCanvas.getContext("2d", { willReadFrequently: true });
@@ -310,11 +329,25 @@ function compositePhotoAndSky(ctx, photoCanvas, skyCanvas, skyMaskCanvas, rawMas
   const rawMask = rawMaskCtx.getImageData(0, 0, width, height);
   const out = ctx.createImageData(width, height);
   const opacity = clamp(Number(skyOpacityPercent ?? 100), 0, 100) / 100;
+  const refineStrength = clamp(Number(skyEdgeRefineStrength) || 0, 0, 1);
 
   for (let i = 0; i < photo.data.length; i += 4) {
     const rawAlpha = rawMask.data[i + 3] / 255;
     let skyAlpha = (skyMask.data[i + 3] / 255) * opacity;
     skyAlpha *= computeForegroundGuard(rawAlpha);
+    if (refineStrength > 0) {
+      skyAlpha = refineAlphaWithSkyGuide(
+        skyAlpha,
+        photo.data,
+        sky.data,
+        rawMask.data,
+        i,
+        width,
+        height,
+        refineStrength,
+        rawAlpha
+      );
+    }
     skyAlpha *= computeCompositeDarkProtection(photo.data, i, width);
 
     const inv = 1 - skyAlpha;
@@ -361,6 +394,88 @@ function computeCompositeDarkProtection(photoData, index, width){
   if (lum < 0.18) return 0.05;
   const darkness = (DARK_LUM_PROTECT - lum) / DARK_LUM_PROTECT;
   return Math.max(0.08, 1 - darkness * 0.95);
+}
+
+function refineAlphaWithSkyGuide(
+  skyAlpha,
+  photoData,
+  skyData,
+  rawMaskData,
+  index,
+  width,
+  height,
+  strength,
+  rawAlpha
+){
+  if (skyAlpha <= 0.001) return skyAlpha;
+  if (rawAlpha <= SKY_EDGE_REFINE_BAND_LOW || rawAlpha >= SKY_EDGE_REFINE_BAND_HIGH) return skyAlpha;
+
+  const bandWeight = computeEdgeBandWeight(rawAlpha);
+  if (bandWeight <= 0.001) return skyAlpha;
+
+  const r = photoData[index];
+  const g = photoData[index + 1];
+  const b = photoData[index + 2];
+  const sr = skyData[index];
+  const sg = skyData[index + 1];
+  const sb = skyData[index + 2];
+
+  const distSky = weightedColorDistanceSq(r, g, b, sr, sg, sb);
+  const foreground = sampleLocalForegroundColor(photoData, rawMaskData, index, width, height);
+  if (!foreground) return skyAlpha;
+
+  const distFg = weightedColorDistanceSq(r, g, b, foreground.r, foreground.g, foreground.b);
+  const foregroundLikeness = distSky / (distSky + distFg + 1);
+  const targetSkyAlpha = skyAlpha * (1 - foregroundLikeness * 0.92);
+  const blend = strength * bandWeight * 0.9;
+
+  return clamp(skyAlpha * (1 - blend) + targetSkyAlpha * blend, 0, 1);
+}
+
+function computeEdgeBandWeight(rawAlpha){
+  const span = SKY_EDGE_REFINE_BAND_HIGH - SKY_EDGE_REFINE_BAND_LOW;
+  const t = (rawAlpha - SKY_EDGE_REFINE_BAND_LOW) / span;
+  return Math.sin(Math.PI * t);
+}
+
+function sampleLocalForegroundColor(photoData, rawMaskData, index, width, height){
+  const x = (index / 4) % width;
+  const y = Math.floor(index / 4 / width);
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  let weight = 0;
+
+  for (let oy = -2; oy <= 2; oy++) {
+    for (let ox = -2; ox <= 2; ox++) {
+      if (!ox && !oy) continue;
+      const nx = x + ox;
+      const ny = y + oy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      const j = (ny * width + nx) * 4;
+      const neighborAlpha = rawMaskData[j + 3] / 255;
+      if (neighborAlpha > FG_SAMPLE_MAX_ALPHA) continue;
+      const w = 1 / (Math.abs(ox) + Math.abs(oy) + 1);
+      sumR += photoData[j] * w;
+      sumG += photoData[j + 1] * w;
+      sumB += photoData[j + 2] * w;
+      weight += w;
+    }
+  }
+
+  if (weight < 0.5) return null;
+  return {
+    r: sumR / weight,
+    g: sumG / weight,
+    b: sumB / weight
+  };
+}
+
+function weightedColorDistanceSq(r1, g1, b1, r2, g2, b2){
+  const dr = r1 - r2;
+  const dg = g1 - g2;
+  const db = b1 - b2;
+  return dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114;
 }
 
 function applyMaskExpansion(ctx, width, height, expansion){
