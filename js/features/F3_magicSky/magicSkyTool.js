@@ -1,11 +1,13 @@
-// F3 魔法天空 - Canvas 影像處理 v0.3.6
-// AI 天空遮罩 + 柔邊 alpha 合成。
+// F3 魔法天空 - Canvas 影像處理 v0.3.7
+// 柔邊 alpha 合成 + 深色細節前景保護。
 
 import { getSkyByCategory, getSelectedSkyIdKey, resolveEffectValues } from "./magicSkyState.js";
 
 const MIN_MASK_FEATHER_PX = 2.2;
 const FOREGROUND_GUARD_LOW = 0.38;
 const FOREGROUND_GUARD_HIGH = 0.58;
+const DARK_LUM_PROTECT = 0.3;
+const DARK_CONTRAST_MIN = 0.1;
 
 export const MAGIC_SKY_MAX_EDGE = 1600;
 /** @deprecated Use resolveOutputSize() for the active photo. */
@@ -313,6 +315,7 @@ function compositePhotoAndSky(ctx, photoCanvas, skyCanvas, skyMaskCanvas, rawMas
     const rawAlpha = rawMask.data[i + 3] / 255;
     let skyAlpha = (skyMask.data[i + 3] / 255) * opacity;
     skyAlpha *= computeForegroundGuard(rawAlpha);
+    skyAlpha *= computeCompositeDarkProtection(photo.data, i, width);
 
     const inv = 1 - skyAlpha;
     out.data[i] = clampByte(photo.data[i] * inv + sky.data[i] * skyAlpha);
@@ -328,6 +331,36 @@ function computeForegroundGuard(rawAlpha){
   if (rawAlpha <= FOREGROUND_GUARD_LOW) return 0;
   if (rawAlpha >= FOREGROUND_GUARD_HIGH) return 1;
   return (rawAlpha - FOREGROUND_GUARD_LOW) / (FOREGROUND_GUARD_HIGH - FOREGROUND_GUARD_LOW);
+}
+
+function computeCompositeDarkProtection(photoData, index, width){
+  const r = photoData[index];
+  const g = photoData[index + 1];
+  const b = photoData[index + 2];
+  const lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
+  if (lum >= DARK_LUM_PROTECT) return 1;
+
+  const x = (index / 4) % width;
+  const y = Math.floor(index / 4 / width);
+  let maxNeighbor = lum;
+  for (let oy = -1; oy <= 1; oy++) {
+    for (let ox = -1; ox <= 1; ox++) {
+      if (!ox && !oy) continue;
+      const nx = x + ox;
+      const ny = y + oy;
+      if (nx < 0 || ny < 0) continue;
+      const j = (ny * width + nx) * 4;
+      if (j >= photoData.length) continue;
+      const nLum = (photoData[j] * 0.299 + photoData[j + 1] * 0.587 + photoData[j + 2] * 0.114) / 255;
+      maxNeighbor = Math.max(maxNeighbor, nLum);
+    }
+  }
+
+  const contrast = maxNeighbor - lum;
+  if (contrast < DARK_CONTRAST_MIN) return 1;
+  if (lum < 0.18) return 0.05;
+  const darkness = (DARK_LUM_PROTECT - lum) / DARK_LUM_PROTECT;
+  return Math.max(0.08, 1 - darkness * 0.95);
 }
 
 function applyMaskExpansion(ctx, width, height, expansion){
