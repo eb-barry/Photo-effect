@@ -1,5 +1,5 @@
-// F3 魔法天空 - Canvas 影像處理 v0.2.2
-// AI 天空遮罩 + 天空材質替換 + 依照片比例輸出。
+// F3 魔法天空 - Canvas 影像處理 v0.3.2
+// AI 天空遮罩 + 天空材質替換 + 像素級色調調整。
 
 import { buildForegroundProtectMask } from "./magicSkySegment.js";
 import { getSkyByCategory, getSelectedSkyIdKey } from "./magicSkyState.js";
@@ -128,14 +128,16 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
   skyLayer.width = width;
   skyLayer.height = height;
   const skyLayerCtx = skyLayer.getContext("2d", { willReadFrequently: true });
-  drawSkyTexture(skyLayerCtx, skyImage, width, height, state.skyOffsetX, state.skyOffsetY);
-  applySkyAppearanceFilters(skyLayerCtx, skyLayer.width, skyLayer.height, state);
-  applyLayerToneAdjustments(skyLayer, {
-    exposure: state.skyExposure,
-    contrast: state.skyContrast,
-    brightness: state.skyBrightness,
-    darken: state.skyDarken
-  });
+  drawSkyTexture(
+    skyLayerCtx,
+    skyImage,
+    width,
+    height,
+    state.skyOffsetX,
+    state.skyOffsetY,
+    state.skyScale
+  );
+  applySkyColorAdjustments(skyLayerCtx, skyLayer.width, skyLayer.height, state);
 
   const maskedSky = document.createElement("canvas");
   maskedSky.width = width;
@@ -169,7 +171,7 @@ function renderAdjustedPhotoLayer(sourceImage, layout, state){
   output.height = layout.height;
   const ctx = output.getContext("2d", { willReadFrequently: true });
   ctx.drawImage(sourceImage, 0, 0, layout.width, layout.height);
-  applyLayerToneAdjustments(output, {
+  applyLayerToneAdjustments(ctx, output.width, output.height, {
     exposure: state.photoExposure,
     contrast: state.photoContrast,
     brightness: state.photoBrightness,
@@ -178,82 +180,103 @@ function renderAdjustedPhotoLayer(sourceImage, layout, state){
   return output;
 }
 
-function applySkyAppearanceFilters(ctx, width, height, state){
-  const saturation = Number(state.skySaturation ?? 100);
-  const warmth = Number(state.skyWarmth ?? 0);
-  if (saturation === 100 && warmth === 0) return;
-
-  const temp = document.createElement("canvas");
-  temp.width = width;
-  temp.height = height;
-  const tempCtx = temp.getContext("2d");
-  let filter = "";
-  if (saturation !== 100) filter += `saturate(${saturation}%) `;
-  if (warmth > 0) filter += `sepia(${Math.min(80, warmth * 0.45)}%) `;
-  if (warmth < 0) filter += `hue-rotate(${warmth * 0.35}deg) `;
-  tempCtx.filter = filter.trim();
-  tempCtx.drawImage(ctx.canvas, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-  ctx.drawImage(temp, 0, 0);
-}
-
-function applyLayerToneAdjustments(canvas, { exposure, contrast, brightness, darken }){
-  const width = canvas.width;
-  const height = canvas.height;
-  const sourceCtx = canvas.getContext("2d", { willReadFrequently: true });
-  const temp = document.createElement("canvas");
-  temp.width = width;
-  temp.height = height;
-  const tempCtx = temp.getContext("2d", { willReadFrequently: true });
-  const filter = buildToneFilter({ exposure, contrast, brightness, darken });
-  tempCtx.filter = filter;
-  tempCtx.drawImage(canvas, 0, 0);
-  sourceCtx.clearRect(0, 0, width, height);
-  sourceCtx.filter = "none";
-  sourceCtx.drawImage(temp, 0, 0);
-  applyShadowDarken(sourceCtx, width, height, Number(darken) || 0);
-}
-
-function buildToneFilter({ exposure, contrast, brightness, darken }){
-  const bright = Number(brightness ?? 100) / 100;
-  const exp = 1 + (Number(exposure ?? 0) / 100);
-  const cont = Number(contrast ?? 100) / 100;
-  const darkenAmount = Number(darken ?? 0) / 100;
-  const overallBright = Math.max(20, 100 * bright * exp * (1 - darkenAmount * 0.42));
-  const contrastPct = Math.max(40, 100 * cont * (1 + darkenAmount * 0.18));
-  return `brightness(${overallBright}%) contrast(${contrastPct}%)`;
-}
-
-function applyShadowDarken(ctx, width, height, amount){
-  if (!amount) return;
+function applySkyColorAdjustments(ctx, width, height, state){
   const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
-  const strength = amount / 100;
-  for (let i = 0; i < data.length; i += 4) {
-    const luminance = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) / 255;
-    if (luminance >= 0.58) continue;
-    const shadowWeight = 1 - luminance / 0.58;
-    const factor = 1 - strength * shadowWeight * 0.72;
-    data[i] *= factor;
-    data[i + 1] *= factor;
-    data[i + 2] *= factor;
-  }
+  applyPixelToneToImageData(imageData, {
+    exposure: state.skyExposure,
+    contrast: state.skyContrast,
+    brightness: state.skyBrightness,
+    darken: state.skyDarken
+  });
+  applyPixelSaturationWarmth(imageData, state.skySaturation, state.skyWarmth);
   ctx.putImageData(imageData, 0, 0);
 }
 
-function drawSkyTexture(ctx, skyImage, width, height, offsetX = 0, offsetY = 0){
-  const panX = (Number(offsetX) || 0) * width * 0.01;
-  const panY = (Number(offsetY) || 0) * height * 0.01;
+function applyLayerToneAdjustments(ctx, width, height, tone){
+  const imageData = ctx.getImageData(0, 0, width, height);
+  applyPixelToneToImageData(imageData, tone);
+  ctx.putImageData(imageData, 0, 0);
+}
+
+function applyPixelToneToImageData(imageData, { exposure, contrast, brightness, darken }){
+  const data = imageData.data;
+  const exposureValue = Number(exposure ?? 0);
+  const expMul = Math.pow(2, exposureValue / 35);
+  const brightMul = Number(brightness ?? 100) / 100;
+  const contrastMul = Number(contrast ?? 100) / 100;
+  const darkenAmt = clamp(Number(darken ?? 0), 0, 100) / 100;
+
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i] / 255;
+    let g = data[i + 1] / 255;
+    let b = data[i + 2] / 255;
+
+    r *= expMul * brightMul;
+    g *= expMul * brightMul;
+    b *= expMul * brightMul;
+
+    r = (r - 0.5) * contrastMul + 0.5;
+    g = (g - 0.5) * contrastMul + 0.5;
+    b = (b - 0.5) * contrastMul + 0.5;
+
+    const lum = r * 0.299 + g * 0.587 + b * 0.114;
+    if (darkenAmt > 0 && lum < 0.68) {
+      const weight = 1 - lum / 0.68;
+      const factor = 1 - darkenAmt * weight * 0.95;
+      r *= factor;
+      g *= factor;
+      b *= factor;
+    }
+
+    data[i] = clampByte(r * 255);
+    data[i + 1] = clampByte(g * 255);
+    data[i + 2] = clampByte(b * 255);
+  }
+}
+
+function applyPixelSaturationWarmth(imageData, saturation, warmth){
+  const sat = Number(saturation ?? 100) / 100;
+  const warm = Number(warmth ?? 0) / 100;
+  if (sat === 1 && warm === 0) return;
+
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i] / 255;
+    let g = data[i + 1] / 255;
+    let b = data[i + 2] / 255;
+
+    if (warm !== 0) {
+      r += warm * 0.42;
+      g += warm * 0.08;
+      b -= warm * 0.45;
+    }
+
+    const lum = r * 0.299 + g * 0.587 + b * 0.114;
+    r = lum + (r - lum) * sat;
+    g = lum + (g - lum) * sat;
+    b = lum + (b - lum) * sat;
+
+    data[i] = clampByte(r * 255);
+    data[i + 1] = clampByte(g * 255);
+    data[i + 2] = clampByte(b * 255);
+  }
+}
+
+function drawSkyTexture(ctx, skyImage, width, height, offsetX = 0, offsetY = 0, scale = 100){
+  const panX = (Number(offsetX) || 0) * width * 0.012;
+  const panY = (Number(offsetY) || 0) * height * 0.012;
+  const scaleFactor = clamp(Number(scale) || 100, 50, 300) / 100;
   const imageRatio = skyImage.width / skyImage.height;
   const canvasRatio = width / height;
   let drawWidth;
   let drawHeight;
 
+  const cover = 1.25 * scaleFactor;
   if (imageRatio > canvasRatio) {
-    drawHeight = height * 1.25;
+    drawHeight = height * cover;
     drawWidth = drawHeight * imageRatio;
   } else {
-    drawWidth = width * 1.25;
+    drawWidth = width * cover;
     drawHeight = drawWidth / imageRatio;
   }
 
@@ -342,6 +365,10 @@ function drawEmptyState(ctx, width, height){
   gradient.addColorStop(1, "#b8ece8");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
+}
+
+function clampByte(value){
+  return Math.max(0, Math.min(255, Math.round(value)));
 }
 
 function clamp(value, min, max){
