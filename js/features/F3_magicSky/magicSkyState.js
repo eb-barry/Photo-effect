@@ -1,41 +1,25 @@
-// F3 魔法天空 - 狀態管理 v0.3.0
-// 照片 / 天空 / 邊緣 三分段影像微調。
+// F3 魔法天空 - 狀態管理 v0.3.1
+// 天空 / 天空微調 / 照片微調 三按鈕分頁。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
 
 export const MAGIC_SKY_FEATURE_ID = "F3_magicSky";
-export const MAGIC_SKY_FEATURE_VERSION = "0.3.0";
+export const MAGIC_SKY_FEATURE_VERSION = "0.3.1";
 export const MAGIC_SKY_DRAFT_KEY = "photoEffects.F3_magicSky.draft.v2";
 
 export const MAGIC_SKY_CONTROL_TABS = [
-  { id: "sunny", label: "晴天" },
-  { id: "night", label: "夜晚" },
-  { id: "sunset", label: "夕陽" },
-  { id: "adjust", label: "影像微調" }
+  { id: "sky", label: "天空" },
+  { id: "skyAdjust", label: "天空微調" },
+  { id: "photoAdjust", label: "照片微調" }
 ];
 
 export const MAGIC_SKY_CATEGORIES = ["sunny", "night", "sunset"];
 
-export const ADJUST_SEGMENTS = [
-  {
-    id: "photo",
-    label: "照片",
-    hint: "調整原始照片（人物、地面、建築）",
-    sliderTone: "photo"
-  },
-  {
-    id: "sky",
-    label: "天空",
-    hint: "調整替換的天空材質",
-    sliderTone: "sky"
-  },
-  {
-    id: "edge",
-    label: "邊緣",
-    hint: "調整天空與前景的交界融合",
-    sliderTone: "edge"
-  }
-];
+export const SKY_CATEGORY_LABELS = {
+  sunny: "晴天",
+  night: "夜晚",
+  sunset: "夕陽"
+};
 
 export const PHOTO_PARAMETERS = [
   { id: "photoExposure", label: "曝光", min: -100, max: 100, step: 1, suffix: "" },
@@ -57,31 +41,28 @@ export const SKY_PARAMETERS = [
 ];
 
 export const EDGE_PARAMETERS = [
-  { id: "edgeFeather", label: "邊緣柔光", min: 0, max: 100, step: 1, suffix: "%" },
-  { id: "maskExpansion", label: "邊界擴張", min: -40, max: 40, step: 1, suffix: "" }
+  { id: "edgeFeather", label: "邊緣｜柔光", min: 0, max: 100, step: 1, suffix: "%" },
+  { id: "maskExpansion", label: "邊緣｜邊界擴張", min: -40, max: 40, step: 1, suffix: "" }
 ];
 
-export function getParametersForAdjustSegment(segmentId){
-  if (segmentId === "sky") return SKY_PARAMETERS;
-  if (segmentId === "edge") return EDGE_PARAMETERS;
-  return PHOTO_PARAMETERS;
+export const SKY_ADJUST_PARAMETERS = [...SKY_PARAMETERS, ...EDGE_PARAMETERS];
+
+export function getParametersForControlTab(tabId){
+  if (tabId === "photoAdjust") return PHOTO_PARAMETERS;
+  if (tabId === "skyAdjust") return SKY_ADJUST_PARAMETERS;
+  return [];
 }
 
-export function getAdjustSegmentHint(segmentId){
-  return ADJUST_SEGMENTS.find(item => item.id === segmentId)?.hint || "";
-}
-
-export function getSliderTitle(segmentId, parameter){
-  const segmentLabel = ADJUST_SEGMENTS.find(item => item.id === segmentId)?.label || "";
-  if (segmentId === "photo") {
-    return `${segmentLabel} · ${parameter.label}`;
+export function getSliderTitle(tabId, parameter){
+  if (tabId === "photoAdjust") {
+    return `照片 · ${parameter.label}`;
   }
-  if (segmentId === "sky") {
+  if (tabId === "skyAdjust") {
     const parts = parameter.label.split("｜");
-    if (parts.length === 2) return `${segmentLabel} · ${parts[0]} · ${parts[1]}`;
-    return `${segmentLabel} · ${parameter.label}`;
+    if (parts.length === 2) return `天空 · ${parts[0]} · ${parts[1]}`;
+    return `天空 · ${parameter.label}`;
   }
-  return `${segmentLabel} · ${parameter.label}`;
+  return parameter.label;
 }
 
 export function getSelectedSkyIdKey(category){
@@ -103,26 +84,22 @@ export function normalizeSkyId(category, skyId){
 export function normalizeActiveControlTab(tab){
   if (tab === null || tab === "none" || tab === "") return null;
   if (MAGIC_SKY_CONTROL_TABS.some(item => item.id === tab)) return tab;
-  return "sunny";
-}
-
-export function normalizeAdjustSegment(segment){
-  if (ADJUST_SEGMENTS.some(item => item.id === segment)) return segment;
-  return "photo";
+  if (tab === "sunny" || tab === "night" || tab === "sunset" || tab === "adjust") return "sky";
+  return "sky";
 }
 
 export function createDefaultMagicSkyState(){
   return {
     featureId: MAGIC_SKY_FEATURE_ID,
     featureVersion: MAGIC_SKY_FEATURE_VERSION,
-    activeControlTab: "sunny",
+    activeControlTab: "sky",
     activeSkyCategory: "sunny",
-    adjustSegment: "photo",
     selectedSunnyId: "sunny1",
     selectedNightId: "night1",
     selectedSunsetId: "sunset1",
-    selectedParameter: "photoExposure",
+    selectedParameter: "skyOffsetX",
     sourceImageDataUrl: null,
+    maskPhotoKey: null,
     skyOffsetX: 0,
     skyOffsetY: 0,
     photoExposure: 0,
@@ -153,19 +130,18 @@ export function updateMagicSkyState(currentState, partial){
   next.activeSkyCategory = MAGIC_SKY_CATEGORIES.includes(next.activeSkyCategory)
     ? next.activeSkyCategory
     : "sunny";
-  next.adjustSegment = normalizeAdjustSegment(next.adjustSegment);
 
   for (const category of MAGIC_SKY_CATEGORIES) {
     const key = getSelectedSkyIdKey(category);
     next[key] = normalizeSkyId(category, next[key]);
   }
 
-  const segmentParams = getParametersForAdjustSegment(next.adjustSegment);
-  if (!segmentParams.some(item => item.id === next.selectedParameter)) {
-    next.selectedParameter = segmentParams[0]?.id || "photoExposure";
+  const tabParams = getParametersForControlTab(next.activeControlTab);
+  if (tabParams.length && !tabParams.some(item => item.id === next.selectedParameter)) {
+    next.selectedParameter = tabParams[0]?.id || "photoExposure";
   }
 
-  for (const parameter of [...PHOTO_PARAMETERS, ...SKY_PARAMETERS, ...EDGE_PARAMETERS]) {
+  for (const parameter of [...PHOTO_PARAMETERS, ...SKY_ADJUST_PARAMETERS]) {
     next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, createDefaultValue(parameter.id));
   }
 
@@ -204,10 +180,14 @@ export function loadMagicSkyDraft(){
 
 function migrateLegacyDraft(parsed){
   const next = { ...parsed };
-  if (!next.adjustSegment) next.adjustSegment = "photo";
-  if (next.selectedParameter === "skyOpacity" && next.adjustSegment === "photo") {
-    next.selectedParameter = "photoExposure";
+  if (next.activeControlTab === "sunny" || next.activeControlTab === "night" || next.activeControlTab === "sunset") {
+    next.activeSkyCategory = next.activeControlTab;
+    next.activeControlTab = "sky";
   }
+  if (next.activeControlTab === "adjust") {
+    next.activeControlTab = next.adjustSegment === "photo" ? "photoAdjust" : "skyAdjust";
+  }
+  delete next.adjustSegment;
   return next;
 }
 

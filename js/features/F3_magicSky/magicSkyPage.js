@@ -1,5 +1,5 @@
-// F3 魔法天空 - Page Controller v0.3.0
-// 依照片比例輸出 + 處理中提示。
+// F3 魔法天空 - Page Controller v0.3.1
+// 三按鈕分頁 + 遮罩上傳後固定 + iOS 拖曳鎖定。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -24,7 +24,13 @@ import {
   renderMagicSky,
   resolveOutputSize
 } from "./magicSkyTool.js";
-import { mountSkyCarousels, renderAdjustSegmentBar, renderControlTabs, setupMagicSkyUI } from "./magicSkyUI.js";
+import {
+  mountSkyCarousel,
+  renderAdjustControls,
+  renderControlTabs,
+  renderSkyCategoryBar,
+  setupMagicSkyUI
+} from "./magicSkyUI.js";
 
 export function initMagicSkyPage(root, shared = {}){
   return renderMagicSkyPage(root, shared.goHome || shared.navigate || (() => {}));
@@ -40,7 +46,7 @@ export async function renderMagicSkyPage(root, navigate){
 
         <div class="topbar-title">
           <h1>魔法天空</h1>
-          <p class="crystal-version" aria-hidden="true">v0.3.0</p>
+          <p class="crystal-version" aria-hidden="true">v0.3.1</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -50,7 +56,7 @@ export async function renderMagicSkyPage(root, navigate){
         </div>
       </nav>
 
-      <section class="panel">
+      <section class="panel magic-sky-panel">
         <div class="canvas-wrap crystal-canvas-wrap magic-sky-canvas-wrap" id="canvasWrap">
           <div class="empty-canvas" id="emptyCanvas">
             請點右上方開啟照片
@@ -69,32 +75,16 @@ export async function renderMagicSkyPage(root, navigate){
         </div>
 
         <div class="crystal-tab-panels hidden" id="magicSkyTabPanels">
-          <div id="sunnyPanel" class="crystal-tab-panel" role="tabpanel" aria-label="晴天">
-            <div id="sunnyAssetHost"></div>
+          <div id="skyPanel" class="crystal-tab-panel" role="tabpanel" aria-label="天空">
+            ${renderSkyCategoryBar()}
+            <div id="skyAssetHost"></div>
           </div>
 
-          <div id="nightPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="夜晚">
-            <div id="nightAssetHost"></div>
-          </div>
+          <div id="skyAdjustPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="天空微調"></div>
 
-          <div id="sunsetPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="夕陽">
-            <div id="sunsetAssetHost"></div>
-          </div>
+          <div id="photoAdjustPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="照片微調"></div>
 
-          <div id="adjustPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="影像微調">
-            ${renderAdjustSegmentBar()}
-            <div class="selection-row crystal-adjust-row">
-              <label for="sliderTarget" class="selection-label">調整項目</label>
-              <select id="sliderTarget" class="select-control" aria-label="調整項目"></select>
-            </div>
-            <div class="slider-row magic-sky-slider-photo" id="sliderRow">
-              <div class="slider-head">
-                <span id="sliderLabel">照片 · 曝光</span>
-                <span id="sliderValue">0</span>
-              </div>
-              <input id="mainSlider" type="range" />
-            </div>
-          </div>
+          ${renderAdjustControls()}
         </div>
       </section>
 
@@ -158,13 +148,19 @@ export async function renderMagicSkyPage(root, navigate){
 
   const ensureMaskForCurrentPhoto = async () => {
     if (!sourceImage || !photoKey) return null;
-    const serial = ++analyzeSerial;
+
     const cached = getCachedSkyMask(photoKey);
-    if (cached) {
+    if (cached && state.maskPhotoKey === photoKey) {
       maskEntry = cached;
       return cached;
     }
+    if (cached) {
+      maskEntry = cached;
+      Object.assign(state, updateMagicSkyState(state, { maskPhotoKey: photoKey }));
+      return cached;
+    }
 
+    const serial = ++analyzeSerial;
     processing.begin("分析天空中…", 0);
     try {
       const entry = await ensureSkyMask(sourceImage, photoKey, {
@@ -174,6 +170,7 @@ export async function renderMagicSkyPage(root, navigate){
       });
       if (serial !== analyzeSerial) return maskEntry;
       maskEntry = entry;
+      Object.assign(state, updateMagicSkyState(state, { maskPhotoKey: photoKey }));
       return entry;
     } catch (error) {
       console.error("[F3 魔法天空] 天空分析失敗：", error);
@@ -190,8 +187,9 @@ export async function renderMagicSkyPage(root, navigate){
     root.querySelector("#emptyCanvas")?.classList.add("hidden");
     canvas.classList.remove("hidden");
     root.querySelector("#magicSkyTabBar")?.classList.remove("hidden");
+    root.querySelector("#magicSkyTabPanels")?.classList.remove("hidden");
     if (!state.activeControlTab) {
-      Object.assign(state, updateMagicSkyState(state, { activeControlTab: "sunny" }));
+      Object.assign(state, updateMagicSkyState(state, { activeControlTab: "sky" }));
     }
   };
 
@@ -199,26 +197,30 @@ export async function renderMagicSkyPage(root, navigate){
     saveMagicSkyDraft(state);
   };
 
-  const renderAndPersist = async (message, options) => {
-    if (message) await renderBusy(message, options);
-    else await render();
-    persistDraft();
-  };
-
   const openPhoto = async dataUrl => {
+    const nextPhotoKey = getSkyMaskCacheKey(dataUrl);
+    const isNewPhoto = nextPhotoKey !== photoKey;
+
     sourceImage = await loadImageFromDataUrl(dataUrl);
-    photoKey = getSkyMaskCacheKey(dataUrl);
+    photoKey = nextPhotoKey;
     maskEntry = getCachedSkyMask(photoKey);
     applyCanvasSize(resolveOutputSize(sourceImage));
-    Object.assign(state, updateMagicSkyState(state, {
+
+    const partial = {
       sourceImageDataUrl: dataUrl,
-      activeControlTab: "sunny",
-      activeSkyCategory: "sunny",
-      adjustSegment: "photo",
-      selectedParameter: "photoExposure",
-      skyOffsetX: 0,
-      skyOffsetY: 0
-    }));
+      activeControlTab: "sky",
+      activeSkyCategory: state.activeSkyCategory || "sunny"
+    };
+
+    if (isNewPhoto) {
+      Object.assign(partial, {
+        maskPhotoKey: maskEntry ? photoKey : null,
+        skyOffsetX: 0,
+        skyOffsetY: 0
+      });
+    }
+
+    Object.assign(state, updateMagicSkyState(state, partial));
     showEditor();
     await ensureMaskForCurrentPhoto();
     await renderBusy("合成天空效果，請稍候…", { delay: 0 });
@@ -259,13 +261,15 @@ export async function renderMagicSkyPage(root, navigate){
   } catch (error) {
     console.warn("[F3 魔法天空] 素材清單載入失敗，使用預設清單：", error);
   }
-  mountSkyCarousels(root);
+
+  mountSkyCarousel(root, state.activeSkyCategory);
   setupMagicSkyUI(root, state, {
     render,
     renderBusy,
     persistDraft
   }, {
     canvas,
+    canvasWrap,
     getMaskEntry: () => maskEntry,
     getSourceImage: () => sourceImage,
     getPhotoLayout: () => (outputSize ? getPhotoLayout(outputSize.width, outputSize.height) : null)
