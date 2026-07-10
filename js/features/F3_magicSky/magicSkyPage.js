@@ -12,6 +12,7 @@ import {
   preloadSkySegmentModel
 } from "./magicSkySegment.js";
 import {
+  clearMagicSkyDraft,
   createDefaultMagicSkyState,
   getDefaultAdjustmentState,
   loadMagicSkyDraft,
@@ -193,7 +194,26 @@ export async function renderMagicSkyPage(root, navigate){
   };
 
   const persistDraft = () => {
+    if (!state.sourceImageDataUrl) return;
     saveMagicSkyDraft(state);
+  };
+
+  const resetEditorSession = () => {
+    sourceImage = null;
+    maskEntry = null;
+    photoKey = "";
+    outputSize = null;
+    Object.assign(state, updateMagicSkyState(createDefaultMagicSkyState(), {}));
+    root.querySelector("#emptyCanvas")?.classList.remove("hidden");
+    canvas.classList.add("hidden");
+    root.querySelector("#magicSkyTabBar")?.classList.add("hidden");
+    root.querySelector("#magicSkyTabPanels")?.classList.add("hidden");
+    magicSkyUi?.refreshAllControls?.();
+  };
+
+  const finalizeExportSession = () => {
+    clearMagicSkyDraft();
+    resetEditorSession();
   };
 
   const openPhoto = async dataUrl => {
@@ -261,7 +281,7 @@ export async function renderMagicSkyPage(root, navigate){
   }
 
   mountSkyCarousel(root, state.activeSkyCategory);
-  setupMagicSkyUI(root, state, {
+  const magicSkyUi = setupMagicSkyUI(root, state, {
     render,
     renderBusy,
     persistDraft
@@ -282,7 +302,7 @@ export async function renderMagicSkyPage(root, navigate){
     try {
       await renderBusy("準備儲存，請稍候…", { delay: 0 });
       await downloadCanvas(canvas, "image/jpeg", 0.92);
-      persistDraft();
+      finalizeExportSession();
     } catch (error) {
       console.error(error);
       alert("儲存失敗，請再試一次。");
@@ -299,10 +319,11 @@ export async function renderMagicSkyPage(root, navigate){
       await renderBusy("準備分享，請稍候…", { delay: 0 });
       const shared = await shareCanvas(canvas, "image/jpeg", 0.92);
       if (!shared) await downloadCanvas(canvas, "image/jpeg", 0.92);
-      persistDraft();
+      finalizeExportSession();
     } catch (error) {
       console.error(error);
       await downloadCanvas(canvas, "image/jpeg", 0.92);
+      finalizeExportSession();
     }
   });
 
@@ -311,9 +332,18 @@ export async function renderMagicSkyPage(root, navigate){
   async function restoreDraftOnOpen(){
     if (!state.sourceImageDataUrl) return;
     try {
-      await openPhoto(state.sourceImageDataUrl);
+      photoKey = getSkyMaskCacheKey(state.sourceImageDataUrl);
+      sourceImage = await loadImageFromDataUrl(state.sourceImageDataUrl);
+      maskEntry = getCachedSkyMask(photoKey);
+      applyCanvasSize(resolveOutputSize(sourceImage));
+      showEditor();
+      await ensureMaskForCurrentPhoto();
+      await renderBusy("還原上次編輯，請稍候…", { delay: 0 });
+      magicSkyUi?.refreshAllControls?.();
     } catch (error) {
       console.warn("[F3 魔法天空] 草稿還原失敗：", error);
+      clearMagicSkyDraft();
+      resetEditorSession();
     }
   }
 }

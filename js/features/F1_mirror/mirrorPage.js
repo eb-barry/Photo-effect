@@ -4,7 +4,7 @@ import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
 import { MirrorTool } from "./mirrorTool.js";
 import { setupMirrorUI } from "./mirrorUI.js";
-import { loadMirrorState, saveMirrorState, saveMirrorDraft, loadMirrorDraftImage } from "./mirrorState.js";
+import { loadMirrorState, saveMirrorState, saveMirrorDraft, loadMirrorDraftImage, clearMirrorDraft, getDefaultMirrorState } from "./mirrorState.js";
 
 export function renderMirrorPage(root, navigate){
   const savedState = loadMirrorState();
@@ -87,12 +87,35 @@ export function renderMirrorPage(root, navigate){
   };
 
   const persistDraft = async () => {
+    if (!state.source) return;
     try {
       await saveMirrorDraft(state);
     } catch (error) {
       console.warn("Draft save failed:", error);
       saveMirrorState(state);
     }
+  };
+
+  const resetEditorSession = () => {
+    const defaults = getDefaultMirrorState();
+    state.source = null;
+    state.mode = defaults.mode;
+    state.leftOffset = defaults.leftOffset;
+    state.rightOffset = defaults.rightOffset;
+    state.opacity = defaults.opacity;
+    state.ripple = defaults.ripple;
+    state.density = defaults.density;
+    state.sliderTarget = defaults.sliderTarget;
+    state.showGuide = true;
+    root.querySelector("#emptyCanvas")?.classList.remove("hidden");
+    canvas.classList.add("hidden");
+    root.querySelector("#controls")?.classList.add("hidden");
+    mirrorUi?.refreshAllControls?.();
+  };
+
+  const finalizeExportSession = async () => {
+    await clearMirrorDraft();
+    resetEditorSession();
   };
 
   root.querySelector("#homeBtn")?.addEventListener("click", async event => {
@@ -121,7 +144,7 @@ export function renderMirrorPage(root, navigate){
     }
   });
 
-  setupMirrorUI(root, state, async () => {
+  const mirrorUi = setupMirrorUI(root, state, async () => {
     render(true);
     await persistDraft();
   });
@@ -136,7 +159,7 @@ export function renderMirrorPage(root, navigate){
       render(false);
       await downloadCanvas(canvas, "image/jpeg", 0.92);
       render(true);
-      await persistDraft();
+      await finalizeExportSession();
     } catch (error) {
       console.error(error);
       alert("儲存失敗，請再試一次。");
@@ -155,11 +178,12 @@ export function renderMirrorPage(root, navigate){
       const shared = await shareCanvas(canvas, "image/jpeg", 0.92);
       render(true);
       if (!shared) await downloadCanvas(canvas, "image/jpeg", 0.92);
-      await persistDraft();
+      await finalizeExportSession();
     } catch (error) {
       console.error(error);
       render(true);
       await downloadCanvas(canvas, "image/jpeg", 0.92);
+      await finalizeExportSession();
     }
   });
 
@@ -172,8 +196,11 @@ export function renderMirrorPage(root, navigate){
       state.source = restored;
       showEditor();
       render(true);
+      mirrorUi?.refreshAllControls?.();
     } catch (error) {
       console.warn("Draft restore failed:", error);
+      await clearMirrorDraft();
+      resetEditorSession();
     }
   }
 }

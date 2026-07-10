@@ -183,6 +183,7 @@ export function setupCrystalUI(root, state, render, persistDraft = () => {}){
   }
 
   refreshAllControls();
+  return { refreshAllControls };
 }
 
 export function renderControlTabs(){

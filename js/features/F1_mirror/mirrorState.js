@@ -113,6 +113,25 @@ async function putDraft(key, value){
   });
 }
 
+export async function clearMirrorDraft(){
+  saveMirrorState(getDefaultMirrorState());
+  try {
+    await deleteDraft(MIRROR_IMAGE_KEY);
+  } catch (error) {
+    console.warn("[F1 鏡像] 無法清除草稿：", error);
+  }
+}
+
+async function deleteDraft(key){
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).delete(key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+
 async function getDraft(key){
   const db = await openDB();
   return new Promise((resolve, reject) => {
