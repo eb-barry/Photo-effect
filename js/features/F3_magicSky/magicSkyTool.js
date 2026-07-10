@@ -1,8 +1,11 @@
-// F3 魔法天空 - Canvas 影像處理 v0.3.3
-// AI 天空遮罩 + 天空材質替換 + 像素級色調調整。
+// F3 魔法天空 - Canvas 影像處理 v0.3.5
+// AI 天空遮罩 + 柔邊 alpha 合成。
 
-import { buildForegroundProtectMask } from "./magicSkySegment.js";
 import { getSkyByCategory, getSelectedSkyIdKey, resolveEffectValues } from "./magicSkyState.js";
+
+const MIN_MASK_FEATHER_PX = 2.2;
+const FOREGROUND_GUARD_LOW = 0.38;
+const FOREGROUND_GUARD_HIGH = 0.58;
 
 export const MAGIC_SKY_MAX_EDGE = 1600;
 /** @deprecated Use resolveOutputSize() for the active photo. */
@@ -122,7 +125,6 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
     layout.height
   );
 
-  const rawProtectMask = buildForegroundProtectMask(layoutMask);
   const processedMask = buildProcessedMask(layoutMask, effects.edgeFeather, effects.maskExpansion);
 
   const adjustedPhoto = renderAdjustedPhotoLayer(sourceImage, layout, effects);
@@ -141,30 +143,7 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
   );
   applySkyColorAdjustments(skyLayerCtx, skyLayer.width, skyLayer.height, effects);
 
-  const maskedSky = document.createElement("canvas");
-  maskedSky.width = width;
-  maskedSky.height = height;
-  const maskedSkyCtx = maskedSky.getContext("2d", { willReadFrequently: true });
-  maskedSkyCtx.drawImage(skyLayer, 0, 0);
-  maskedSkyCtx.globalCompositeOperation = "destination-in";
-  maskedSkyCtx.drawImage(processedMask, 0, 0);
-
-  const foregroundLayer = document.createElement("canvas");
-  foregroundLayer.width = width;
-  foregroundLayer.height = height;
-  const foregroundCtx = foregroundLayer.getContext("2d", { willReadFrequently: true });
-  foregroundCtx.drawImage(adjustedPhoto, 0, 0);
-  foregroundCtx.globalCompositeOperation = "destination-in";
-  foregroundCtx.drawImage(rawProtectMask, 0, 0);
-
-  ctx.drawImage(adjustedPhoto, 0, 0);
-  const opacity = clamp(effects.skyOpacity, 0, 100) / 100;
-  if (opacity > 0) {
-    ctx.globalAlpha = opacity;
-    ctx.drawImage(maskedSky, 0, 0);
-    ctx.globalAlpha = 1;
-  }
-  ctx.drawImage(foregroundLayer, 0, 0);
+  compositePhotoAndSky(ctx, adjustedPhoto, skyLayer, processedMask, layoutMask, effects.skyOpacity);
 }
 
 function renderAdjustedPhotoLayer(sourceImage, layout, effects){
@@ -302,29 +281,53 @@ function buildProcessedMask(maskCanvas, edgeFeather, maskExpansion){
     applyMaskExpansion(ctx, output.width, output.height, expansion);
   }
 
-  const feather = clamp(Number(edgeFeather) || 0, 0, 100);
-  if (feather > 0) {
-    const blurCanvas = document.createElement("canvas");
-    blurCanvas.width = output.width;
-    blurCanvas.height = output.height;
-    const blurCtx = blurCanvas.getContext("2d");
-    blurCtx.filter = `blur(${Math.max(1, feather * 0.1)}px)`;
-    blurCtx.drawImage(output, 0, 0);
-    ctx.clearRect(0, 0, output.width, output.height);
-    ctx.drawImage(blurCanvas, 0, 0);
-    crushWeakMaskAlpha(ctx, output.width, output.height, 24);
-  }
+  const featherPx = MIN_MASK_FEATHER_PX + clamp(Number(edgeFeather) || 0, 0, 100) * 0.14;
+  const blurCanvas = document.createElement("canvas");
+  blurCanvas.width = output.width;
+  blurCanvas.height = output.height;
+  const blurCtx = blurCanvas.getContext("2d");
+  blurCtx.filter = `blur(${featherPx.toFixed(2)}px)`;
+  blurCtx.drawImage(output, 0, 0);
+  ctx.clearRect(0, 0, output.width, output.height);
+  ctx.drawImage(blurCanvas, 0, 0);
 
   return output;
 }
 
-function crushWeakMaskAlpha(ctx, width, height, minAlpha){
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
-  for (let i = 3; i < data.length; i += 4) {
-    if (data[i] < minAlpha) data[i] = 0;
+function compositePhotoAndSky(ctx, photoCanvas, skyCanvas, skyMaskCanvas, rawMaskCanvas, skyOpacityPercent){
+  const width = photoCanvas.width;
+  const height = photoCanvas.height;
+  const photoCtx = photoCanvas.getContext("2d", { willReadFrequently: true });
+  const skyCtx = skyCanvas.getContext("2d", { willReadFrequently: true });
+  const skyMaskCtx = skyMaskCanvas.getContext("2d", { willReadFrequently: true });
+  const rawMaskCtx = rawMaskCanvas.getContext("2d", { willReadFrequently: true });
+
+  const photo = photoCtx.getImageData(0, 0, width, height);
+  const sky = skyCtx.getImageData(0, 0, width, height);
+  const skyMask = skyMaskCtx.getImageData(0, 0, width, height);
+  const rawMask = rawMaskCtx.getImageData(0, 0, width, height);
+  const out = ctx.createImageData(width, height);
+  const opacity = clamp(Number(skyOpacityPercent ?? 100), 0, 100) / 100;
+
+  for (let i = 0; i < photo.data.length; i += 4) {
+    const rawAlpha = rawMask.data[i + 3] / 255;
+    let skyAlpha = (skyMask.data[i + 3] / 255) * opacity;
+    skyAlpha *= computeForegroundGuard(rawAlpha);
+
+    const inv = 1 - skyAlpha;
+    out.data[i] = clampByte(photo.data[i] * inv + sky.data[i] * skyAlpha);
+    out.data[i + 1] = clampByte(photo.data[i + 1] * inv + sky.data[i + 1] * skyAlpha);
+    out.data[i + 2] = clampByte(photo.data[i + 2] * inv + sky.data[i + 2] * skyAlpha);
+    out.data[i + 3] = 255;
   }
-  ctx.putImageData(imageData, 0, 0);
+
+  ctx.putImageData(out, 0, 0);
+}
+
+function computeForegroundGuard(rawAlpha){
+  if (rawAlpha <= FOREGROUND_GUARD_LOW) return 0;
+  if (rawAlpha >= FOREGROUND_GUARD_HIGH) return 1;
+  return (rawAlpha - FOREGROUND_GUARD_LOW) / (FOREGROUND_GUARD_HIGH - FOREGROUND_GUARD_LOW);
 }
 
 function applyMaskExpansion(ctx, width, height, expansion){

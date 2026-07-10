@@ -1,10 +1,10 @@
-// F3 魔法天空 - 狀態管理 v0.3.4
+// F3 魔法天空 - 狀態管理 v0.3.5
 // 雙極滑桿（中點 0、±150）+ 換天/換圖重置。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
 
 export const MAGIC_SKY_FEATURE_ID = "F3_magicSky";
-export const MAGIC_SKY_FEATURE_VERSION = "0.3.4";
+export const MAGIC_SKY_FEATURE_VERSION = "0.3.5";
 export const MAGIC_SKY_DRAFT_KEY = "photoEffects.F3_magicSky.draft.v3";
 
 export const ADJUST_SLIDER_MIN = -150;
@@ -105,8 +105,8 @@ export function resolveEffectValues(state){
     skyOpacity: clamp(100 + Math.min(0, slider("skyOpacity") / ADJUST_SLIDER_MAX) * 100, 0, 100),
     skyWarmth: (slider("skyWarmth") / ADJUST_SLIDER_MAX) * 100,
     skySaturation: mapPercentSlider(slider("skySaturation")),
-    edgeFeather: clamp(30 + (slider("edgeFeather") / ADJUST_SLIDER_MAX) * 70, 0, 100),
-    maskExpansion: clamp(-5 + (slider("maskExpansion") / ADJUST_SLIDER_MAX) * 45, -40, 40)
+    edgeFeather: clamp(36 + (slider("edgeFeather") / ADJUST_SLIDER_MAX) * 64, 0, 100),
+    maskExpansion: clamp(2 + (slider("maskExpansion") / ADJUST_SLIDER_MAX) * 38, -40, 40)
   };
 }
 
