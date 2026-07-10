@@ -87,7 +87,8 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
 
   const layout = getPhotoLayout(width, height);
   if (!maskEntry?.maskCanvas) {
-    drawPhotoCover(ctx, sourceImage, layout);
+    const adjustedPhoto = renderAdjustedPhotoLayer(sourceImage, layout, state);
+    ctx.drawImage(adjustedPhoto, layout.x, layout.y, layout.width, layout.height);
     return;
   }
 
@@ -122,11 +123,19 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
   const rawProtectMask = buildForegroundProtectMask(layoutMask);
   const processedMask = buildProcessedMask(layoutMask, state.edgeFeather, state.maskExpansion);
 
+  const adjustedPhoto = renderAdjustedPhotoLayer(sourceImage, layout, state);
   const skyLayer = document.createElement("canvas");
   skyLayer.width = width;
   skyLayer.height = height;
   const skyLayerCtx = skyLayer.getContext("2d", { willReadFrequently: true });
   drawSkyTexture(skyLayerCtx, skyImage, width, height, state.skyOffsetX, state.skyOffsetY);
+  applySkyAppearanceFilters(skyLayerCtx, skyLayer.width, skyLayer.height, state);
+  applyLayerToneAdjustments(skyLayer, {
+    exposure: state.skyExposure,
+    contrast: state.skyContrast,
+    brightness: state.skyBrightness,
+    darken: state.skyDarken
+  });
 
   const maskedSky = document.createElement("canvas");
   maskedSky.width = width;
@@ -140,11 +149,11 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
   foregroundLayer.width = width;
   foregroundLayer.height = height;
   const foregroundCtx = foregroundLayer.getContext("2d", { willReadFrequently: true });
-  foregroundCtx.drawImage(sourceImage, layout.x, layout.y, layout.width, layout.height);
+  foregroundCtx.drawImage(adjustedPhoto, 0, 0);
   foregroundCtx.globalCompositeOperation = "destination-in";
   foregroundCtx.drawImage(rawProtectMask, 0, 0);
 
-  ctx.drawImage(sourceImage, layout.x, layout.y, layout.width, layout.height);
+  ctx.drawImage(adjustedPhoto, 0, 0);
   const opacity = clamp(state.skyOpacity, 0, 100) / 100;
   if (opacity > 0) {
     ctx.globalAlpha = opacity;
@@ -152,6 +161,84 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
     ctx.globalAlpha = 1;
   }
   ctx.drawImage(foregroundLayer, 0, 0);
+}
+
+function renderAdjustedPhotoLayer(sourceImage, layout, state){
+  const output = document.createElement("canvas");
+  output.width = layout.width;
+  output.height = layout.height;
+  const ctx = output.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(sourceImage, 0, 0, layout.width, layout.height);
+  applyLayerToneAdjustments(output, {
+    exposure: state.photoExposure,
+    contrast: state.photoContrast,
+    brightness: state.photoBrightness,
+    darken: state.photoDarken
+  });
+  return output;
+}
+
+function applySkyAppearanceFilters(ctx, width, height, state){
+  const saturation = Number(state.skySaturation ?? 100);
+  const warmth = Number(state.skyWarmth ?? 0);
+  if (saturation === 100 && warmth === 0) return;
+
+  const temp = document.createElement("canvas");
+  temp.width = width;
+  temp.height = height;
+  const tempCtx = temp.getContext("2d");
+  let filter = "";
+  if (saturation !== 100) filter += `saturate(${saturation}%) `;
+  if (warmth > 0) filter += `sepia(${Math.min(80, warmth * 0.45)}%) `;
+  if (warmth < 0) filter += `hue-rotate(${warmth * 0.35}deg) `;
+  tempCtx.filter = filter.trim();
+  tempCtx.drawImage(ctx.canvas, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  ctx.drawImage(temp, 0, 0);
+}
+
+function applyLayerToneAdjustments(canvas, { exposure, contrast, brightness, darken }){
+  const width = canvas.width;
+  const height = canvas.height;
+  const sourceCtx = canvas.getContext("2d", { willReadFrequently: true });
+  const temp = document.createElement("canvas");
+  temp.width = width;
+  temp.height = height;
+  const tempCtx = temp.getContext("2d", { willReadFrequently: true });
+  const filter = buildToneFilter({ exposure, contrast, brightness, darken });
+  tempCtx.filter = filter;
+  tempCtx.drawImage(canvas, 0, 0);
+  sourceCtx.clearRect(0, 0, width, height);
+  sourceCtx.filter = "none";
+  sourceCtx.drawImage(temp, 0, 0);
+  applyShadowDarken(sourceCtx, width, height, Number(darken) || 0);
+}
+
+function buildToneFilter({ exposure, contrast, brightness, darken }){
+  const bright = Number(brightness ?? 100) / 100;
+  const exp = 1 + (Number(exposure ?? 0) / 100);
+  const cont = Number(contrast ?? 100) / 100;
+  const darkenAmount = Number(darken ?? 0) / 100;
+  const overallBright = Math.max(20, 100 * bright * exp * (1 - darkenAmount * 0.42));
+  const contrastPct = Math.max(40, 100 * cont * (1 + darkenAmount * 0.18));
+  return `brightness(${overallBright}%) contrast(${contrastPct}%)`;
+}
+
+function applyShadowDarken(ctx, width, height, amount){
+  if (!amount) return;
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  const strength = amount / 100;
+  for (let i = 0; i < data.length; i += 4) {
+    const luminance = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) / 255;
+    if (luminance >= 0.58) continue;
+    const shadowWeight = 1 - luminance / 0.58;
+    const factor = 1 - strength * shadowWeight * 0.72;
+    data[i] *= factor;
+    data[i + 1] *= factor;
+    data[i + 2] *= factor;
+  }
+  ctx.putImageData(imageData, 0, 0);
 }
 
 function drawSkyTexture(ctx, skyImage, width, height, offsetX = 0, offsetY = 0){

@@ -60,10 +60,19 @@ export function createProcessingOverlay(overlayEl, textEl){
 }
 
 export const INTENSIVE_RENDER_PARAMS = new Set([
-  "edgeFeather",
-  "maskExpansion",
+  "photoExposure",
+  "photoContrast",
+  "photoBrightness",
+  "photoDarken",
+  "skyExposure",
+  "skyContrast",
+  "skyBrightness",
+  "skyDarken",
   "skyOpacity",
   "skyWarmth",
   "skySaturation",
-  "skyBrightness"
+  "edgeFeather",
+  "maskExpansion",
+  "skyOffsetX",
+  "skyOffsetY"
 ]);

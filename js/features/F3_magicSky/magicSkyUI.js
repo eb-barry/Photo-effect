@@ -1,13 +1,16 @@
-// F3 魔法天空 - UI v0.2.2
-// 四按鈕分頁 + 橫向滑動天空素材列 + 影像微調 slider + 天空平移手勢。
+// F3 魔法天空 - UI v0.3.0
+// 四按鈕分頁 + 三分段影像微調 + 天空平移手勢。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
 import { INTENSIVE_RENDER_PARAMS } from "./magicSkyBusy.js";
 import { sampleSkyMaskAt } from "./magicSkySegment.js";
 import {
+  ADJUST_SEGMENTS,
   MAGIC_SKY_CONTROL_TABS,
-  MAGIC_SKY_PARAMETERS,
+  getAdjustSegmentHint,
+  getParametersForAdjustSegment,
   getSelectedSkyIdKey,
+  getSliderTitle,
   updateMagicSkyState
 } from "./magicSkyState.js";
 
@@ -37,6 +40,8 @@ export function setupMagicSkyUI(root, state, renderApi, persistDraft = () => {},
   const nightPanel = root.querySelector("#nightPanel");
   const sunsetPanel = root.querySelector("#sunsetPanel");
   const adjustPanel = root.querySelector("#adjustPanel");
+  const adjustSegmentButtons = root.querySelectorAll("[data-adjust-segment]");
+  const adjustSegmentHint = root.querySelector("#adjustSegmentHint");
   const sliderTarget = root.querySelector("#sliderTarget");
   const slider = root.querySelector("#mainSlider");
   const sliderRow = root.querySelector("#sliderRow");
@@ -78,18 +83,34 @@ export function setupMagicSkyUI(root, state, renderApi, persistDraft = () => {},
     if (expanded) requestAnimationFrame(() => refreshAllCarouselHints(root));
   }
 
-  function refreshSelectOptions(){
-    if (!MAGIC_SKY_PARAMETERS.some(item => item.id === state.selectedParameter)) {
-      state.selectedParameter = "skyOpacity";
+  function refreshAdjustSegments(){
+    adjustSegmentButtons.forEach(button => {
+      const active = state.adjustSegment === button.dataset.adjustSegment;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    if (adjustSegmentHint) {
+      adjustSegmentHint.textContent = getAdjustSegmentHint(state.adjustSegment);
     }
-    sliderTarget.innerHTML = MAGIC_SKY_PARAMETERS
+    sliderRow?.classList.toggle("magic-sky-slider-photo", state.adjustSegment === "photo");
+    sliderRow?.classList.toggle("magic-sky-slider-sky", state.adjustSegment === "sky");
+    sliderRow?.classList.toggle("magic-sky-slider-edge", state.adjustSegment === "edge");
+  }
+
+  function refreshSelectOptions(){
+    const params = getParametersForAdjustSegment(state.adjustSegment);
+    if (!params.some(item => item.id === state.selectedParameter)) {
+      state.selectedParameter = params[0]?.id || "photoExposure";
+    }
+    sliderTarget.innerHTML = params
       .map(item => `<option value="${item.id}" ${item.id === state.selectedParameter ? "selected" : ""}>${item.label}</option>`)
       .join("");
     sliderTarget.classList.add("selected");
   }
 
   function getCurrentConfig(){
-    return MAGIC_SKY_PARAMETERS.find(item => item.id === state.selectedParameter) || MAGIC_SKY_PARAMETERS[0];
+    const params = getParametersForAdjustSegment(state.adjustSegment);
+    return params.find(item => item.id === state.selectedParameter) || params[0];
   }
 
   function refreshSlider(){
@@ -103,7 +124,7 @@ export function setupMagicSkyUI(root, state, renderApi, persistDraft = () => {},
     slider.max = config.max;
     slider.step = config.step;
     slider.value = value;
-    sliderLabel.textContent = config.label;
+    sliderLabel.textContent = getSliderTitle(state.adjustSegment, config);
     sliderValue.textContent = formatParameterValue(value, config);
   }
 
@@ -111,13 +132,34 @@ export function setupMagicSkyUI(root, state, renderApi, persistDraft = () => {},
     refreshTabBar();
     refreshTabPanels();
     refreshAllSkyButtons();
+    refreshAdjustSegments();
     refreshSelectOptions();
     refreshSlider();
   }
 
+  function switchAdjustSegment(segmentId){
+    const params = getParametersForAdjustSegment(segmentId);
+    Object.assign(state, updateMagicSkyState(state, {
+      adjustSegment: segmentId,
+      selectedParameter: params[0]?.id
+    }));
+    refreshAllControls();
+    persistDraft();
+  }
+
+  adjustSegmentButtons.forEach(button => button.addEventListener("click", event => {
+    event.preventDefault();
+    switchAdjustSegment(button.dataset.adjustSegment);
+  }));
+
   function toggleControlTab(tabId){
     const nextTab = state.activeControlTab === tabId ? null : tabId;
-    Object.assign(state, updateMagicSkyState(state, { activeControlTab: nextTab }));
+    const partial = { activeControlTab: nextTab };
+    if (nextTab === "adjust") {
+      partial.adjustSegment = state.adjustSegment || "photo";
+      partial.selectedParameter = getParametersForAdjustSegment(partial.adjustSegment)[0]?.id || "photoExposure";
+    }
+    Object.assign(state, updateMagicSkyState(state, partial));
     refreshAllControls();
     persistDraft();
   }
@@ -158,7 +200,12 @@ export function setupMagicSkyUI(root, state, renderApi, persistDraft = () => {},
     const intensive = INTENSIVE_RENDER_PARAMS.has(config.id);
     if (intensive) {
       sliderRenderTimer = setTimeout(() => {
-        renderBusy("調整天空效果，請稍候…", { delay: 0 });
+        const busyMessage = state.adjustSegment === "photo"
+          ? "調整照片效果，請稍候…"
+          : state.adjustSegment === "sky"
+            ? "調整天空效果，請稍候…"
+            : "調整邊緣融合，請稍候…";
+        renderBusy(busyMessage, { delay: 0 });
       }, 50);
       return;
     }
@@ -172,6 +219,7 @@ export function setupMagicSkyUI(root, state, renderApi, persistDraft = () => {},
   if (canvas) {
     enableSkyPanGesture(canvas, state, gestureContext, partial => {
       Object.assign(state, updateMagicSkyState(state, partial));
+      refreshSlider();
       render();
     }, async () => {
       await renderBusy("調整天空位置，請稍候…", { delay: 120 });
@@ -184,6 +232,22 @@ export function setupMagicSkyUI(root, state, renderApi, persistDraft = () => {},
   }
 
   refreshAllControls();
+}
+
+export function renderAdjustSegmentBar(){
+  return `
+    <div class="magic-sky-adjust-segments segment" role="tablist" aria-label="微調對象">
+      ${ADJUST_SEGMENTS.map(segment => `
+        <button
+          type="button"
+          class="magic-sky-adjust-segment"
+          data-adjust-segment="${segment.id}"
+          aria-pressed="false"
+        >${segment.label}</button>
+      `).join("")}
+    </div>
+    <p class="magic-sky-adjust-hint" id="adjustSegmentHint">${ADJUST_SEGMENTS[0].hint}</p>
+  `;
 }
 
 export function renderControlTabs(){
