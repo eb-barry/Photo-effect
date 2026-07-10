@@ -1,11 +1,11 @@
-// F3 魔法天空 - AI 天空分割 v0.3.6
-// 320 推論 → 640 中繼放大 → 全尺寸遮罩。
+// F3 魔法天空 - AI 天空分割 v0.3.7
+// 320 推論 → 640 中繼 → 深色細節前景保護。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/voyagerfromeast/skyseg/resolve/main/skyseg_fp16.onnx";
 const MODEL_CACHE_NAME = "photo-effects-skyseg-model-v1";
-const MASK_PIPELINE_VERSION = 4;
+const MASK_PIPELINE_VERSION = 5;
 const INPUT_SIZE = 320;
 const MASK_INTERMEDIATE_MAX_EDGE = 640;
 const SKY_CONFIDENCE_THRESHOLD = 0.58;
@@ -52,6 +52,7 @@ export async function ensureSkyMask(sourceImage, photoKey, options = {}){
   const session = await ensureSession(onStatus);
   const output = await runInference(session, sourceImage);
   const maskCanvas = buildMaskCanvas(output, sourceImage.width, sourceImage.height);
+  applyPhotoForegroundProtection(maskCanvas, sourceImage);
   const entry = {
     width: sourceImage.width,
     height: sourceImage.height,
@@ -210,6 +211,73 @@ function buildMaskCanvas(outputData, width, height){
   const finalScale = Math.max(targetW / mid.width, targetH / mid.height);
   const finalBlur = finalScale > 2 ? 0.75 : 0.5;
   return refineUpscaledMask(maskCanvas, finalBlur);
+}
+
+function applyPhotoForegroundProtection(maskCanvas, sourceImage){
+  const width = maskCanvas.width;
+  const height = maskCanvas.height;
+  const photoCanvas = document.createElement("canvas");
+  photoCanvas.width = width;
+  photoCanvas.height = height;
+  const photoCtx = photoCanvas.getContext("2d", { willReadFrequently: true });
+  photoCtx.drawImage(sourceImage, 0, 0, width, height);
+  const photo = photoCtx.getImageData(0, 0, width, height).data;
+
+  const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const maskData = maskCtx.getImageData(0, 0, width, height);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const alpha = maskData.data[i + 3];
+      if (alpha === 0) continue;
+
+      const lum = sampleLuminance(photo, x, y, width);
+      const contrast = sampleLocalContrast(photo, x, y, width, height, lum);
+      const factor = computeDarkForegroundFactor(lum, alpha / 255, contrast);
+      maskData.data[i + 3] = Math.round(alpha * factor);
+    }
+  }
+
+  maskCtx.putImageData(maskData, 0, 0);
+  return maskCanvas;
+}
+
+function sampleLuminance(photo, x, y, width){
+  const i = (y * width + x) * 4;
+  return (photo[i] * 0.299 + photo[i + 1] * 0.587 + photo[i + 2] * 0.114) / 255;
+}
+
+function sampleLocalContrast(photo, x, y, width, height, centerLum){
+  let maxNeighbor = centerLum;
+  for (let oy = -2; oy <= 2; oy++) {
+    for (let ox = -2; ox <= 2; ox++) {
+      if (ox === 0 && oy === 0) continue;
+      const nx = x + ox;
+      const ny = y + oy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      maxNeighbor = Math.max(maxNeighbor, sampleLuminance(photo, nx, ny, width));
+    }
+  }
+  return maxNeighbor - centerLum;
+}
+
+function computeDarkForegroundFactor(lum, maskAlpha, contrast){
+  if (maskAlpha < 0.06) return 1;
+
+  if (lum < 0.18 && contrast > 0.12) {
+    return maskAlpha > 0.25 ? 0.04 : 1;
+  }
+  if (lum < 0.3 && contrast > 0.1) {
+    const darkness = (0.3 - lum) / 0.3;
+    const penalty = darkness * Math.min(1, maskAlpha * 1.15) * 0.96;
+    return Math.max(0.04, 1 - penalty);
+  }
+  if (lum < 0.42 && contrast > 0.18 && maskAlpha < 0.82) {
+    const darkness = (0.42 - lum) / 0.42;
+    return Math.max(0.15, 1 - darkness * (0.82 - maskAlpha) * 1.4);
+  }
+  return 1;
 }
 
 function resolveIntermediateSize(width, height, maxEdge = MASK_INTERMEDIATE_MAX_EDGE){
