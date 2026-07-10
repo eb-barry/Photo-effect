@@ -64,6 +64,8 @@ export const INTENSIVE_RENDER_PARAMS = new Set([
   "photoContrast",
   "photoBrightness",
   "photoDarken",
+  "photoWarmth",
+  "photoSaturation",
   "skyExposure",
   "skyContrast",
   "skyBrightness",

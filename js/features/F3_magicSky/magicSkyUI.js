@@ -1,4 +1,4 @@
-// F3 魔法天空 - UI v0.3.3
+// F3 魔法天空 - UI v0.3.4
 // 三按鈕分頁 + 天空類別 + 天空/照片微調 + 拖曳/縮放手勢。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
@@ -40,12 +40,12 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
   const tabButtons = root.querySelectorAll("[data-control-tab]");
   const tabPanels = root.querySelector("#magicSkyTabPanels");
   const skyPanel = root.querySelector("#skyPanel");
-  const skyAdjustPanel = root.querySelector("#skyAdjustPanel");
-  const photoAdjustPanel = root.querySelector("#photoAdjustPanel");
+  const adjustControlsPanel = root.querySelector("#adjustControlsPanel");
   const categoryButtons = root.querySelectorAll("[data-sky-category-tab]");
   const sliderTarget = root.querySelector("#sliderTarget");
   const slider = root.querySelector("#mainSlider");
   const sliderRow = root.querySelector("#sliderRow");
+  const sliderLabel = root.querySelector("#sliderLabel");
   const sliderValue = root.querySelector("#sliderValue");
   let sliderRenderTimer = null;
 
@@ -79,8 +79,7 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
     const expanded = Boolean(tab);
     tabPanels?.classList.toggle("hidden", !expanded);
     skyPanel?.classList.toggle("hidden", tab !== "sky");
-    skyAdjustPanel?.classList.toggle("hidden", tab !== "skyAdjust");
-    photoAdjustPanel?.classList.toggle("hidden", tab !== "photoAdjust");
+    adjustControlsPanel?.classList.toggle("hidden", tab !== "skyAdjust" && tab !== "photoAdjust");
     if (tab === "sky") requestAnimationFrame(() => refreshSkyCarouselHints(root));
   }
 
@@ -103,7 +102,6 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
 
   function refreshSlider(){
     const showAdjust = state.activeControlTab === "skyAdjust" || state.activeControlTab === "photoAdjust";
-    sliderRow?.classList.toggle("hidden", !showAdjust);
     if (!showAdjust) return;
 
     const config = getCurrentConfig();
@@ -113,6 +111,7 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
     slider.max = ADJUST_SLIDER_MAX;
     slider.step = config.step;
     slider.value = value;
+    sliderLabel.textContent = config.label;
     sliderValue.textContent = formatParameterValue(value);
   }
 
@@ -258,8 +257,9 @@ export function renderAdjustControls(){
       <label for="sliderTarget" class="selection-label">調整項目</label>
       <select id="sliderTarget" class="select-control" aria-label="調整項目"></select>
     </div>
-    <div class="slider-row magic-sky-slider-row magic-sky-bipolar-slider" id="sliderRow">
-      <div class="slider-head magic-sky-slider-head">
+    <div class="slider-row" id="sliderRow">
+      <div class="slider-head">
+        <span id="sliderLabel">曝光</span>
         <span id="sliderValue">0</span>
       </div>
       <input id="mainSlider" type="range" />

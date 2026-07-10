@@ -179,6 +179,9 @@ function renderAdjustedPhotoLayer(sourceImage, layout, effects){
     brightness: effects.photoBrightness,
     darken: effects.photoDarken
   });
+  const imageData = ctx.getImageData(0, 0, output.width, output.height);
+  applyPixelSaturationWarmth(imageData, effects.photoSaturation, effects.photoWarmth);
+  ctx.putImageData(imageData, 0, 0);
   return output;
 }
 

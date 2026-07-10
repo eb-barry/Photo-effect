@@ -1,10 +1,10 @@
-// F3 魔法天空 - 狀態管理 v0.3.3
+// F3 魔法天空 - 狀態管理 v0.3.4
 // 雙極滑桿（中點 0、±150）+ 換天/換圖重置。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
 
 export const MAGIC_SKY_FEATURE_ID = "F3_magicSky";
-export const MAGIC_SKY_FEATURE_VERSION = "0.3.3";
+export const MAGIC_SKY_FEATURE_VERSION = "0.3.4";
 export const MAGIC_SKY_DRAFT_KEY = "photoEffects.F3_magicSky.draft.v3";
 
 export const ADJUST_SLIDER_MIN = -150;
@@ -30,7 +30,9 @@ export const PHOTO_PARAMETERS = [
   { id: "photoExposure", label: "曝光", ...SLIDER_DEF },
   { id: "photoContrast", label: "對比", ...SLIDER_DEF },
   { id: "photoBrightness", label: "亮度", ...SLIDER_DEF },
-  { id: "photoDarken", label: "增暗", ...SLIDER_DEF }
+  { id: "photoDarken", label: "增暗", ...SLIDER_DEF },
+  { id: "photoWarmth", label: "色溫", ...SLIDER_DEF },
+  { id: "photoSaturation", label: "飽和", ...SLIDER_DEF }
 ];
 
 export const SKY_PARAMETERS = [
@@ -69,6 +71,8 @@ export function getDefaultAdjustmentState(){
     photoContrast: 0,
     photoBrightness: 0,
     photoDarken: 0,
+    photoWarmth: 0,
+    photoSaturation: 0,
     skyExposure: 0,
     skyContrast: 0,
     skyBrightness: 0,
@@ -89,6 +93,8 @@ export function resolveEffectValues(state){
     photoContrast: mapPercentSlider(slider("photoContrast")),
     photoBrightness: mapPercentSlider(slider("photoBrightness")),
     photoDarken: mapPositivePercentSlider(slider("photoDarken")),
+    photoWarmth: (slider("photoWarmth") / ADJUST_SLIDER_MAX) * 100,
+    photoSaturation: mapPercentSlider(slider("photoSaturation")),
     skyOffsetX: slider("skyOffsetX"),
     skyOffsetY: slider("skyOffsetY"),
     skyScale: clamp(100 + (slider("skyScale") / ADJUST_SLIDER_MAX) * 200, 50, 300),
@@ -214,6 +220,10 @@ function migrateLegacyDraft(parsed){
   const legacyVersion = String(next.featureVersion || "0");
   if (legacyVersion < "0.3.3") {
     Object.assign(next, getDefaultAdjustmentState());
+  }
+  if (legacyVersion < "0.3.4") {
+    next.photoWarmth = 0;
+    next.photoSaturation = 0;
   }
 
   return next;
