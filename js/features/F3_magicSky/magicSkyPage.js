@@ -1,4 +1,4 @@
-// F3 魔法天空 - Page Controller v0.2.2
+// F3 魔法天空 - Page Controller v0.3.0
 // 依照片比例輸出 + 處理中提示。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -24,7 +24,7 @@ import {
   renderMagicSky,
   resolveOutputSize
 } from "./magicSkyTool.js";
-import { mountSkyCarousels, renderControlTabs, setupMagicSkyUI } from "./magicSkyUI.js";
+import { mountSkyCarousels, renderAdjustSegmentBar, renderControlTabs, setupMagicSkyUI } from "./magicSkyUI.js";
 
 export function initMagicSkyPage(root, shared = {}){
   return renderMagicSkyPage(root, shared.goHome || shared.navigate || (() => {}));
@@ -40,7 +40,7 @@ export async function renderMagicSkyPage(root, navigate){
 
         <div class="topbar-title">
           <h1>魔法天空</h1>
-          <p class="crystal-version" aria-hidden="true">v0.2.2</p>
+          <p class="crystal-version" aria-hidden="true">v0.3.0</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -82,14 +82,15 @@ export async function renderMagicSkyPage(root, navigate){
           </div>
 
           <div id="adjustPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="影像微調">
+            ${renderAdjustSegmentBar()}
             <div class="selection-row crystal-adjust-row">
               <label for="sliderTarget" class="selection-label">調整項目</label>
               <select id="sliderTarget" class="select-control" aria-label="調整項目"></select>
             </div>
-            <div class="slider-row" id="sliderRow">
+            <div class="slider-row magic-sky-slider-photo" id="sliderRow">
               <div class="slider-head">
-                <span id="sliderLabel">天空透明度</span>
-                <span id="sliderValue">100%</span>
+                <span id="sliderLabel">照片 · 曝光</span>
+                <span id="sliderValue">0</span>
               </div>
               <input id="mainSlider" type="range" />
             </div>
@@ -213,6 +214,8 @@ export async function renderMagicSkyPage(root, navigate){
       sourceImageDataUrl: dataUrl,
       activeControlTab: "sunny",
       activeSkyCategory: "sunny",
+      adjustSegment: "photo",
+      selectedParameter: "photoExposure",
       skyOffsetX: 0,
       skyOffsetY: 0
     }));

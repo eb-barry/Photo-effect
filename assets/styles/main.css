@@ -545,3 +545,43 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
   line-height: 1.45;
   white-space: pre-line;
 }
+
+.magic-sky-adjust-segments {
+  margin-bottom: 6px;
+}
+
+.magic-sky-adjust-segment {
+  min-height: 42px;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.magic-sky-adjust-hint {
+  margin: 0 0 8px;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--muted);
+  text-align: center;
+}
+
+.magic-sky-slider-photo input[type="range"]::-webkit-slider-runnable-track {
+  background: rgba(198, 122, 42, 0.2);
+}
+
+.magic-sky-slider-photo input[type="range"]::-webkit-slider-thumb,
+.magic-sky-slider-photo input[type="range"]::-moz-range-thumb {
+  background: linear-gradient(145deg, #e8a04c, #c26b1a);
+}
+
+.magic-sky-slider-sky input[type="range"]::-webkit-slider-runnable-track {
+  background: rgba(47, 85, 212, 0.18);
+}
+
+.magic-sky-slider-sky input[type="range"]::-webkit-slider-thumb,
+.magic-sky-slider-sky input[type="range"]::-moz-range-thumb {
+  background: linear-gradient(145deg, #5d8fff, #2f55d4);
+}
+
+.magic-sky-slider-edge input[type="range"]::-webkit-slider-runnable-track {
+  background: rgba(7, 63, 61, 0.14);
+}
