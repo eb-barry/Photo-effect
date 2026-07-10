@@ -612,32 +612,83 @@ body.magic-sky-scroll-locked {
   justify-content: flex-end;
 }
 
+.magic-sky-bipolar-slider input[type="range"] {
+  --magic-sky-thumb-size: 46px;
+}
+
 .magic-sky-page .crystal-tab-panel input[type="range"],
 .magic-sky-page .magic-sky-slider-row input[type="range"] {
-  height: 44px;
+  height: 48px;
 }
 
 .magic-sky-page .crystal-tab-panel input[type="range"]::-webkit-slider-runnable-track,
-.magic-sky-page .magic-sky-slider-row input[type="range"]::-webkit-slider-runnable-track {
+.magic-sky-page .magic-sky-slider-row input[type="range"]::-webkit-slider-runnable-track,
+.magic-sky-page .magic-sky-bipolar-slider input[type="range"]::-webkit-slider-runnable-track {
   height: 14px;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      to right,
+      rgba(7, 63, 61, 0.1) 0%,
+      rgba(7, 63, 61, 0.1) calc(50% - 1px),
+      rgba(7, 143, 139, 0.55) calc(50% - 1px),
+      rgba(7, 143, 139, 0.55) calc(50% + 1px),
+      rgba(7, 63, 61, 0.1) calc(50% + 1px),
+      rgba(7, 63, 61, 0.1) 100%
+    );
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .magic-sky-page .crystal-tab-panel input[type="range"]::-webkit-slider-thumb,
-.magic-sky-page .magic-sky-slider-row input[type="range"]::-webkit-slider-thumb {
-  width: 44px;
-  height: 44px;
-  margin-top: -15px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+.magic-sky-page .magic-sky-slider-row input[type="range"]::-webkit-slider-thumb,
+.magic-sky-page .magic-sky-bipolar-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: var(--magic-sky-thumb-size);
+  height: var(--magic-sky-thumb-size);
+  margin-top: calc((14px - var(--magic-sky-thumb-size)) / 2);
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.2) 16%, transparent 36%),
+    radial-gradient(circle at 50% 62%, var(--base-dark) 0%, var(--base) 52%, color-mix(in srgb, var(--base) 72%, var(--base-dark)) 100%);
+  box-shadow:
+    0 5px 14px rgba(7, 79, 77, 0.34),
+    0 2px 4px rgba(0, 0, 0, 0.18),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.22),
+    inset 0 4px 7px rgba(255, 255, 255, 0.42);
 }
 
 .magic-sky-page .crystal-tab-panel input[type="range"]::-moz-range-track,
-.magic-sky-page .magic-sky-slider-row input[type="range"]::-moz-range-track {
+.magic-sky-page .magic-sky-slider-row input[type="range"]::-moz-range-track,
+.magic-sky-page .magic-sky-bipolar-slider input[type="range"]::-moz-range-track {
   height: 14px;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      to right,
+      rgba(7, 63, 61, 0.1) 0%,
+      rgba(7, 63, 61, 0.1) calc(50% - 1px),
+      rgba(7, 143, 139, 0.55) calc(50% - 1px),
+      rgba(7, 143, 139, 0.55) calc(50% + 1px),
+      rgba(7, 63, 61, 0.1) calc(50% + 1px),
+      rgba(7, 63, 61, 0.1) 100%
+    );
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .magic-sky-page .crystal-tab-panel input[type="range"]::-moz-range-thumb,
-.magic-sky-page .magic-sky-slider-row input[type="range"]::-moz-range-thumb {
-  width: 44px;
-  height: 44px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+.magic-sky-page .magic-sky-slider-row input[type="range"]::-moz-range-thumb,
+.magic-sky-page .magic-sky-bipolar-slider input[type="range"]::-moz-range-thumb {
+  width: var(--magic-sky-thumb-size);
+  height: var(--magic-sky-thumb-size);
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.2) 16%, transparent 36%),
+    radial-gradient(circle at 50% 62%, var(--base-dark) 0%, var(--base) 52%, color-mix(in srgb, var(--base) 72%, var(--base-dark)) 100%);
+  box-shadow:
+    0 5px 14px rgba(7, 79, 77, 0.34),
+    0 2px 4px rgba(0, 0, 0, 0.18),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.22),
+    inset 0 4px 7px rgba(255, 255, 255, 0.42);
 }
