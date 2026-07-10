@@ -1,16 +1,15 @@
-// F3 魔法天空 - AI 天空分割 v0.2.0
-// ONNX Runtime Web + U²-Net skyseg_fp16（參考 skyseg-web）
+// F3 魔法天空 - AI 天空分割 v0.3.5
+// ONNX Runtime Web + 遮罩柔邊精煉。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/voyagerfromeast/skyseg/resolve/main/skyseg_fp16.onnx";
 const MODEL_CACHE_NAME = "photo-effects-skyseg-model-v1";
-const MASK_PIPELINE_VERSION = 2;
+const MASK_PIPELINE_VERSION = 3;
 const INPUT_SIZE = 320;
 const SKY_CONFIDENCE_THRESHOLD = 0.58;
-const SKY_CONFIDENCE_SOFTNESS = 0.1;
+const SKY_CONFIDENCE_SOFTNESS = 0.14;
 const SKY_CONNECT_THRESHOLD = 0.38;
-const FOREGROUND_PROTECT_THRESHOLD = 0.5;
 const MEAN = [0.485, 0.456, 0.406];
 const STD = [0.229, 0.224, 0.225];
 
@@ -190,7 +189,18 @@ function buildMaskCanvas(outputData, width, height){
   maskCtx.imageSmoothingEnabled = true;
   maskCtx.imageSmoothingQuality = "high";
   maskCtx.drawImage(lowCanvas, 0, 0, width, height);
-  return maskCanvas;
+  return refineUpscaledMask(maskCanvas);
+}
+
+function refineUpscaledMask(maskCanvas){
+  const output = document.createElement("canvas");
+  output.width = maskCanvas.width;
+  output.height = maskCanvas.height;
+  const ctx = output.getContext("2d", { willReadFrequently: true });
+  ctx.filter = "blur(1.25px)";
+  ctx.drawImage(maskCanvas, 0, 0);
+  ctx.filter = "none";
+  return output;
 }
 
 function buildTopConnectedSkyMask(probabilities, width, height){
@@ -237,6 +247,7 @@ function confidenceToAlpha(probability){
   return Math.round(value * 255);
 }
 
+/** @deprecated Use alpha composite in magicSkyTool instead. */
 export function buildForegroundProtectMask(maskCanvas){
   const output = document.createElement("canvas");
   output.width = maskCanvas.width;
@@ -245,10 +256,9 @@ export function buildForegroundProtectMask(maskCanvas){
   ctx.drawImage(maskCanvas, 0, 0);
   const imageData = ctx.getImageData(0, 0, output.width, output.height);
   const data = imageData.data;
-  const cutoff = Math.round(FOREGROUND_PROTECT_THRESHOLD * 255);
 
   for (let i = 3; i < data.length; i += 4) {
-    data[i] = data[i] < cutoff ? 255 : 0;
+    data[i] = data[i] < 140 ? 255 : 0;
   }
 
   ctx.putImageData(imageData, 0, 0);
