@@ -22,4 +22,11 @@ export function setupMirrorUI(root, state, render){
   sliderTarget.addEventListener("change", () => { state.sliderTarget = sliderTarget.value; sliderTarget.classList.add("selected"); refreshSlider(); render(true); });
   slider.addEventListener("input", () => { const config = getCurrentConfig(); state[config.key] = Number(slider.value); sliderValue.textContent = `${state[config.key]}${config.suffix}`; render(true); });
   refreshModeButtons(); refreshSelectOptions(); refreshSlider();
+  return {
+    refreshAllControls(){
+      refreshModeButtons();
+      refreshSelectOptions();
+      refreshSlider();
+    }
+  };
 }

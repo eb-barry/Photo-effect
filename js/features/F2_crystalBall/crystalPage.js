@@ -5,6 +5,7 @@ import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
 import { loadCrystalAssetCatalog } from "./crystalAssets.js";
 import {
+  clearCrystalDraft,
   createDefaultCrystalState,
   loadCrystalDraft,
   saveCrystalDraft,
@@ -137,7 +138,25 @@ export async function renderCrystalBallPage(root, navigate){
   };
 
   const persistDraft = () => {
+    if (!state.sourceImageDataUrl) return;
     saveCrystalDraft(state);
+  };
+
+  const resetEditorSession = () => {
+    sourceImage = null;
+    Object.assign(state, updateCrystalState(createDefaultCrystalState(), {}));
+    root.querySelector("#emptyCanvas")?.classList.remove("hidden");
+    canvas.classList.add("hidden");
+    root.querySelector("#crystalTabBar")?.classList.add("hidden");
+    root.querySelector("#crystalTabPanels")?.classList.add("hidden");
+    root.querySelector("#centerPhotoBtn")?.classList.add("hidden");
+    root.querySelector("#resetAdjustmentsBtn")?.classList.add("hidden");
+    crystalUi?.refreshAllControls?.();
+  };
+
+  const finalizeExportSession = () => {
+    clearCrystalDraft();
+    resetEditorSession();
   };
 
   const renderAndPersist = async () => {
@@ -189,7 +208,7 @@ export async function renderCrystalBallPage(root, navigate){
     console.warn("[F2 水晶球] 素材清單載入失敗，使用預設清單：", error);
   }
   mountAssetCarousels(root);
-  setupCrystalUI(root, state, renderAndPersist, persistDraft);
+  const crystalUi = setupCrystalUI(root, state, renderAndPersist, persistDraft);
 
   root.querySelector("#savePhotoBtn")?.addEventListener("click", async event => {
     event.preventDefault();
@@ -200,7 +219,7 @@ export async function renderCrystalBallPage(root, navigate){
     try {
       await render();
       await downloadCanvas(canvas, "image/jpeg", 0.92);
-      persistDraft();
+      finalizeExportSession();
     } catch (error) {
       console.error(error);
       alert("儲存失敗，請再試一次。");
@@ -217,10 +236,11 @@ export async function renderCrystalBallPage(root, navigate){
       await render();
       const shared = await shareCanvas(canvas, "image/jpeg", 0.92);
       if (!shared) await downloadCanvas(canvas, "image/jpeg", 0.92);
-      persistDraft();
+      finalizeExportSession();
     } catch (error) {
       console.error(error);
       await downloadCanvas(canvas, "image/jpeg", 0.92);
+      finalizeExportSession();
     }
   });
 
@@ -232,8 +252,11 @@ export async function renderCrystalBallPage(root, navigate){
       sourceImage = await loadImageFromDataUrl(state.sourceImageDataUrl);
       showEditor();
       await render();
+      crystalUi?.refreshAllControls?.();
     } catch (error) {
       console.warn("[F2 水晶球] 草稿還原失敗：", error);
+      clearCrystalDraft();
+      resetEditorSession();
     }
   }
 }

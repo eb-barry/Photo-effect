@@ -209,6 +209,14 @@ export function loadMagicSkyDraft(){
   }
 }
 
+export function clearMagicSkyDraft(){
+  try {
+    localStorage.removeItem(MAGIC_SKY_DRAFT_KEY);
+  } catch (error) {
+    console.warn("[F3 魔法天空] 無法清除草稿：", error);
+  }
+}
+
 function migrateLegacyDraft(parsed){
   const next = { ...parsed };
   if (next.activeControlTab === "sunny" || next.activeControlTab === "night" || next.activeControlTab === "sunset") {
