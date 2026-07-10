@@ -1,12 +1,13 @@
-// F3 魔法天空 - AI 天空分割 v0.3.5
-// ONNX Runtime Web + 遮罩柔邊精煉。
+// F3 魔法天空 - AI 天空分割 v0.3.6
+// 320 推論 → 640 中繼放大 → 全尺寸遮罩。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/voyagerfromeast/skyseg/resolve/main/skyseg_fp16.onnx";
 const MODEL_CACHE_NAME = "photo-effects-skyseg-model-v1";
-const MASK_PIPELINE_VERSION = 3;
+const MASK_PIPELINE_VERSION = 4;
 const INPUT_SIZE = 320;
+const MASK_INTERMEDIATE_MAX_EDGE = 640;
 const SKY_CONFIDENCE_THRESHOLD = 0.58;
 const SKY_CONFIDENCE_SOFTNESS = 0.14;
 const SKY_CONNECT_THRESHOLD = 0.38;
@@ -182,22 +183,61 @@ function buildMaskCanvas(outputData, width, height){
   }
   lowCtx.putImageData(imageData, 0, 0);
 
+  const targetW = width;
+  const targetH = height;
+  const mid = resolveIntermediateSize(targetW, targetH);
+  const usesMidStage = mid.width < targetW || mid.height < targetH;
+
+  const midCanvas = document.createElement("canvas");
+  midCanvas.width = mid.width;
+  midCanvas.height = mid.height;
+  const midCtx = midCanvas.getContext("2d", { willReadFrequently: true });
+  midCtx.imageSmoothingEnabled = true;
+  midCtx.imageSmoothingQuality = "high";
+  midCtx.drawImage(lowCanvas, 0, 0, mid.width, mid.height);
+  const refinedMid = refineUpscaledMask(midCanvas, usesMidStage ? 1.1 : 1.25);
+
   const maskCanvas = document.createElement("canvas");
-  maskCanvas.width = width;
-  maskCanvas.height = height;
+  maskCanvas.width = targetW;
+  maskCanvas.height = targetH;
   const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
   maskCtx.imageSmoothingEnabled = true;
   maskCtx.imageSmoothingQuality = "high";
-  maskCtx.drawImage(lowCanvas, 0, 0, width, height);
-  return refineUpscaledMask(maskCanvas);
+  maskCtx.drawImage(refinedMid, 0, 0, targetW, targetH);
+
+  if (!usesMidStage) return refinedMid;
+
+  const finalScale = Math.max(targetW / mid.width, targetH / mid.height);
+  const finalBlur = finalScale > 2 ? 0.75 : 0.5;
+  return refineUpscaledMask(maskCanvas, finalBlur);
 }
 
-function refineUpscaledMask(maskCanvas){
+function resolveIntermediateSize(width, height, maxEdge = MASK_INTERMEDIATE_MAX_EDGE){
+  if (width <= maxEdge && height <= maxEdge) {
+    return { width, height };
+  }
+  const ratio = width / height;
+  if (ratio >= 1) {
+    const w = Math.min(width, maxEdge);
+    return { width: w, height: Math.max(1, Math.round(w / ratio)) };
+  }
+  const h = Math.min(height, maxEdge);
+  return { width: Math.max(1, Math.round(h * ratio)), height: h };
+}
+
+function refineUpscaledMask(maskCanvas, blurPx = 1.25){
+  if (!blurPx || blurPx <= 0) {
+    const copy = document.createElement("canvas");
+    copy.width = maskCanvas.width;
+    copy.height = maskCanvas.height;
+    copy.getContext("2d", { willReadFrequently: true }).drawImage(maskCanvas, 0, 0);
+    return copy;
+  }
   const output = document.createElement("canvas");
   output.width = maskCanvas.width;
   output.height = maskCanvas.height;
   const ctx = output.getContext("2d", { willReadFrequently: true });
-  ctx.filter = "blur(1.25px)";
+  ctx.filter = `blur(${blurPx}px)`;
   ctx.drawImage(maskCanvas, 0, 0);
   ctx.filter = "none";
   return output;

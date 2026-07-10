@@ -1,4 +1,4 @@
-// F3 魔法天空 - Canvas 影像處理 v0.3.5
+// F3 魔法天空 - Canvas 影像處理 v0.3.6
 // AI 天空遮罩 + 柔邊 alpha 合成。
 
 import { getSkyByCategory, getSelectedSkyIdKey, resolveEffectValues } from "./magicSkyState.js";
