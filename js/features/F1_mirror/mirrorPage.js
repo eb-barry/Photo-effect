@@ -144,9 +144,15 @@ export function renderMirrorPage(root, navigate){
     }
   });
 
-  const mirrorUi = setupMirrorUI(root, state, async () => {
-    render(true);
+  const renderAndPersist = async (showGuide = true) => {
+    render(showGuide);
     await persistDraft();
+  };
+
+  const mirrorUi = setupMirrorUI(root, state, renderAndPersist, {
+    canvas,
+    onGestureRender: render,
+    onPanEnd: persistDraft
   });
 
   root.querySelector("#savePhotoBtn")?.addEventListener("click", async event => {
