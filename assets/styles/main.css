@@ -617,3 +617,25 @@ body.magic-sky-scroll-locked {
   color: var(--muted);
   text-align: center;
 }
+
+/* F4 星芒鏡 v0.1.1 - 依原圖比例輸出，不裁切直式／橫式／正方形照片 */
+.starburst-page .crystal-canvas-wrap.starburst-canvas-wrap {
+  aspect-ratio: auto;
+  width: 100%;
+  max-width: 100%;
+}
+
+.starburst-page .crystal-canvas-wrap.starburst-canvas-wrap[data-orientation="landscape"] {
+  max-height: min(72vh, 920px);
+}
+
+.starburst-page .crystal-canvas-wrap.starburst-canvas-wrap[data-orientation="portrait"] {
+  max-height: min(92vh, 1320px);
+}
+
+.starburst-page .starburst-canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: contain;
+}
