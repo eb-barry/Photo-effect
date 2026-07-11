@@ -1,10 +1,10 @@
-// F3 魔法天空 - 狀態管理 v0.3.11
+// F3 魔法天空 - 狀態管理 v0.3.12
 // 雙極滑桿（中點 0、±150）+ 換天/換圖重置。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
 
 export const MAGIC_SKY_FEATURE_ID = "F3_magicSky";
-export const MAGIC_SKY_FEATURE_VERSION = "0.3.11";
+export const MAGIC_SKY_FEATURE_VERSION = "0.3.12";
 export const MAGIC_SKY_DRAFT_KEY = "photoEffects.F3_magicSky.draft.v3";
 
 export const ADJUST_SLIDER_MIN = -150;
@@ -51,7 +51,8 @@ export const SKY_PARAMETERS = [
 export const EDGE_PARAMETERS = [
   { id: "edgeFeather", label: "柔光", ...SLIDER_DEF },
   { id: "maskExpansion", label: "邊界擴張", ...SLIDER_DEF },
-  { id: "skyEdgeRefine", label: "邊緣精修", ...SLIDER_DEF }
+  { id: "skyEdgeRefine", label: "邊緣精修", ...SLIDER_DEF },
+  { id: "skyPocketFill", label: "缺口填補", ...SLIDER_DEF }
 ];
 
 export const SKY_ADJUST_PARAMETERS = [...SKY_PARAMETERS, ...EDGE_PARAMETERS];
@@ -83,7 +84,8 @@ export function getDefaultAdjustmentState(){
     skySaturation: 0,
     edgeFeather: 0,
     maskExpansion: 0,
-    skyEdgeRefine: 0
+    skyEdgeRefine: 0,
+    skyPocketFill: 0
   };
 }
 
@@ -109,7 +111,8 @@ export function resolveEffectValues(state){
     skySaturation: mapPercentSlider(slider("skySaturation")),
     edgeFeather: clamp(36 + (slider("edgeFeather") / ADJUST_SLIDER_MAX) * 64, 0, 100),
     maskExpansion: clamp(-2 + (slider("maskExpansion") / ADJUST_SLIDER_MAX) * 42, -40, 40),
-    skyEdgeRefine: Math.max(0, slider("skyEdgeRefine") / ADJUST_SLIDER_MAX)
+    skyEdgeRefine: Math.max(0, slider("skyEdgeRefine") / ADJUST_SLIDER_MAX),
+    skyPocketFill: Math.max(0, slider("skyPocketFill") / ADJUST_SLIDER_MAX)
   };
 }
 
