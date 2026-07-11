@@ -1,11 +1,13 @@
-// F4 星芒鏡 - Canvas 影像處理 v0.1.0
+// F4 星芒鏡 - Canvas 影像處理 v0.1.1
 // 2D FFT 光圈繞射核心 + 幽靈/眩光/光暈疊層 + 色散與背景光衰減合成。
 
 import { getLightSourceById, getSpikeCount } from "./starburstState.js";
 
+export const STARBURST_MAX_EDGE = 1600;
+/** @deprecated Use resolveOutputSize() for the active photo. */
 export const STARBURST_OUTPUT_WIDTH = 1200;
+/** @deprecated Use resolveOutputSize() for the active photo. */
 export const STARBURST_OUTPUT_HEIGHT = 1600;
-export const STARBURST_ASPECT = 3 / 4;
 
 const KERNEL_SIZE = 256;
 const KERNEL_CACHE_LIMIT = 14;
@@ -33,6 +35,22 @@ export function loadImageFromDataUrl(dataUrl){
   });
 }
 
+/** 依原圖比例決定輸出尺寸，不裁切、支援任意直式／橫式／正方形照片。 */
+export function resolveOutputSize(image, maxEdge = STARBURST_MAX_EDGE){
+  if (!image?.width || !image?.height) {
+    return { width: STARBURST_OUTPUT_WIDTH, height: STARBURST_OUTPUT_HEIGHT };
+  }
+  const ratio = image.width / image.height;
+  if (ratio >= 1) {
+    const width = Math.min(image.width, maxEdge);
+    const height = Math.max(1, Math.round(width / ratio));
+    return { width, height };
+  }
+  const height = Math.min(image.height, maxEdge);
+  const width = Math.max(1, Math.round(height * ratio));
+  return { width, height };
+}
+
 export async function renderStarburstLens(ctx, sourceImage, state, options = {}){
   const showMarker = options.showMarker !== false;
   const width = ctx.canvas.width;
@@ -45,8 +63,7 @@ export async function renderStarburstLens(ctx, sourceImage, state, options = {})
     return;
   }
 
-  const crop = getCoverCrop(sourceImage.width, sourceImage.height, STARBURST_ASPECT);
-  ctx.drawImage(sourceImage, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, width, height);
+  ctx.drawImage(sourceImage, 0, 0, width, height);
 
   if (!state.hasPlacedPoint) return;
 
@@ -569,16 +586,6 @@ function createSeededRandom(seed){
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-function getCoverCrop(imageWidth, imageHeight, targetAspect){
-  const imageAspect = imageWidth / imageHeight;
-  if (imageAspect > targetAspect) {
-    const sw = imageHeight * targetAspect;
-    return { sx: (imageWidth - sw) / 2, sy: 0, sw, sh: imageHeight };
-  }
-  const sh = imageWidth / targetAspect;
-  return { sx: 0, sy: (imageHeight - sh) / 2, sw: imageWidth, sh };
 }
 
 function drawEmptyState(ctx, width, height){
