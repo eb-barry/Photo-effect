@@ -1,4 +1,4 @@
-// F4 星芒鏡 - Page Controller v0.1.0
+// F4 星芒鏡 - Page Controller v0.1.1
 // Topbar + canvas + 三按鈕分頁（光圈葉片／光源／星芒效果）+ 點選/拖曳定位星芒。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -14,8 +14,7 @@ import {
   fileToDataUrl,
   loadImageFromDataUrl,
   renderStarburstLens,
-  STARBURST_OUTPUT_HEIGHT,
-  STARBURST_OUTPUT_WIDTH
+  resolveOutputSize
 } from "./starburstTool.js";
 import { renderAperturePanel, renderControlTabs, renderEffectPanel, renderLightPanel, setupStarburstUI } from "./starburstUI.js";
 
@@ -27,13 +26,13 @@ export async function renderStarburstPage(root, navigate){
   const savedState = loadStarburstDraft() || createDefaultStarburstState();
 
   root.innerHTML = `
-    <main class="app-shell page crystal-page">
+    <main class="app-shell page crystal-page starburst-page">
       <nav class="topbar crystal-topbar">
         ${iconButton({ icon: "home", label: "首頁", id: "homeBtn", className: "feature-home" })}
 
         <div class="topbar-title">
           <h1>星芒鏡</h1>
-          <p class="crystal-version" aria-hidden="true">v0.1.0</p>
+          <p class="crystal-version" aria-hidden="true">v0.1.1</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -44,7 +43,7 @@ export async function renderStarburstPage(root, navigate){
       </nav>
 
       <section class="panel">
-        <div class="canvas-wrap crystal-canvas-wrap" id="canvasWrap">
+        <div class="canvas-wrap crystal-canvas-wrap starburst-canvas-wrap" id="canvasWrap">
           <button
             type="button"
             id="resetStarburstSettingsBtn"
@@ -64,7 +63,7 @@ export async function renderStarburstPage(root, navigate){
             <span class="crystal-center-marker-dot" aria-hidden="true"></span>
           </button>
           <div class="empty-canvas" id="emptyCanvas">請點右上方開啟照片</div>
-          <canvas id="editorCanvas" class="hidden crystal-canvas" width="${STARBURST_OUTPUT_WIDTH}" height="${STARBURST_OUTPUT_HEIGHT}"></canvas>
+          <canvas id="editorCanvas" class="hidden crystal-canvas starburst-canvas"></canvas>
         </div>
 
         <p class="note hidden" id="starburstHint">點一下畫面即可放置星芒，按住拖曳可移動位置</p>
@@ -94,6 +93,7 @@ export async function renderStarburstPage(root, navigate){
 
   const imageInput = root.querySelector("#imageInput");
   const canvas = root.querySelector("#editorCanvas");
+  const canvasWrap = root.querySelector("#canvasWrap");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
   const state = {
@@ -102,13 +102,23 @@ export async function renderStarburstPage(root, navigate){
   };
 
   let sourceImage = null;
+  let outputSize = null;
   let renderSerial = 0;
+  let openSerial = 0;
+
+  const applyCanvasSize = size => {
+    outputSize = size;
+    canvas.width = size.width;
+    canvas.height = size.height;
+    canvasWrap.style.aspectRatio = `${size.width} / ${size.height}`;
+    canvasWrap.dataset.orientation = size.width >= size.height ? "landscape" : "portrait";
+  };
 
   const render = async (options = {}) => {
-    if (!sourceImage) return;
+    if (!sourceImage || !outputSize) return;
     const serial = ++renderSerial;
-    canvas.width = STARBURST_OUTPUT_WIDTH;
-    canvas.height = STARBURST_OUTPUT_HEIGHT;
+    canvas.width = outputSize.width;
+    canvas.height = outputSize.height;
     try {
       await renderStarburstLens(ctx, sourceImage, state, options);
       if (serial !== renderSerial) return;
@@ -136,6 +146,7 @@ export async function renderStarburstPage(root, navigate){
 
   const resetEditorSession = () => {
     sourceImage = null;
+    outputSize = null;
     Object.assign(state, updateStarburstState(createDefaultStarburstState(), {}));
     root.querySelector("#emptyCanvas")?.classList.remove("hidden");
     canvas.classList.add("hidden");
@@ -157,6 +168,18 @@ export async function renderStarburstPage(root, navigate){
     persistDraft();
   };
 
+  const openPhoto = async (dataUrl, statePartial) => {
+    const serial = ++openSerial;
+    const image = await loadImageFromDataUrl(dataUrl);
+    if (serial !== openSerial) return false;
+    sourceImage = image;
+    applyCanvasSize(resolveOutputSize(image));
+    if (statePartial) {
+      Object.assign(state, updateStarburstState(state, statePartial));
+    }
+    return true;
+  };
+
   root.querySelector("#homeBtn")?.addEventListener("click", event => {
     event.preventDefault();
     persistDraft();
@@ -174,14 +197,14 @@ export async function renderStarburstPage(root, navigate){
 
     try {
       const dataUrl = await fileToDataUrl(file);
-      sourceImage = await loadImageFromDataUrl(dataUrl);
-      Object.assign(state, updateStarburstState(state, {
+      const applied = await openPhoto(dataUrl, {
         sourceImageDataUrl: dataUrl,
         activeControlTab: "aperture",
         starburstX: createDefaultStarburstState().starburstX,
         starburstY: createDefaultStarburstState().starburstY,
         hasPlacedPoint: true
-      }));
+      });
+      if (!applied) return;
       showEditor();
       starburstUi?.refreshAllControls?.();
       await renderAndPersist();
@@ -234,7 +257,8 @@ export async function renderStarburstPage(root, navigate){
   async function restoreDraftOnOpen(){
     if (!state.sourceImageDataUrl) return;
     try {
-      sourceImage = await loadImageFromDataUrl(state.sourceImageDataUrl);
+      const applied = await openPhoto(state.sourceImageDataUrl);
+      if (!applied) return;
       showEditor();
       await render();
       starburstUi?.refreshAllControls?.();

@@ -1,8 +1,8 @@
-// F4 星芒鏡 - 狀態管理 v0.1.0
+// F4 星芒鏡 - 狀態管理 v0.1.1
 // 光圈葉片／光源／星芒效果 三分頁 + 單一可拖曳星芒座標。
 
 export const STARBURST_FEATURE_ID = "F4_starburst";
-export const STARBURST_FEATURE_VERSION = "0.1.0";
+export const STARBURST_FEATURE_VERSION = "0.1.1";
 export const STARBURST_DRAFT_KEY = "photoEffects.F4_starburst.draft.v1";
 
 export const STARBURST_CONTROL_TABS = [
