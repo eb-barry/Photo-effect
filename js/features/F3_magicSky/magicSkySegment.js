@@ -1,16 +1,20 @@
-// F3 魔法天空 - AI 天空分割 v0.3.7
-// 320 推論 → 640 中繼 → 深色細節前景保護。
+// F3 魔法天空 - AI 天空分割 v0.3.9
+// 320 推論 → 640 中繼 → 頂部連通天空 + 建築遮蔽區天空。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/voyagerfromeast/skyseg/resolve/main/skyseg_fp16.onnx";
 const MODEL_CACHE_NAME = "photo-effects-skyseg-model-v1";
-const MASK_PIPELINE_VERSION = 5;
+const MASK_PIPELINE_VERSION = 6;
 const INPUT_SIZE = 320;
 const MASK_INTERMEDIATE_MAX_EDGE = 640;
 const SKY_CONFIDENCE_THRESHOLD = 0.58;
 const SKY_CONFIDENCE_SOFTNESS = 0.14;
 const SKY_CONNECT_THRESHOLD = 0.38;
+const OCCLUDED_SKY_THRESHOLD = 0.4;
+const OCCLUDED_MIN_PIXELS = 14;
+const OCCLUDED_MIN_AVG_PROB = 0.46;
+const OCCLUDED_BOTTOM_EXCLUDE_ROWS = 3;
 const MEAN = [0.485, 0.456, 0.406];
 const STD = [0.229, 0.224, 0.225];
 
@@ -163,7 +167,7 @@ function buildMaskCanvas(outputData, width, height){
     probabilities[i] = clamp01(outputData[i]);
   }
 
-  const connectedSky = buildTopConnectedSkyMask(probabilities, INPUT_SIZE, INPUT_SIZE);
+  const connectedSky = buildSkyMaskBitmap(probabilities, INPUT_SIZE, INPUT_SIZE);
   const lowCanvas = document.createElement("canvas");
   lowCanvas.width = INPUT_SIZE;
   lowCanvas.height = INPUT_SIZE;
@@ -309,6 +313,79 @@ function refineUpscaledMask(maskCanvas, blurPx = 1.25){
   ctx.drawImage(maskCanvas, 0, 0);
   ctx.filter = "none";
   return output;
+}
+
+function buildSkyMaskBitmap(probabilities, width, height){
+  const topConnected = buildTopConnectedSkyMask(probabilities, width, height);
+  return includeOccludedSkyRegions(topConnected, probabilities, width, height);
+}
+
+function includeOccludedSkyRegions(included, probabilities, width, height){
+  const output = new Uint8Array(included);
+  const visited = new Uint8Array(width * height);
+
+  for (let i = 0; i < width * height; i++) {
+    if (output[i] || visited[i] || probabilities[i] < OCCLUDED_SKY_THRESHOLD) continue;
+
+    const component = collectSkyComponent(i, probabilities, visited, width, height, OCCLUDED_SKY_THRESHOLD);
+    if (!shouldIncludeOccludedSkyComponent(component, probabilities, height)) continue;
+
+    for (const index of component.indices) {
+      output[index] = 1;
+    }
+  }
+
+  return output;
+}
+
+function collectSkyComponent(startIndex, probabilities, visited, width, height, threshold){
+  const indices = [];
+  let minY = height;
+  let maxY = 0;
+  const queue = [startIndex];
+  visited[startIndex] = 1;
+
+  while (queue.length) {
+    const index = queue.shift();
+    indices.push(index);
+    const x = index % width;
+    const y = (index / width) | 0;
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+
+    if (x > 0) tryPush(index - 1);
+    if (x < width - 1) tryPush(index + 1);
+    if (y > 0) tryPush(index - width);
+    if (y < height - 1) tryPush(index + width);
+  }
+
+  return { indices, minY, maxY };
+
+  function tryPush(neighbor){
+    if (visited[neighbor] || probabilities[neighbor] < threshold) return;
+    visited[neighbor] = 1;
+    queue.push(neighbor);
+  }
+}
+
+function shouldIncludeOccludedSkyComponent(component, probabilities, height){
+  const { indices, maxY } = component;
+  if (indices.length < OCCLUDED_MIN_PIXELS) return false;
+  if (maxY >= height - OCCLUDED_BOTTOM_EXCLUDE_ROWS) return false;
+
+  let sum = 0;
+  let peak = 0;
+  for (const index of indices) {
+    const value = probabilities[index];
+    sum += value;
+    peak = Math.max(peak, value);
+  }
+
+  const average = sum / indices.length;
+  if (average < OCCLUDED_MIN_AVG_PROB) return false;
+  if (peak < SKY_CONFIDENCE_THRESHOLD) return false;
+
+  return true;
 }
 
 function buildTopConnectedSkyMask(probabilities, width, height){
