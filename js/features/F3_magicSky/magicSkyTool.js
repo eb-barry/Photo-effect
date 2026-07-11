@@ -1,4 +1,4 @@
-// F3 魔法天空 - Canvas 影像處理 v0.3.8
+// F3 魔法天空 - Canvas 影像處理 v0.3.12
 // 柔邊 alpha 合成 + 深色細節前景保護 + sky-guided 邊緣精修。
 
 import { getSkyByCategory, getSelectedSkyIdKey, resolveEffectValues } from "./magicSkyState.js";
@@ -152,6 +152,10 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
     layout.height
   );
 
+  if (effects.skyPocketFill > 0) {
+    applySkyPocketFill(layoutMask, sourceImage, effects.skyPocketFill);
+  }
+
   const processedMask = buildProcessedMask(layoutMask, effects.edgeFeather, effects.maskExpansion);
 
   const adjustedPhoto = renderAdjustedPhotoLayer(sourceImage, layout, effects);
@@ -302,6 +306,76 @@ function drawSkyTexture(ctx, skyImage, width, height, offsetX = 0, offsetY = 0, 
   const x = (width - drawWidth) / 2 + panX;
   const y = (height - drawHeight) / 2 + panY;
   ctx.drawImage(skyImage, x, y, drawWidth, drawHeight);
+}
+
+function isSkyLikePhotoPixel(r, g, b, strength) {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const spread = max - min;
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const blueBias = b - Math.max(r, g);
+  const threshold = 118 + strength * 42;
+  return luminance >= threshold && spread <= 58 + strength * 18 && blueBias >= -18;
+}
+
+function isNearMaskAlpha(maskData, width, height, x, y, radius) {
+  for (let dy = -radius; dy <= radius; dy += 1) {
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      if (maskData[(ny * width + nx) * 4 + 3] > 0) return true;
+    }
+  }
+  return false;
+}
+
+function applySkyPocketFill(maskCanvas, sourceImage, strength) {
+  if (!maskCanvas || strength <= 0) return maskCanvas;
+  const { width, height } = maskCanvas;
+  const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const photoCanvas = document.createElement("canvas");
+  photoCanvas.width = width;
+  photoCanvas.height = height;
+  const photoCtx = photoCanvas.getContext("2d", { willReadFrequently: true });
+  photoCtx.drawImage(sourceImage, 0, 0, width, height);
+  const photoData = photoCtx.getImageData(0, 0, width, height).data;
+  const passes = Math.max(1, Math.ceil(strength * 6));
+  const neighborRadius = strength >= 0.55 ? 3 : 2;
+  const minNeighbors = strength >= 0.55 ? 2 : 3;
+  let maskData = maskCtx.getImageData(0, 0, width, height);
+  let alpha = new Uint8ClampedArray(maskData.data);
+  for (let pass = 0; pass < passes; pass += 1) {
+    const next = new Uint8ClampedArray(alpha);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const idx = (y * width + x) * 4;
+        if (alpha[idx + 3] > 0) continue;
+        if (!isNearMaskAlpha(alpha, width, height, x, y, neighborRadius)) continue;
+        let skyNeighbors = 0;
+        for (let dy = -neighborRadius; dy <= neighborRadius; dy += 1) {
+          for (let dx = -neighborRadius; dx <= neighborRadius; dx += 1) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+            if (alpha[(ny * width + nx) * 4 + 3] > 0) skyNeighbors += 1;
+          }
+        }
+        if (skyNeighbors < minNeighbors) continue;
+        const r = photoData[idx];
+        const g = photoData[idx + 1];
+        const b = photoData[idx + 2];
+        if (!isSkyLikePhotoPixel(r, g, b, strength)) continue;
+        next[idx + 3] = 255;
+      }
+    }
+    alpha = next;
+  }
+  maskData.data.set(alpha);
+  maskCtx.putImageData(maskData, 0, 0);
+  return maskCanvas;
 }
 
 function buildProcessedMask(maskCanvas, edgeFeather, maskExpansion){
