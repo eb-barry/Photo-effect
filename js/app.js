@@ -3,6 +3,7 @@ import { renderSettingsPage } from "./settings/settingsPage.js";
 import { renderMirrorPage } from "./features/F1_mirror/mirrorPage.js";
 import { initCrystalBallPage } from "./features/F2_crystalBall/crystalPage.js";
 import { initMagicSkyPage } from "./features/F3_magicSky/magicSkyPage.js";
+import { initStarburstPage } from "./features/F4_starburst/starburstPage.js";
 import { applySettings } from "./config/settingsStore.js";
 
 const app = document.getElementById("app");
@@ -12,7 +13,8 @@ const routes = {
   settings: () => renderSettingsPage(app, navigate),
   F1_mirror: () => renderMirrorPage(app, navigate),
   F2_crystalBall: () => initCrystalBallPage(app, { goHome: () => navigate("home") }),
-  F3_magicSky: () => initMagicSkyPage(app, { goHome: () => navigate("home") })
+  F3_magicSky: () => initMagicSkyPage(app, { goHome: () => navigate("home") }),
+  F4_starburst: () => initStarburstPage(app, { goHome: () => navigate("home") })
 };
 
 function navigate(routeName){

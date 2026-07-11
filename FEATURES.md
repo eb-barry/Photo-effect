@@ -25,8 +25,9 @@ application.
   F3         魔法天空 (Magic Sky)   📋                   Sky replacement &
                                                          atmosphere
 
-  F4         星芒鏡 (Star Mirror)   📋                   Starburst &
-                                                         diffraction
+  F4         星芒鏡 (Starburst      🚧                   Custom aperture
+             Lens)                                       blades, light
+                                                         source & starburst
                                                          effects
 
   F5         畫框 (Frame)           📋                   Professional
