@@ -1,10 +1,10 @@
-// F3 魔法天空 - 狀態管理 v0.3.10
+// F3 魔法天空 - 狀態管理 v0.3.11
 // 雙極滑桿（中點 0、±150）+ 換天/換圖重置。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
 
 export const MAGIC_SKY_FEATURE_ID = "F3_magicSky";
-export const MAGIC_SKY_FEATURE_VERSION = "0.3.10";
+export const MAGIC_SKY_FEATURE_VERSION = "0.3.11";
 export const MAGIC_SKY_DRAFT_KEY = "photoEffects.F3_magicSky.draft.v3";
 
 export const ADJUST_SLIDER_MIN = -150;
