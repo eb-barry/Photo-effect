@@ -1,4 +1,4 @@
-const CACHE_NAME = "photo-effects-v0.4.10.2";
+const CACHE_NAME = "photo-effects-v0.4.11.0";
 
 const CORE_ASSETS = [
   "./",
@@ -36,7 +36,12 @@ const CORE_ASSETS = [
   "./js/features/F3_magicSky/magicSkyBusy.js",
   "./assets/features/F3_magicSky/sunny/manifest.json",
   "./assets/features/F3_magicSky/night/manifest.json",
-  "./assets/features/F3_magicSky/sunset/manifest.json"
+  "./assets/features/F3_magicSky/sunset/manifest.json",
+  "./js/features/F4_starburst/starburstPage.js",
+  "./js/features/F4_starburst/starburstTool.js",
+  "./js/features/F4_starburst/starburstUI.js",
+  "./js/features/F4_starburst/starburstState.js",
+  "./js/features/F4_starburst/starburstFeature.js"
 ];
 
 self.addEventListener("install", event => {
