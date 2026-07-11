@@ -56,7 +56,18 @@ export function createProcessingOverlay(overlayEl, textEl){
     }
   };
 
-  return { begin, end, run, setMessage, showNow, hideNow };
+  const reset = () => {
+    depth = 0;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    hideNow();
+  };
+
+  const isActive = () => depth > 0 || visible;
+
+  return { begin, end, run, reset, isActive, setMessage, showNow, hideNow };
 }
 
 export const INTENSIVE_RENDER_PARAMS = new Set([

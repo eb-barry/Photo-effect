@@ -19,9 +19,11 @@ import {
 export function mountSkyCarousel(root, category){
   const host = root.querySelector("#skyAssetHost");
   if (!host) return;
+  host._resizeObserver?.disconnect?.();
+  host._resizeObserver = null;
   host.innerHTML = renderSkyCarousel(getMagicSkyItems(category), category);
   const carousel = host.querySelector("[data-sky-carousel]");
-  if (carousel) setupSkyCarousel(carousel);
+  if (carousel) setupSkyCarousel(carousel, host);
 }
 
 export function refreshSkyCarouselHints(root){
@@ -125,11 +127,20 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
   }
 
   function switchSkyCategory(category){
-    if (!MAGIC_SKY_CATEGORIES.includes(category)) return;
-    Object.assign(state, updateMagicSkyState(state, { activeSkyCategory: category }));
+    if (!MAGIC_SKY_CATEGORIES.includes(category) || category === state.activeSkyCategory) return;
+    if (renderApi.isBusy?.()) return;
+
+    Object.assign(state, updateMagicSkyState(state, {
+      activeSkyCategory: category,
+      ...getDefaultAdjustmentState()
+    }));
     mountSkyCarousel(root, category);
     refreshAllControls();
     persistDraft();
+
+    if (state.sourceImageDataUrl) {
+      void renderBusy("切換天空效果，請稍候…", { delay: 0 });
+    }
   }
 
   function toggleControlTab(tabId){
@@ -161,6 +172,7 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
     if (!button) return;
     const category = button.dataset.skyCategory;
     if (category !== state.activeSkyCategory) return;
+    if (renderApi.isBusy?.()) return;
     event.preventDefault();
     const key = getSelectedSkyIdKey(category);
     if (button.dataset.skyId === state[key]) return;
@@ -170,7 +182,7 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
       activeSkyCategory: category
     }));
     refreshAllControls();
-    renderBusy("切換天空效果，請稍候…", { delay: 0 });
+    void renderBusy("切換天空效果，請稍候…", { delay: 0 });
     persistDraft();
   });
 
@@ -291,7 +303,7 @@ export function renderSkyCarousel(items, category){
   `;
 }
 
-function setupSkyCarousel(carousel){
+function setupSkyCarousel(carousel, host){
   const track = carousel.querySelector(".crystal-asset-track");
   const left = carousel.querySelector(".crystal-carousel-hint-left");
   const right = carousel.querySelector(".crystal-carousel-hint-right");
@@ -302,7 +314,7 @@ function setupSkyCarousel(carousel){
   if (typeof ResizeObserver !== "undefined") {
     const observer = new ResizeObserver(update);
     observer.observe(track);
-    carousel._resizeObserver = observer;
+    host._resizeObserver = observer;
   }
   requestAnimationFrame(update);
 }

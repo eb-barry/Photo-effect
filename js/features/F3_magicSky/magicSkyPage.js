@@ -48,7 +48,7 @@ export async function renderMagicSkyPage(root, navigate){
 
         <div class="topbar-title">
           <h1>魔法天空</h1>
-          <p class="crystal-version" aria-hidden="true">v0.3.9</p>
+          <p class="crystal-version" aria-hidden="true">v0.3.10</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -112,6 +112,7 @@ export async function renderMagicSkyPage(root, navigate){
   let outputSize = null;
   let renderSerial = 0;
   let analyzeSerial = 0;
+  let renderTask = null;
 
   preloadSkySegmentModel().catch(error => {
     console.warn("[F3 魔法天空] AI 模型預載失敗：", error);
@@ -140,11 +141,19 @@ export async function renderMagicSkyPage(root, navigate){
 
   const render = () => renderCore();
 
-  const renderBusy = (message, options = {}) => processing.run(
-    message || "合成天空效果，請稍候…",
-    renderCore,
-    options
-  );
+  const renderBusy = (message, options = {}) => {
+    if (renderTask) return renderTask;
+    renderTask = processing.run(
+      message || "合成天空效果，請稍候…",
+      renderCore,
+      options
+    ).finally(() => {
+      renderTask = null;
+    });
+    return renderTask;
+  };
+
+  const isSessionBusy = () => Boolean(renderTask) || processing.isActive();
 
   const ensureMaskForCurrentPhoto = async () => {
     if (!sourceImage || !photoKey) return null;
@@ -284,7 +293,8 @@ export async function renderMagicSkyPage(root, navigate){
   const magicSkyUi = setupMagicSkyUI(root, state, {
     render,
     renderBusy,
-    persistDraft
+    persistDraft,
+    isBusy: isSessionBusy
   }, {
     canvas,
     canvasWrap,
