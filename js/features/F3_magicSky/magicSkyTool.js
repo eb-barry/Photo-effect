@@ -19,6 +19,8 @@ export const MAGIC_SKY_OUTPUT_WIDTH = 1200;
 export const MAGIC_SKY_OUTPUT_HEIGHT = 1600;
 
 const skyImageCache = new Map();
+const skyImageLoading = new Map();
+const SKY_IMAGE_LOAD_TIMEOUT_MS = 15000;
 
 export function fileToDataUrl(file){
   return new Promise((resolve, reject) => {
@@ -46,14 +48,34 @@ export async function loadSkyImage(assetUrl){
   if (skyImageCache.has(assetUrl)) {
     return skyImageCache.get(assetUrl);
   }
-  const image = await new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = assetUrl;
+  if (skyImageLoading.has(assetUrl)) {
+    return skyImageLoading.get(assetUrl);
+  }
+
+  const promise = Promise.race([
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error(`[F3 魔法天空] 天空素材載入失敗：${assetUrl}`));
+      img.src = assetUrl;
+    }),
+    new Promise((_, reject) => {
+      setTimeout(
+        () => reject(new Error(`[F3 魔法天空] 天空素材載入逾時：${assetUrl}`)),
+        SKY_IMAGE_LOAD_TIMEOUT_MS
+      );
+    })
+  ]).then(image => {
+    skyImageCache.set(assetUrl, image);
+    skyImageLoading.delete(assetUrl);
+    return image;
+  }).catch(error => {
+    skyImageLoading.delete(assetUrl);
+    throw error;
   });
-  skyImageCache.set(assetUrl, image);
-  return image;
+
+  skyImageLoading.set(assetUrl, promise);
+  return promise;
 }
 
 export function resolveOutputSize(image, maxEdge = MAGIC_SKY_MAX_EDGE){
@@ -148,7 +170,7 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
   );
   applySkyColorAdjustments(skyLayerCtx, skyLayer.width, skyLayer.height, effects);
 
-  compositePhotoAndSky(
+  await compositePhotoAndSky(
     ctx,
     adjustedPhoto,
     skyLayer,
@@ -307,7 +329,7 @@ function buildProcessedMask(maskCanvas, edgeFeather, maskExpansion){
   return output;
 }
 
-function compositePhotoAndSky(
+async function compositePhotoAndSky(
   ctx,
   photoCanvas,
   skyCanvas,
@@ -330,34 +352,46 @@ function compositePhotoAndSky(
   const out = ctx.createImageData(width, height);
   const opacity = clamp(Number(skyOpacityPercent ?? 100), 0, 100) / 100;
   const refineStrength = clamp(Number(skyEdgeRefineStrength) || 0, 0, 1);
+  const yieldEveryRows = width * height > 480000 ? 40 : 0;
 
-  for (let i = 0; i < photo.data.length; i += 4) {
-    const rawAlpha = rawMask.data[i + 3] / 255;
-    let skyAlpha = (skyMask.data[i + 3] / 255) * opacity;
-    skyAlpha *= computeForegroundGuard(rawAlpha);
-    if (refineStrength > 0) {
-      skyAlpha = refineAlphaWithSkyGuide(
-        skyAlpha,
-        photo.data,
-        sky.data,
-        rawMask.data,
-        i,
-        width,
-        height,
-        refineStrength,
-        rawAlpha
-      );
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const rawAlpha = rawMask.data[i + 3] / 255;
+      let skyAlpha = (skyMask.data[i + 3] / 255) * opacity;
+      skyAlpha *= computeForegroundGuard(rawAlpha);
+      if (refineStrength > 0) {
+        skyAlpha = refineAlphaWithSkyGuide(
+          skyAlpha,
+          photo.data,
+          sky.data,
+          rawMask.data,
+          i,
+          width,
+          height,
+          refineStrength,
+          rawAlpha
+        );
+      }
+      skyAlpha *= computeCompositeDarkProtection(photo.data, i, width);
+
+      const inv = 1 - skyAlpha;
+      out.data[i] = clampByte(photo.data[i] * inv + sky.data[i] * skyAlpha);
+      out.data[i + 1] = clampByte(photo.data[i + 1] * inv + sky.data[i + 1] * skyAlpha);
+      out.data[i + 2] = clampByte(photo.data[i + 2] * inv + sky.data[i + 2] * skyAlpha);
+      out.data[i + 3] = 255;
     }
-    skyAlpha *= computeCompositeDarkProtection(photo.data, i, width);
 
-    const inv = 1 - skyAlpha;
-    out.data[i] = clampByte(photo.data[i] * inv + sky.data[i] * skyAlpha);
-    out.data[i + 1] = clampByte(photo.data[i + 1] * inv + sky.data[i + 1] * skyAlpha);
-    out.data[i + 2] = clampByte(photo.data[i + 2] * inv + sky.data[i + 2] * skyAlpha);
-    out.data[i + 3] = 255;
+    if (yieldEveryRows > 0 && y > 0 && y % yieldEveryRows === 0) {
+      await yieldToMainThread();
+    }
   }
 
   ctx.putImageData(out, 0, 0);
+}
+
+function yieldToMainThread(){
+  return new Promise(resolve => setTimeout(resolve, 0));
 }
 
 function computeForegroundGuard(rawAlpha){

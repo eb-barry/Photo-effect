@@ -343,10 +343,11 @@ function collectSkyComponent(startIndex, probabilities, visited, width, height, 
   let minY = height;
   let maxY = 0;
   const queue = [startIndex];
+  let head = 0;
   visited[startIndex] = 1;
 
-  while (queue.length) {
-    const index = queue.shift();
+  while (head < queue.length) {
+    const index = queue[head++];
     indices.push(index);
     const x = index % width;
     const y = (index / width) | 0;
@@ -400,8 +401,9 @@ function buildTopConnectedSkyMask(probabilities, width, height){
     queue.push(index);
   }
 
-  while (queue.length) {
-    const index = queue.shift();
+  let head = 0;
+  while (head < queue.length) {
+    const index = queue[head++];
     connected[index] = 1;
     const x = index % width;
     const y = (index / width) | 0;
