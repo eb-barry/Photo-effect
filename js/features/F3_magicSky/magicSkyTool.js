@@ -1,4 +1,4 @@
-// F3 魔法天空 - Canvas 影像處理 v0.3.13
+// F3 魔法天空 - Canvas 影像處理 v0.3.14
 // 柔邊 alpha 合成 + 深色細節前景保護 + sky-guided 邊緣精修。
 
 import { getSkyByCategory, getSelectedSkyIdKey, resolveEffectValues } from "./magicSkyState.js";
@@ -308,24 +308,31 @@ function drawSkyTexture(ctx, skyImage, width, height, offsetX = 0, offsetY = 0, 
   ctx.drawImage(skyImage, x, y, drawWidth, drawHeight);
 }
 
-function isSkyLikePhotoPixel(r, g, b, strength) {
+function isForegroundLikePixel(r, g, b) {
   const lum = r * 0.299 + g * 0.587 + b * 0.114;
   const maxC = Math.max(r, g, b);
   const minC = Math.min(r, g, b);
   const saturation = maxC === 0 ? 0 : (maxC - minC) / maxC;
-  const minLum = 168 - strength * 86;
-  const maxSat = 0.34 + strength * 0.34;
-  if (lum >= minLum && saturation <= maxSat) return true;
-  if (b >= r * 0.9 && b >= g * 0.85 && lum >= 138 - strength * 72) return true;
-  return lum >= 198 - strength * 62 && saturation <= 0.24 + strength * 0.24;
+  const warmth = r - b;
+  if (warmth > 10 && lum > 85 && lum < 235 && saturation < 0.42) return true;
+  if (g > r + 8 && g > b + 4 && lum > 60) return true;
+  if (lum < 100 && saturation < 0.5) return true;
+  return false;
 }
 
-function isGapCandidatePixel(r, g, b, strength) {
-  if (isSkyLikePhotoPixel(r, g, b, strength)) return true;
-  if (strength < 0.35) return false;
-  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  const spread = Math.max(r, g, b) - Math.min(r, g, b);
-  return lum >= 88 - strength * 24 && spread <= 72 + strength * 36;
+function isPocketSkyPixel(r, g, b, strength) {
+  if (isForegroundLikePixel(r, g, b)) return false;
+  const lum = r * 0.299 + g * 0.587 + b * 0.114;
+  const maxC = Math.max(r, g, b);
+  const minC = Math.min(r, g, b);
+  const saturation = maxC === 0 ? 0 : (maxC - minC) / maxC;
+  const blueBias = b - Math.max(r, g);
+  const minLum = 152 - strength * 28;
+  if (lum < minLum) return false;
+  if (saturation > 0.3 + strength * 0.1) return false;
+  if (blueBias >= 0) return true;
+  if (strength >= 0.7 && lum >= 175 && saturation <= 0.2) return true;
+  return false;
 }
 
 function readMaskBinary(alpha, width, height) {
@@ -349,75 +356,7 @@ function isNearBinary(mask, width, height, x, y, radius) {
   return false;
 }
 
-function dilateBinary(mask, width, height, radius) {
-  const output = new Uint8Array(mask);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = y * width + x;
-      if (mask[index]) continue;
-      if (isNearBinary(mask, width, height, x, y, radius)) output[index] = 1;
-    }
-  }
-  return output;
-}
-
-function dilateIntoSkyLike(mask, photoData, width, height, radius, strength) {
-  const output = new Uint8Array(mask);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = y * width + x;
-      if (mask[index] || !isNearBinary(mask, width, height, x, y, radius)) continue;
-      const byteIndex = index * 4;
-      if (!isGapCandidatePixel(photoData[byteIndex], photoData[byteIndex + 1], photoData[byteIndex + 2], strength)) {
-        continue;
-      }
-      output[index] = 1;
-    }
-  }
-  return output;
-}
-
-function expandMaskByBfs(mask, photoData, width, height, maxDepth, strength) {
-  const dist = new Int16Array(mask.length);
-  dist.fill(-1);
-  const queue = [];
-  for (let i = 0; i < mask.length; i += 1) {
-    if (!mask[i]) continue;
-    dist[i] = 0;
-    queue.push(i);
-  }
-  let head = 0;
-  while (head < queue.length) {
-    const index = queue[head++];
-    const depth = dist[index];
-    if (depth >= maxDepth) continue;
-    const x = index % width;
-    const y = (index / width) | 0;
-    const neighbors = [];
-    if (x > 0) neighbors.push(index - 1);
-    if (x < width - 1) neighbors.push(index + 1);
-    if (y > 0) neighbors.push(index - width);
-    if (y < height - 1) neighbors.push(index + width);
-    for (const neighbor of neighbors) {
-      if (dist[neighbor] >= 0) continue;
-      const byteIndex = neighbor * 4;
-      if (!isGapCandidatePixel(
-        photoData[byteIndex],
-        photoData[byteIndex + 1],
-        photoData[byteIndex + 2],
-        strength
-      )) {
-        continue;
-      }
-      dist[neighbor] = depth + 1;
-      mask[neighbor] = 1;
-      queue.push(neighbor);
-    }
-  }
-  return mask;
-}
-
-function collectSkyComponent(startIndex, mask, visited, photoData, width, height, strength) {
+function collectPocketComponent(startIndex, mask, visited, photoData, width, height, strength) {
   const indices = [];
   const queue = [startIndex];
   visited[startIndex] = 1;
@@ -435,7 +374,7 @@ function collectSkyComponent(startIndex, mask, visited, photoData, width, height
     for (const neighbor of neighbors) {
       if (visited[neighbor] || mask[neighbor]) continue;
       const byteIndex = neighbor * 4;
-      if (!isGapCandidatePixel(
+      if (!isPocketSkyPixel(
         photoData[byteIndex],
         photoData[byteIndex + 1],
         photoData[byteIndex + 2],
@@ -450,57 +389,99 @@ function collectSkyComponent(startIndex, mask, visited, photoData, width, height
   return indices;
 }
 
-function includeNearbySkyPockets(mask, photoData, width, height, nearRadius, maxArea, strength) {
+function shouldIncludeRenderPocket(component, mask, photoData, width, height, strength) {
+  if (component.length < 2) return false;
+  const maxArea = 12 + Math.round(strength * 100);
+  if (component.length > maxArea) return false;
+
+  let touchesMask = false;
+  let blueBiasSum = 0;
+  let warmthSum = 0;
+  let perimeter = 0;
+  let enclosed = 0;
+  const indexSet = new Set(component);
+
+  for (const index of component) {
+    const x = index % width;
+    const y = (index / width) | 0;
+    if (isNearBinary(mask, width, height, x, y, 1)) touchesMask = true;
+    const byteIndex = index * 4;
+    const r = photoData[byteIndex];
+    const g = photoData[byteIndex + 1];
+    const b = photoData[byteIndex + 2];
+    blueBiasSum += b - Math.max(r, g);
+    warmthSum += r - b;
+
+    const neighbors = [];
+    if (x > 0) neighbors.push(index - 1);
+    if (x < width - 1) neighbors.push(index + 1);
+    if (y > 0) neighbors.push(index - width);
+    if (y < height - 1) neighbors.push(index + width);
+    for (const neighbor of neighbors) {
+      if (indexSet.has(neighbor)) continue;
+      perimeter += 1;
+      const neighborByte = neighbor * 4;
+      const nr = photoData[neighborByte];
+      const ng = photoData[neighborByte + 1];
+      const nb = photoData[neighborByte + 2];
+      if (mask[neighbor] || !isPocketSkyPixel(nr, ng, nb, strength)) enclosed += 1;
+    }
+  }
+
+  if (!touchesMask) return false;
+  if (blueBiasSum / component.length < -4 + strength * 3) return false;
+  if (warmthSum / component.length > 14 - strength * 8) return false;
+  if (perimeter > 0 && enclosed / perimeter < 0.28 + strength * 0.18) return false;
+  return true;
+}
+
+function includeStrictSkyPockets(mask, photoData, width, height, strength) {
   const visited = new Uint8Array(mask.length);
-  const nearMask = dilateBinary(mask, width, height, nearRadius);
+  const nearRadius = 1 + Math.round(strength * 4);
+  const nearMask = new Uint8Array(mask.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+      if (mask[index] || !isNearBinary(mask, width, height, x, y, nearRadius)) continue;
+      nearMask[index] = 1;
+    }
+  }
+
   for (let i = 0; i < mask.length; i += 1) {
-    if (mask[i] || visited[i]) continue;
+    if (mask[i] || visited[i] || !nearMask[i]) continue;
     const byteIndex = i * 4;
-    if (!isGapCandidatePixel(photoData[byteIndex], photoData[byteIndex + 1], photoData[byteIndex + 2], strength)) {
+    if (!isPocketSkyPixel(photoData[byteIndex], photoData[byteIndex + 1], photoData[byteIndex + 2], strength)) {
       continue;
     }
-    const component = collectSkyComponent(i, mask, visited, photoData, width, height, strength);
-    if (component.length === 0 || component.length > maxArea) continue;
-    let touchesNearMask = false;
-    for (const index of component) {
-      if (nearMask[index]) {
-        touchesNearMask = true;
-        break;
-      }
-    }
-    if (!touchesNearMask) continue;
+    const component = collectPocketComponent(i, mask, visited, photoData, width, height, strength);
+    if (!shouldIncludeRenderPocket(component, mask, photoData, width, height, strength)) continue;
     for (const index of component) mask[index] = 1;
   }
   return mask;
 }
 
-function fillEnclosedSkyHoles(mask, photoData, width, height, strength) {
-  const passes = strength >= 0.75 ? 4 : strength >= 0.45 ? 3 : 2;
-  const minNeighbors = strength >= 0.75 ? 2 : 3;
+function bridgeOnePixelGaps(mask, photoData, width, height, strength) {
+  const passes = strength >= 0.85 ? 2 : strength >= 0.55 ? 1 : 0;
   let output = new Uint8Array(mask);
   for (let pass = 0; pass < passes; pass += 1) {
-    const added = new Uint8Array(output.length);
-    for (let y = 1; y < height - 1; y += 1) {
-      for (let x = 1; x < width - 1; x += 1) {
+    const next = new Uint8Array(output);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
         const index = y * width + x;
-        if (output[index]) continue;
+        if (output[index] || !isNearBinary(output, width, height, x, y, 1)) continue;
         const byteIndex = index * 4;
-        if (!isGapCandidatePixel(photoData[byteIndex], photoData[byteIndex + 1], photoData[byteIndex + 2], strength)) {
+        if (!isPocketSkyPixel(
+          photoData[byteIndex],
+          photoData[byteIndex + 1],
+          photoData[byteIndex + 2],
+          strength
+        )) {
           continue;
         }
-        let skyNeighbors = 0;
-        for (let oy = -1; oy <= 1; oy += 1) {
-          for (let ox = -1; ox <= 1; ox += 1) {
-            if (!ox && !oy) continue;
-            if (output[(y + oy) * width + (x + ox)]) skyNeighbors += 1;
-          }
-        }
-        if (skyNeighbors >= minNeighbors) added[index] = 1;
+        next[index] = 1;
       }
     }
-    for (let i = 0; i < output.length; i += 1) {
-      if (added[i]) output[i] = 1;
-    }
+    output = next;
   }
   return output;
 }
@@ -517,18 +498,18 @@ function applySkyPocketFill(maskCanvas, sourceImage, strength) {
   const photoData = photoCtx.getImageData(0, 0, width, height).data;
   const maskData = maskCtx.getImageData(0, 0, width, height);
   const alpha = maskData.data;
-  let sky = readMaskBinary(alpha, width, height);
-  const bridgeRadius = Math.max(1, Math.round(strength * 5));
-  const bridgePasses = Math.max(1, Math.ceil(strength * 4));
-  const bfsDepth = 2 + Math.round(strength * 30);
-  const nearRadius = 2 + Math.round(strength * 32);
-  const maxPocketArea = 48 + Math.round(strength * 1200);
-  for (let pass = 0; pass < bridgePasses; pass += 1) {
-    sky = dilateIntoSkyLike(sky, photoData, width, height, bridgeRadius, strength);
+  const originalSky = readMaskBinary(alpha, width, height);
+  let sky = new Uint8Array(originalSky);
+  sky = includeStrictSkyPockets(sky, photoData, width, height, strength);
+  sky = bridgeOnePixelGaps(sky, photoData, width, height, strength);
+  for (let i = 0; i < sky.length; i += 1) {
+    if (originalSky[i]) continue;
+    if (!sky[i]) continue;
+    const byteIndex = i * 4;
+    if (isForegroundLikePixel(photoData[byteIndex], photoData[byteIndex + 1], photoData[byteIndex + 2])) {
+      sky[i] = 0;
+    }
   }
-  sky = expandMaskByBfs(sky, photoData, width, height, bfsDepth, strength);
-  sky = includeNearbySkyPockets(sky, photoData, width, height, nearRadius, maxPocketArea, strength);
-  sky = fillEnclosedSkyHoles(sky, photoData, width, height, strength);
   for (let i = 0; i < sky.length; i += 1) {
     alpha[i * 4 + 3] = sky[i] ? 255 : 0;
   }
