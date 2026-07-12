@@ -1,17 +1,16 @@
-// F3 魔法天空 - AI 天空分割 v0.7.1
-// 320 全圖推論 + 上半部 2×2 分塊推論 → probMap 快取。
-// 遮罩本體使用實心 alpha，避免 probMap 逐像素透明度造成天空斑點。
+// F3 魔法天空 - AI 天空分割 v0.8.0
+// 320 全圖 + 上半部 3×3 分塊推論；亮白天空自動補洞；細線柔順保護。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/voyagerfromeast/skyseg/resolve/main/skyseg_fp16.onnx";
 const MODEL_CACHE_NAME = "photo-effects-skyseg-model-v1";
-const MASK_PIPELINE_VERSION = 10;
+const MASK_PIPELINE_VERSION = 11;
 const INPUT_SIZE = 320;
 const MASK_INTERMEDIATE_MAX_EDGE = 640;
-const TILED_REGION_HEIGHT_RATIO = 0.65;
-const TILED_GRID_COLS = 2;
-const TILED_GRID_ROWS = 2;
+const TILED_REGION_HEIGHT_RATIO = 0.72;
+const TILED_GRID_COLS = 3;
+const TILED_GRID_ROWS = 3;
 const TILED_OVERLAP_RATIO = 0.35;
 const TILED_MIN_IMAGE_EDGE = 520;
 const SKY_CONFIDENCE_THRESHOLD = 0.58;
@@ -91,13 +90,14 @@ export async function ensureSkyMask(sourceImage, photoKey, options = {}){
     }
   }
 
-  const { maskCanvas } = buildMaskFromProbMap(probMap, width, height, sourceImage);
+  const { maskCanvas, thinLineMask } = buildMaskFromProbMap(probMap, width, height, sourceImage);
   applyPhotoForegroundProtection(maskCanvas, sourceImage);
   const entry = {
     width: sourceImage.width,
     height: sourceImage.height,
     maskCanvas,
     probMap,
+    thinLineMask,
     pipelineVersion: MASK_PIPELINE_VERSION
   };
   maskCache.set(key, entry);
@@ -267,9 +267,11 @@ function preprocessCanvas(canvas, ort){
 
 function buildMaskFromProbMap(probMap, width, height, sourceImage){
   const photoData = sampleLowResPhoto(sourceImage, width, height);
-  const connectedSky = buildSkyMaskBitmapWithSensitivity(probMap, photoData, width, height, 0);
+  let connectedSky = buildSkyMaskBitmapWithSensitivity(probMap, photoData, width, height, 0);
+  const thinLineMask = buildThinLineSoftMask(photoData, width, height);
+  connectedSky = subtractThinLinesFromSkyBitmap(connectedSky, thinLineMask, width, height);
   const maskCanvas = createMaskCanvasFromBitmap(connectedSky, probMap, width, height);
-  return { maskCanvas, probMap };
+  return { maskCanvas, probMap, thinLineMask };
 }
 
 function buildMaskCanvas(outputData, width, height, sourceImage){
@@ -284,7 +286,50 @@ export function buildSkyMaskBitmapWithSensitivity(probabilities, photoData, widt
   mask = includeOccludedSkyRegions(mask, probabilities, width, height, thresholds);
   mask = includeSkyPocketsFromPhoto(mask, probabilities, photoData, width, height, thresholds);
   mask = fillSkyEnclosedHoles(mask, photoData, width, height);
+  mask = fillBrightSkyGaps(mask, probabilities, photoData, width, height);
+  mask = closeBrightSkyOpenings(mask, photoData, width, height);
   return mask;
+}
+
+export function buildThinLineSoftMask(photoData, width, height){
+  const count = width * height;
+  const lum = new Float32Array(count);
+  for (let i = 0; i < count; i += 1) {
+    lum[i] = samplePhotoLuminance(photoData, i * 4);
+  }
+
+  const edge = new Float32Array(count);
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const i = y * width + x;
+      const gx = lum[i + 1] - lum[i - 1];
+      const gy = lum[i + width] - lum[i - width];
+      edge[i] = Math.hypot(gx, gy);
+    }
+  }
+
+  const soft = new Float32Array(count);
+  for (let y = 2; y < height - 2; y += 1) {
+    for (let x = 2; x < width - 2; x += 1) {
+      const i = y * width + x;
+      if (edge[i] < 0.06) continue;
+      if (lum[i] > 0.52) continue;
+
+      let maxNeighbor = lum[i];
+      for (let oy = -2; oy <= 2; oy += 1) {
+        for (let ox = -2; ox <= 2; ox += 1) {
+          if (!ox && !oy) continue;
+          maxNeighbor = Math.max(maxNeighbor, lum[i + oy * width + ox]);
+        }
+      }
+
+      const contrast = maxNeighbor - lum[i];
+      if (contrast < 0.12) continue;
+      soft[i] = Math.min(1, edge[i] * 4.5 * contrast);
+    }
+  }
+
+  return blurFloatMask(soft, width, height, 2);
 }
 
 export function createMaskCanvasFromBitmap(bitmap, probabilities, width, height){
@@ -698,6 +743,137 @@ function shouldIncludeSkyPocket(component, probabilities, photoData, mask, width
 }
 
 function fillSkyEnclosedHoles(mask, photoData, width, height){
+  const output = new Uint8Array(mask);
+
+  for (let pass = 0; pass < 2; pass++) {
+    const added = new Uint8Array(width * height);
+
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const index = y * width + x;
+        if (output[index]) continue;
+        if (!isSkyLikePhoto(photoData, index * 4)) continue;
+
+        let skyNeighbors = 0;
+        for (let oy = -1; oy <= 1; oy++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            if (!ox && !oy) continue;
+            if (output[(y + oy) * width + (x + ox)]) skyNeighbors += 1;
+          }
+        }
+
+        if (skyNeighbors >= 3) added[index] = 1;
+      }
+    }
+
+    for (let i = 0; i < output.length; i++) {
+      if (added[i]) output[i] = 1;
+    }
+  }
+
+  return output;
+}
+
+function fillBrightSkyGaps(mask, probabilities, photoData, width, height){
+  const output = new Uint8Array(mask);
+
+  for (let pass = 0; pass < 6; pass += 1) {
+    let changed = false;
+    for (let y = 1; y < height - 1; y += 1) {
+      for (let x = 1; x < width - 1; x += 1) {
+        const index = y * width + x;
+        if (output[index] || !isBrightSkyLikePhoto(photoData, index * 4)) continue;
+        if (!isNearExistingSky(output, index, width, height, 5)) continue;
+        if (probabilities[index] < 0.06 && !isNearExistingSky(output, index, width, height, 10)) continue;
+        output[index] = 1;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+
+  return output;
+}
+
+function closeBrightSkyOpenings(mask, photoData, width, height){
+  const output = new Uint8Array(mask);
+
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const index = y * width + x;
+      if (output[index] || !isBrightSkyLikePhoto(photoData, index * 4)) continue;
+
+      let skyNeighbors = 0;
+      for (let oy = -1; oy <= 1; oy += 1) {
+        for (let ox = -1; ox <= 1; ox += 1) {
+          if (!ox && !oy) continue;
+          if (output[(y + oy) * width + (x + ox)]) skyNeighbors += 1;
+        }
+      }
+
+      if (skyNeighbors >= 5) output[index] = 1;
+    }
+  }
+
+  return output;
+}
+
+export function applyThinLineSkyProtection(bitmap, thinLineMask, width, height){
+  if (!thinLineMask) return bitmap;
+  return subtractThinLinesFromSkyBitmap(bitmap, thinLineMask, width, height);
+}
+
+function subtractThinLinesFromSkyBitmap(mask, thinLineMask, width, height){
+  const output = new Uint8Array(mask);
+  for (let i = 0; i < mask.length; i += 1) {
+    if (!output[i]) continue;
+    if (thinLineMask[i] >= 0.42) output[i] = 0;
+  }
+  return output;
+}
+
+function blurFloatMask(source, width, height, radius){
+  if (radius <= 0) return source;
+  let current = source;
+  let next = new Float32Array(source.length);
+
+  for (let pass = 0; pass < radius; pass += 1) {
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const i = y * width + x;
+        let sum = 0;
+        let count = 0;
+        for (let oy = -1; oy <= 1; oy += 1) {
+          for (let ox = -1; ox <= 1; ox += 1) {
+            const nx = x + ox;
+            const ny = y + oy;
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+            sum += current[ny * width + nx];
+            count += 1;
+          }
+        }
+        next[i] = sum / count;
+      }
+    }
+    const swap = current;
+    current = next;
+    next = swap;
+  }
+
+  return current;
+}
+
+function isBrightSkyLikePhoto(photoData, byteIndex){
+  const lum = samplePhotoLuminance(photoData, byteIndex);
+  if (lum < 0.52) return false;
+  const r = photoData[byteIndex];
+  const g = photoData[byteIndex + 1];
+  const b = photoData[byteIndex + 2];
+  const maxC = Math.max(r, g, b);
+  const minC = Math.min(r, g, b);
+  const saturation = maxC === 0 ? 0 : (maxC - minC) / maxC;
+  return saturation <= 0.42;
+}
   const output = new Uint8Array(mask);
 
   for (let pass = 0; pass < 2; pass++) {
