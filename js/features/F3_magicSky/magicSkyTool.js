@@ -149,7 +149,7 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null, 
     layoutMask,
     effects.edgeFeather,
     effects.maskExpansion,
-    maskEntry?.thinLineMask
+    maskEntry
   );
 
   const adjustedPhoto = renderAdjustedPhotoLayer(sourceImage, layout, effects);
@@ -176,7 +176,7 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null, 
     layoutMask,
     effects.skyOpacity,
     effects.skyEdgeRefine,
-    maskEntry?.thinLineMask
+    maskEntry
   );
 }
 
@@ -388,7 +388,7 @@ function buildLayoutMask(maskEntry, sourceImage, layout, skySensitivity){
   return layoutMask;
 }
 
-function buildProcessedMask(maskCanvas, edgeFeather, maskExpansion, thinLineMask = null){
+function buildProcessedMask(maskCanvas, edgeFeather, maskExpansion, maskEntry = null){
   const output = document.createElement("canvas");
   output.width = maskCanvas.width;
   output.height = maskCanvas.height;
@@ -401,7 +401,7 @@ function buildProcessedMask(maskCanvas, edgeFeather, maskExpansion, thinLineMask
   }
 
   let featherPx = MIN_MASK_FEATHER_PX + clamp(Number(edgeFeather) || 0, 0, 100) * 0.14;
-  if (thinLineMask) {
+  if (maskEntry?.thinLineMask) {
     featherPx = Math.max(MIN_MASK_FEATHER_PX, featherPx * 0.82);
   }
   const blurCanvas = document.createElement("canvas");
@@ -413,8 +413,16 @@ function buildProcessedMask(maskCanvas, edgeFeather, maskExpansion, thinLineMask
   ctx.clearRect(0, 0, output.width, output.height);
   ctx.drawImage(blurCanvas, 0, 0);
 
-  if (thinLineMask) {
-    applyThinLineAlphaProtection(ctx, output.width, output.height, thinLineMask, 0.82);
+  if (maskEntry?.thinLineMask) {
+    applyThinLineAlphaProtection(
+      ctx,
+      output.width,
+      output.height,
+      maskEntry.thinLineMask,
+      maskEntry.width,
+      maskEntry.height,
+      0.82
+    );
   }
 
   return output;
@@ -428,7 +436,7 @@ async function compositePhotoAndSky(
   rawMaskCanvas,
   skyOpacityPercent,
   skyEdgeRefineStrength = 0,
-  thinLineMask = null
+  maskEntry = null
 ){
   const width = photoCanvas.width;
   const height = photoCanvas.height;
@@ -468,8 +476,17 @@ async function compositePhotoAndSky(
       if (rawAlpha < 0.82) {
         skyAlpha *= computeCompositeDarkProtection(photo.data, i, width);
       }
-      if (thinLineMask) {
-        skyAlpha *= 1 - thinLineMask[i] * 0.78;
+      if (maskEntry?.thinLineMask) {
+        const lineGuard = sampleThinLineMask(
+          maskEntry.thinLineMask,
+          maskEntry.width,
+          maskEntry.height,
+          x,
+          y,
+          width,
+          height
+        );
+        skyAlpha *= 1 - lineGuard * 0.78;
       }
 
       const inv = 1 - skyAlpha;
@@ -487,16 +504,25 @@ async function compositePhotoAndSky(
   ctx.putImageData(out, 0, 0);
 }
 
-function applyThinLineAlphaProtection(ctx, width, height, thinLineMask, strength){
+function sampleThinLineMask(thinLineMask, maskWidth, maskHeight, x, y, canvasWidth, canvasHeight){
+  if (!thinLineMask || !maskWidth || !maskHeight) return 0;
+  const mx = Math.min(maskWidth - 1, Math.floor(x * maskWidth / Math.max(1, canvasWidth)));
+  const my = Math.min(maskHeight - 1, Math.floor(y * maskHeight / Math.max(1, canvasHeight)));
+  return thinLineMask[my * maskWidth + mx] || 0;
+}
+
+function applyThinLineAlphaProtection(ctx, width, height, thinLineMask, maskWidth, maskHeight, strength){
   const imageData = ctx.getImageData(0, 0, width, height);
   const pixels = imageData.data;
   const clampedStrength = clamp(Number(strength) || 0, 0, 1);
 
-  for (let i = 0; i < thinLineMask.length; i += 1) {
-    const guard = thinLineMask[i] * clampedStrength;
-    if (guard <= 0) continue;
-    const alphaIndex = i * 4 + 3;
-    pixels[alphaIndex] = Math.round(pixels[alphaIndex] * (1 - guard));
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const guard = sampleThinLineMask(thinLineMask, maskWidth, maskHeight, x, y, width, height) * clampedStrength;
+      if (guard <= 0) continue;
+      const alphaIndex = (y * width + x) * 4 + 3;
+      pixels[alphaIndex] = Math.round(pixels[alphaIndex] * (1 - guard));
+    }
   }
 
   ctx.putImageData(imageData, 0, 0);
@@ -670,6 +696,7 @@ function drawEmptyState(ctx, width, height){
 }
 
 function clampByte(value){
+  if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(255, Math.round(value)));
 }
 
