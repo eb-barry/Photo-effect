@@ -231,9 +231,7 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
       await renderBusy("調整天空位置，請稍候…", { delay: 120 });
       persistDraft();
     });
-    enableSamRepairTap(canvas, state, gestureContext, async point => {
-      await renderApi.onRepairTap?.(point);
-    });
+    enableRepairRegionPick(root, state, renderApi);
   }
 
   if (!state.activeControlTab) {
@@ -243,7 +241,19 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
   mountSkyCarousel(root, state.activeSkyCategory);
   refreshAllControls();
 
-  return { refreshAllControls, switchSkyCategory };
+  return {
+    refreshAllControls,
+    switchSkyCategory,
+    refreshRepairRegions: (regions, selectedIds) => {
+      renderRepairRegionList(
+        root.querySelector("#repairRegionList"),
+        root.querySelector("#repairRegionEmpty"),
+        regions,
+        selectedIds
+      );
+      renderApi.onRepairMarkersUpdate?.(regions, selectedIds);
+    }
+  };
 }
 
 export function renderControlTabs(){
@@ -274,11 +284,41 @@ export function renderSkyCategoryBar(){
 
 export function renderRepairControls(){
   return `
-    <p class="magic-sky-repair-hint">點擊照片中<strong>尚未替換的天空缺口</strong>，AI 會自動填補該區域。首次使用需下載 SAM 模型（約 44MB）。</p>
+    <p class="magic-sky-repair-hint">系統會自動找出<strong>尚未換天的天空候選區</strong>並編號。點選下方編號或照片上的數字，即可套用為天空。</p>
+    <div id="repairRegionList" class="magic-sky-repair-region-list" role="listbox" aria-label="天空候選區域"></div>
+    <p id="repairRegionEmpty" class="magic-sky-repair-empty hidden">未找到候選區域。可先調高「天空微調 → 天空敏感度」後再按「重新分析」。</p>
     <div class="magic-sky-repair-actions">
+      <button type="button" class="magic-sky-repair-btn" id="rescanRepairBtn">重新分析</button>
       <button type="button" class="magic-sky-repair-btn" id="clearRepairBtn">清除修復</button>
     </div>
   `;
+}
+
+export function renderRepairRegionList(regionListEl, emptyEl, regions, selectedIds){
+  if (!regionListEl) return;
+  regionListEl.innerHTML = "";
+
+  if (!regions?.length) {
+    emptyEl?.classList.remove("hidden");
+    return;
+  }
+
+  emptyEl?.classList.add("hidden");
+  regionListEl.innerHTML = regions.map(region => {
+    const selected = selectedIds?.has(region.id);
+    return `
+      <button
+        type="button"
+        class="magic-sky-repair-region-chip${selected ? " is-selected" : ""}"
+        data-region-id="${region.id}"
+        aria-pressed="${selected}"
+        style="--region-color:${region.color}"
+      >
+        <span class="magic-sky-repair-region-chip-id">${region.id}</span>
+        <span class="magic-sky-repair-region-chip-label">候選區 ${region.id}</span>
+      </button>
+    `;
+  }).join("");
 }
 
 export function renderAdjustControls(){
@@ -473,25 +513,21 @@ function enableSkyPanGesture(canvas, canvasWrap, state, gestureContext, setParti
   canvasWrap?.addEventListener("touchmove", blockTouchMove, { passive: false });
 }
 
-function enableSamRepairTap(canvas, state, gestureContext, onRepairTap){
-  const toCanvasPoint = (clientX, clientY) => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / Math.max(1, rect.width);
-    const scaleY = canvas.height / Math.max(1, rect.height);
-    return {
-      x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top) * scaleY
-    };
+function enableRepairRegionPick(root, state, renderApi){
+  const regionList = root.querySelector("#repairRegionList");
+  const markersHost = root.querySelector("#repairRegionMarkers");
+
+  const handleToggle = async event => {
+    const target = event.target.closest("[data-region-id]");
+    if (!target || state.activeControlTab !== "repair") return;
+    event.preventDefault();
+    const regionId = Number(target.dataset.regionId);
+    if (!Number.isFinite(regionId)) return;
+    await renderApi.onRepairRegionToggle?.(regionId);
   };
 
-  canvas.addEventListener("pointerup", event => {
-    if (state.activeControlTab !== "repair") return;
-    if (!state.sourceImageDataUrl) return;
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    event.preventDefault();
-    const point = toCanvasPoint(event.clientX, event.clientY);
-    void onRepairTap?.(point);
-  });
+  regionList?.addEventListener("click", handleToggle);
+  markersHost?.addEventListener("click", handleToggle);
 }
 
 function clamp(value, min, max){

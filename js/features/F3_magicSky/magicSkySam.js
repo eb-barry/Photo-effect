@@ -32,6 +32,11 @@ export function clearSamRepairMask(photoKey){
   if (photoKey) repairMaskCache.delete(photoKey);
 }
 
+export function setSamRepairMask(photoKey, canvas){
+  if (!canvas) return;
+  repairMaskCache.set(photoKey || "default", canvas);
+}
+
 export function clearSamEmbedding(photoKey){
   if (photoKey) embeddingCache.delete(photoKey);
 }

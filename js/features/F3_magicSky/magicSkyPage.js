@@ -1,4 +1,4 @@
-// F3 魔法天空 - Page Controller v0.5.3
+// F3 魔法天空 - Page Controller v0.6.0
 // 三按鈕分頁 + 遮罩上傳後固定 + iOS 拖曳鎖定。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -8,11 +8,15 @@ import { createProcessingOverlay } from "./magicSkyBusy.js";
 import {
   clearSamEmbedding,
   clearSamRepairMask,
-  decodeSamClick,
   ensureSamEmbedding,
   getSamRepairMask,
-  mergeSamMaskIntoRepair
+  setSamRepairMask
 } from "./magicSkySam.js";
+import {
+  analyzeRepairRegions,
+  buildRepairMaskCanvas,
+  renderRepairRegionMarkers
+} from "./magicSkyRepairRegions.js";
 import {
   ensureSkyMask,
   getCachedSkyMask,
@@ -58,7 +62,7 @@ export async function renderMagicSkyPage(root, navigate){
 
         <div class="topbar-title">
           <h1>魔法天空</h1>
-          <p class="crystal-version" aria-hidden="true">v0.5.3</p>
+          <p class="crystal-version" aria-hidden="true">v0.6.0</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -75,6 +79,7 @@ export async function renderMagicSkyPage(root, navigate){
             <span class="magic-sky-hint">首次換天需下載 AI 模型（約 88MB），請保持網路連線</span>
           </div>
           <canvas id="editorCanvas" class="hidden crystal-canvas magic-sky-canvas"></canvas>
+          <div id="repairRegionMarkers" class="magic-sky-repair-markers hidden" aria-hidden="true"></div>
           <div class="magic-sky-analyzing hidden" id="skyProcessingOverlay" role="status" aria-live="polite" aria-busy="false">
             <div class="magic-sky-analyzing-card">
               <div class="magic-sky-analyzing-spinner is-active" id="skyProcessingSpinner" aria-hidden="true"></div>
@@ -98,7 +103,7 @@ export async function renderMagicSkyPage(root, navigate){
             ${renderAdjustControls()}
           </div>
 
-          <div id="repairPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="點選修復">
+          <div id="repairPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="區域修復">
             ${renderRepairControls()}
           </div>
         </div>
@@ -111,6 +116,7 @@ export async function renderMagicSkyPage(root, navigate){
   const imageInput = root.querySelector("#imageInput");
   const canvas = root.querySelector("#editorCanvas");
   const canvasWrap = root.querySelector("#canvasWrap");
+  const repairRegionMarkers = root.querySelector("#repairRegionMarkers");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const processing = createProcessingOverlay(
     root.querySelector("#skyProcessingOverlay"),
@@ -129,11 +135,44 @@ export async function renderMagicSkyPage(root, navigate){
   let sourceImage = null;
   let maskEntry = null;
   let samEntry = null;
+  let repairRegions = [];
+  const selectedRepairRegionIds = new Set();
   let photoKey = "";
   let outputSize = null;
   let renderSerial = 0;
   let analyzeSerial = 0;
   let renderTask = null;
+  let magicSkyUi = null;
+
+  const updateRepairMarkers = (regions, selectedIds) => {
+    if (!outputSize) return;
+    const layout = getPhotoLayout(outputSize.width, outputSize.height);
+    renderRepairRegionMarkers(repairRegionMarkers, regions, selectedIds, canvas, layout);
+  };
+
+  const applyRepairSelection = () => {
+    if (!photoKey || !outputSize) return;
+    const maskCanvas = buildRepairMaskCanvas(
+      repairRegions,
+      selectedRepairRegionIds,
+      outputSize.width,
+      outputSize.height
+    );
+    setSamRepairMask(photoKey, maskCanvas);
+  };
+
+  const scanRepairRegions = async () => {
+    if (!sourceImage || !photoKey || !maskEntry) return;
+    const reportStage = processing.bindStageStatus();
+    if (!samEntry) {
+      await releaseSkySegmentSession();
+      samEntry = await ensureSamEmbedding(sourceImage, photoKey, reportStage);
+    }
+    repairRegions = await analyzeRepairRegions(maskEntry, sourceImage, samEntry, reportStage);
+    selectedRepairRegionIds.clear();
+    magicSkyUi?.refreshRepairRegions?.(repairRegions, selectedRepairRegionIds);
+    applyRepairSelection();
+  };
 
   preloadSkySegmentModel(message => {
     if (processing.isActive()) processing.setMessage(message);
@@ -157,6 +196,9 @@ export async function renderMagicSkyPage(root, navigate){
     try {
       await renderMagicSky(ctx, sourceImage, state, maskEntry, getSamRepairMask(photoKey));
       if (serial !== renderSerial) return;
+      if (state.activeControlTab === "repair" && repairRegions.length) {
+        updateRepairMarkers(repairRegions, selectedRepairRegionIds);
+      }
     } catch (error) {
       console.error("[F3 魔法天空] 繪製失敗：", error);
     }
@@ -235,6 +277,9 @@ export async function renderMagicSkyPage(root, navigate){
     sourceImage = null;
     maskEntry = null;
     samEntry = null;
+    repairRegions = [];
+    selectedRepairRegionIds.clear();
+    repairRegionMarkers?.classList.add("hidden");
     if (photoKey) {
       clearSamRepairMask(photoKey);
       clearSamEmbedding(photoKey);
@@ -275,6 +320,8 @@ export async function renderMagicSkyPage(root, navigate){
         clearSamEmbedding(photoKey);
       }
       samEntry = null;
+      repairRegions = [];
+      selectedRepairRegionIds.clear();
       Object.assign(partial, {
         ...getDefaultAdjustmentState(),
         maskPhotoKey: maskEntry ? photoKey : null
@@ -324,7 +371,7 @@ export async function renderMagicSkyPage(root, navigate){
   }
 
   mountSkyCarousel(root, state.activeSkyCategory);
-  const magicSkyUi = setupMagicSkyUI(root, state, {
+  magicSkyUi = setupMagicSkyUI(root, state, {
     render,
     renderBusy,
     persistDraft,
@@ -332,34 +379,25 @@ export async function renderMagicSkyPage(root, navigate){
     onEnterRepairTab: async () => {
       if (!sourceImage || !photoKey) return;
       try {
-        const reportStage = processing.bindStageStatus();
-        await processing.run("準備點選修復模型…", async () => {
-          await releaseSkySegmentSession();
-          samEntry = await ensureSamEmbedding(sourceImage, photoKey, reportStage);
-        }, { delay: 0 });
-      } catch (error) {
-        console.error("[F3 魔法天空] SAM 初始化失敗：", error);
-        const detail = error?.message ? `\n\n${error.message}` : "";
-        alert(`點選修復模型載入失敗，請確認網路後再試。${detail}`);
-      }
-    },
-    onRepairTap: async point => {
-      if (!sourceImage || !photoKey || !outputSize) return;
-      try {
-        const reportStage = processing.bindStageStatus();
-        await processing.run("套用點選修復…", async () => {
-          if (!samEntry) {
-            samEntry = await ensureSamEmbedding(sourceImage, photoKey, reportStage);
-          }
-          const maskTensor = await decodeSamClick(samEntry, point.x, point.y, reportStage);
-          mergeSamMaskIntoRepair(photoKey, outputSize.width, outputSize.height, maskTensor);
+        await processing.run("分析天空候選區域…", async () => {
+          await scanRepairRegions();
           await renderCore();
         }, { delay: 0 });
       } catch (error) {
-        console.error("[F3 魔法天空] 點選修復失敗：", error);
-        alert("點選修復失敗，請再試一次。");
+        console.error("[F3 魔法天空] 修復區域分析失敗：", error);
+        const detail = error?.message ? `\n\n${error.message}` : "";
+        alert(`修復區域分析失敗，請確認網路後再試。${detail}`);
       }
-    }
+    },
+    onRepairRegionToggle: async regionId => {
+      if (!sourceImage || !photoKey || !outputSize) return;
+      if (selectedRepairRegionIds.has(regionId)) selectedRepairRegionIds.delete(regionId);
+      else selectedRepairRegionIds.add(regionId);
+      applyRepairSelection();
+      magicSkyUi?.refreshRepairRegions?.(repairRegions, selectedRepairRegionIds);
+      await renderBusy("套用修復區域…", { delay: 0 });
+    },
+    onRepairMarkersUpdate: updateRepairMarkers
   }, {
     canvas,
     canvasWrap,
@@ -368,10 +406,26 @@ export async function renderMagicSkyPage(root, navigate){
     getPhotoLayout: () => (outputSize ? getPhotoLayout(outputSize.width, outputSize.height) : null)
   });
 
+  root.querySelector("#rescanRepairBtn")?.addEventListener("click", async event => {
+    event.preventDefault();
+    if (!sourceImage || !photoKey) return;
+    try {
+      await processing.run("重新分析候選區域…", async () => {
+        await scanRepairRegions();
+        await renderCore();
+      }, { delay: 0 });
+    } catch (error) {
+      console.error("[F3 魔法天空] 重新分析失敗：", error);
+      alert("重新分析失敗，請再試一次。");
+    }
+  });
+
   root.querySelector("#clearRepairBtn")?.addEventListener("click", async event => {
     event.preventDefault();
     if (!photoKey) return;
     clearSamRepairMask(photoKey);
+    selectedRepairRegionIds.clear();
+    magicSkyUi?.refreshRepairRegions?.(repairRegions, selectedRepairRegionIds);
     await renderBusy("更新預覽…", { delay: 0 });
   });
 

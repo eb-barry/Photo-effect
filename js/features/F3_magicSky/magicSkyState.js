@@ -1,10 +1,10 @@
-// F3 魔法天空 - 狀態管理 v0.5.3
+// F3 魔法天空 - 狀態管理 v0.6.0
 // 雙極滑桿（中點 0、±150）+ probMap 天空敏感度。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
 
 export const MAGIC_SKY_FEATURE_ID = "F3_magicSky";
-export const MAGIC_SKY_FEATURE_VERSION = "0.5.1";
+export const MAGIC_SKY_FEATURE_VERSION = "0.6.0";
 export const MAGIC_SKY_DRAFT_KEY = "photoEffects.F3_magicSky.draft.v3";
 
 export const ADJUST_SLIDER_MIN = -150;
@@ -14,7 +14,7 @@ export const MAGIC_SKY_CONTROL_TABS = [
   { id: "sky", label: "天空" },
   { id: "skyAdjust", label: "天空微調" },
   { id: "photoAdjust", label: "照片微調" },
-  { id: "repair", label: "點選修復" }
+  { id: "repair", label: "區域修復" }
 ];
 
 export const MAGIC_SKY_CATEGORIES = ["sunny", "night", "sunset"];
