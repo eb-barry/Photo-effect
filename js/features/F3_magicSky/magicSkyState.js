@@ -1,4 +1,4 @@
-// F3 魔法天空 - 狀態管理 v0.5.1
+// F3 魔法天空 - 狀態管理 v0.5.2
 // 雙極滑桿（中點 0、±150）+ probMap 天空敏感度。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";

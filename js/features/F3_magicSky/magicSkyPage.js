@@ -1,4 +1,4 @@
-// F3 魔法天空 - Page Controller v0.5.1
+// F3 魔法天空 - Page Controller v0.5.2
 // 三按鈕分頁 + 遮罩上傳後固定 + iOS 拖曳鎖定。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -17,7 +17,8 @@ import {
   ensureSkyMask,
   getCachedSkyMask,
   getSkyMaskCacheKey,
-  preloadSkySegmentModel
+  preloadSkySegmentModel,
+  releaseSkySegmentSession
 } from "./magicSkySegment.js";
 import {
   clearMagicSkyDraft,
@@ -57,7 +58,7 @@ export async function renderMagicSkyPage(root, navigate){
 
         <div class="topbar-title">
           <h1>魔法天空</h1>
-          <p class="crystal-version" aria-hidden="true">v0.5.1</p>
+          <p class="crystal-version" aria-hidden="true">v0.5.2</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -333,11 +334,13 @@ export async function renderMagicSkyPage(root, navigate){
       try {
         const reportStage = processing.bindStageStatus();
         await processing.run("準備點選修復模型…", async () => {
+          await releaseSkySegmentSession();
           samEntry = await ensureSamEmbedding(sourceImage, photoKey, reportStage);
         }, { delay: 0 });
       } catch (error) {
         console.error("[F3 魔法天空] SAM 初始化失敗：", error);
-        alert("點選修復模型載入失敗，請確認網路後再試。");
+        const detail = error?.message ? `\n\n${error.message}` : "";
+        alert(`點選修復模型載入失敗，請確認網路後再試。${detail}`);
       }
     },
     onRepairTap: async point => {

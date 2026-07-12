@@ -484,11 +484,11 @@ function enableSamRepairTap(canvas, state, gestureContext, onRepairTap){
     };
   };
 
-  canvas.addEventListener("click", event => {
+  canvas.addEventListener("pointerup", event => {
     if (state.activeControlTab !== "repair") return;
     if (!state.sourceImageDataUrl) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
     event.preventDefault();
-    event.stopPropagation();
     const point = toCanvasPoint(event.clientX, event.clientY);
     void onRepairTap?.(point);
   });

@@ -49,6 +49,18 @@ export function preloadSkySegmentModel(onStatus = () => {}){
   return ensureSession(onStatus);
 }
 
+export async function releaseSkySegmentSession(){
+  if (!sessionPromise) return;
+  try {
+    const session = await sessionPromise;
+    await session.release?.();
+  } catch (error) {
+    console.warn("[F3 魔法天空] 釋放天空分割模型失敗：", error);
+  } finally {
+    sessionPromise = null;
+  }
+}
+
 export async function ensureSkyMask(sourceImage, photoKey, options = {}){
   const key = photoKey || "default";
   const cached = maskCache.get(key);
