@@ -874,36 +874,6 @@ function isBrightSkyLikePhoto(photoData, byteIndex){
   const saturation = maxC === 0 ? 0 : (maxC - minC) / maxC;
   return saturation <= 0.42;
 }
-  const output = new Uint8Array(mask);
-
-  for (let pass = 0; pass < 2; pass++) {
-    const added = new Uint8Array(width * height);
-
-    for (let y = 1; y < height - 1; y++) {
-      for (let x = 1; x < width - 1; x++) {
-        const index = y * width + x;
-        if (output[index]) continue;
-        if (!isSkyLikePhoto(photoData, index * 4)) continue;
-
-        let skyNeighbors = 0;
-        for (let oy = -1; oy <= 1; oy++) {
-          for (let ox = -1; ox <= 1; ox++) {
-            if (!ox && !oy) continue;
-            if (output[(y + oy) * width + (x + ox)]) skyNeighbors += 1;
-          }
-        }
-
-        if (skyNeighbors >= 3) added[index] = 1;
-      }
-    }
-
-    for (let i = 0; i < output.length; i++) {
-      if (added[i]) output[i] = 1;
-    }
-  }
-
-  return output;
-}
 
 function isSkyLikePhoto(photoData, byteIndex){
   const r = photoData[byteIndex];

@@ -62,7 +62,7 @@ export async function renderMagicSkyPage(root, navigate){
 
         <div class="topbar-title">
           <h1>魔法天空</h1>
-          <p class="crystal-version" aria-hidden="true">v0.8.0</p>
+          <p class="crystal-version" aria-hidden="true">v0.8.1</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
