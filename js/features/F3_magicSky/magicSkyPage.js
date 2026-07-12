@@ -1,10 +1,18 @@
-// F3 魔法天空 - Page Controller v0.3.6
+// F3 魔法天空 - Page Controller v0.5.0
 // 三按鈕分頁 + 遮罩上傳後固定 + iOS 拖曳鎖定。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
 import { loadMagicSkyAssetCatalog } from "./magicSkyAssets.js";
 import { createProcessingOverlay } from "./magicSkyBusy.js";
+import {
+  clearSamEmbedding,
+  clearSamRepairMask,
+  decodeSamClick,
+  ensureSamEmbedding,
+  getSamRepairMask,
+  mergeSamMaskIntoRepair
+} from "./magicSkySam.js";
 import {
   ensureSkyMask,
   getCachedSkyMask,
@@ -30,6 +38,7 @@ import {
   mountSkyCarousel,
   renderAdjustControls,
   renderControlTabs,
+  renderRepairControls,
   renderSkyCategoryBar,
   setupMagicSkyUI
 } from "./magicSkyUI.js";
@@ -48,7 +57,7 @@ export async function renderMagicSkyPage(root, navigate){
 
         <div class="topbar-title">
           <h1>魔法天空</h1>
-          <p class="crystal-version" aria-hidden="true">v0.4.1</p>
+          <p class="crystal-version" aria-hidden="true">v0.5.0</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -85,6 +94,10 @@ export async function renderMagicSkyPage(root, navigate){
           <div id="adjustControlsPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="影像微調">
             ${renderAdjustControls()}
           </div>
+
+          <div id="repairPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="點選修復">
+            ${renderRepairControls()}
+          </div>
         </div>
       </section>
 
@@ -108,6 +121,7 @@ export async function renderMagicSkyPage(root, navigate){
 
   let sourceImage = null;
   let maskEntry = null;
+  let samEntry = null;
   let photoKey = "";
   let outputSize = null;
   let renderSerial = 0;
@@ -132,7 +146,7 @@ export async function renderMagicSkyPage(root, navigate){
     canvas.width = outputSize.width;
     canvas.height = outputSize.height;
     try {
-      await renderMagicSky(ctx, sourceImage, state, maskEntry);
+      await renderMagicSky(ctx, sourceImage, state, maskEntry, getSamRepairMask(photoKey));
       if (serial !== renderSerial) return;
     } catch (error) {
       console.error("[F3 魔法天空] 繪製失敗：", error);
@@ -210,6 +224,11 @@ export async function renderMagicSkyPage(root, navigate){
   const resetEditorSession = () => {
     sourceImage = null;
     maskEntry = null;
+    samEntry = null;
+    if (photoKey) {
+      clearSamRepairMask(photoKey);
+      clearSamEmbedding(photoKey);
+    }
     photoKey = "";
     outputSize = null;
     Object.assign(state, updateMagicSkyState(createDefaultMagicSkyState(), {}));
@@ -241,6 +260,11 @@ export async function renderMagicSkyPage(root, navigate){
     };
 
     if (isNewPhoto) {
+      if (photoKey) {
+        clearSamRepairMask(photoKey);
+        clearSamEmbedding(photoKey);
+      }
+      samEntry = null;
       Object.assign(partial, {
         ...getDefaultAdjustmentState(),
         maskPhotoKey: maskEntry ? photoKey : null
@@ -294,13 +318,53 @@ export async function renderMagicSkyPage(root, navigate){
     render,
     renderBusy,
     persistDraft,
-    isBusy: isSessionBusy
+    isBusy: isSessionBusy,
+    onEnterRepairTab: async () => {
+      if (!sourceImage || !photoKey) return;
+      try {
+        await processing.run("準備點選修復模型…", async () => {
+          samEntry = await ensureSamEmbedding(sourceImage, photoKey, message => {
+            processing.setMessage(message);
+          });
+        }, { delay: 0 });
+      } catch (error) {
+        console.error("[F3 魔法天空] SAM 初始化失敗：", error);
+        alert("點選修復模型載入失敗，請確認網路後再試。");
+      }
+    },
+    onRepairTap: async point => {
+      if (!sourceImage || !photoKey || !outputSize) return;
+      try {
+        await processing.run("套用點選修復…", async () => {
+          if (!samEntry) {
+            samEntry = await ensureSamEmbedding(sourceImage, photoKey, message => {
+              processing.setMessage(message);
+            });
+          }
+          const maskTensor = await decodeSamClick(samEntry, point.x, point.y, message => {
+            processing.setMessage(message);
+          });
+          mergeSamMaskIntoRepair(photoKey, outputSize.width, outputSize.height, maskTensor);
+          await renderCore();
+        }, { delay: 0 });
+      } catch (error) {
+        console.error("[F3 魔法天空] 點選修復失敗：", error);
+        alert("點選修復失敗，請再試一次。");
+      }
+    }
   }, {
     canvas,
     canvasWrap,
     getMaskEntry: () => maskEntry,
     getSourceImage: () => sourceImage,
     getPhotoLayout: () => (outputSize ? getPhotoLayout(outputSize.width, outputSize.height) : null)
+  });
+
+  root.querySelector("#clearRepairBtn")?.addEventListener("click", async event => {
+    event.preventDefault();
+    if (!photoKey) return;
+    clearSamRepairMask(photoKey);
+    await renderBusy("更新預覽…", { delay: 0 });
   });
 
   root.querySelector("#savePhotoBtn")?.addEventListener("click", async event => {

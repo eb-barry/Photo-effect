@@ -618,6 +618,38 @@ body.magic-sky-scroll-locked {
   text-align: center;
 }
 
+.magic-sky-repair-hint {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
+}
+
+.magic-sky-repair-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.magic-sky-repair-btn {
+  border: 0;
+  border-radius: 16px;
+  padding: 11px 18px;
+  background: white;
+  color: var(--text);
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.1);
+  font-weight: 700;
+}
+
+.magic-sky-canvas.magic-sky-repair-mode {
+  cursor: crosshair;
+}
+
+.magic-sky-canvas.magic-sky-repair-mode:active {
+  cursor: crosshair;
+}
+
 /* F4 星芒鏡 v0.1.1 - 依原圖比例輸出，不裁切直式／橫式／正方形照片 */
 .starburst-page .crystal-canvas-wrap.starburst-canvas-wrap {
   aspect-ratio: auto;
