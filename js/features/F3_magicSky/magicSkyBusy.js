@@ -111,7 +111,7 @@ export function inferStageLabel(message){
   if (/下載|快取|讀取已快取/.test(text)) return "模型準備中";
   if (/初始化/.test(text)) return "初始化模型";
   if (/編碼|分析天空|精細分析|建築區域/.test(text)) return "影像分析中";
-  if (/候選區域|分析候選|搜尋天空/.test(text)) return "搜尋候選區域";
+  if (/SAM 分割|分割區塊|整理分割/.test(text)) return "SAM 分割中";
   if (/解碼|修復遮罩|產生修復|套用修復/.test(text)) return "套用修復區域";
   if (/合成|調整|切換|儲存|分享|讀取照片|更新預覽|清除/.test(text)) return "處理中";
   return "請稍候";

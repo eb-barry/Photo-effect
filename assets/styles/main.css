@@ -679,11 +679,42 @@ body.magic-sky-scroll-locked {
   font-weight: 700;
 }
 
+.magic-sky-repair-region-list {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
+  margin: 0;
+}
+
+.magic-sky-repair-groups {
+  display: grid;
+  gap: 14px;
   margin: 0 0 12px;
+}
+
+.magic-sky-repair-group-title {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--text);
+  text-align: center;
+}
+
+.magic-sky-repair-group-empty {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.magic-sky-repair-region-list.is-reference .magic-sky-repair-region-chip {
+  opacity: 0.82;
+}
+
+.magic-sky-repair-region-chip.is-reference {
+  cursor: default;
+  box-shadow: none;
 }
 
 .magic-sky-repair-region-chip {
@@ -748,6 +779,11 @@ body.magic-sky-scroll-locked {
 .magic-sky-repair-badge.is-selected {
   background: #6c8cff;
   color: #fff;
+}
+
+.magic-sky-repair-badge.is-reference.is-selected {
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--text);
 }
 
 .magic-sky-canvas.magic-sky-repair-mode {
