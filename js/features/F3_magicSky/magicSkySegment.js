@@ -338,6 +338,67 @@ export function samplePhotoImageData(sourceImage, width, height){
   return sampleLowResPhoto(sourceImage, width, height);
 }
 
+const GAP_REGION_MIN_PIXELS = 6;
+const GAP_REGION_MAX_RATIO = 0.35;
+
+export function discoverSkyGapRegions(probMap, photoData, width, height, coveredMask, options = {}){
+  const thresholds = resolveSensitivityThresholds(options.sensitivity ?? 0);
+  const visited = new Uint8Array(width * height);
+  const regions = [];
+
+  for (let i = 0; i < width * height; i += 1) {
+    if (coveredMask[i] || visited[i]) continue;
+    if (!canBePocketSeed(i, probMap, photoData, coveredMask, width, height, thresholds)) continue;
+
+    const component = collectPocketComponent(
+      i,
+      probMap,
+      photoData,
+      visited,
+      coveredMask,
+      width,
+      height,
+      thresholds
+    );
+    if (!shouldIncludeSkyPocket(component, probMap, photoData, coveredMask, width, height, thresholds)) {
+      continue;
+    }
+    if (component.indices.length < GAP_REGION_MIN_PIXELS) continue;
+    if (component.indices.length > width * height * GAP_REGION_MAX_RATIO) continue;
+
+    regions.push(buildGapRegion(component, width, regions.length + 1));
+  }
+
+  return regions;
+}
+
+function buildGapRegion(component, width, id){
+  const { indices, minY, maxY } = component;
+  let sumX = 0;
+  let sumY = 0;
+  let minX = width;
+  let maxX = 0;
+
+  for (const index of indices) {
+    const x = index % width;
+    const y = (index / width) | 0;
+    sumX += x;
+    sumY += y;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+  }
+
+  const count = indices.length;
+  return {
+    id,
+    indices,
+    pixelCount: count,
+    centroidX: sumX / count,
+    centroidY: sumY / count,
+    bounds: { minX, minY, maxX, maxY: maxY }
+  };
+}
+
 export function resolveSensitivityThresholds(sensitivity){
   const strength = clamp01(sensitivity);
   return {

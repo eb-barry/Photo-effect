@@ -465,6 +465,7 @@ button,input,select{font:inherit}button{touch-action:manipulation;-webkit-tap-hi
 }
 
 .magic-sky-page .magic-sky-canvas-wrap {
+  position: relative;
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
@@ -678,12 +679,83 @@ body.magic-sky-scroll-locked {
   font-weight: 700;
 }
 
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.magic-sky-repair-region-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 2px solid var(--region-color, #6c8cff);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.magic-sky-repair-region-chip.is-selected {
+  background: var(--region-color, #6c8cff);
+  color: #fff;
+}
+
+.magic-sky-repair-region-chip-id {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+}
+
+.magic-sky-repair-region-chip-label {
+  font-size: 0.78rem;
+}
+
+.magic-sky-repair-empty {
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--muted);
+  text-align: center;
+}
+
+.magic-sky-repair-markers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.magic-sky-repair-badge {
+  position: absolute;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  width: 2rem;
+  height: 2rem;
+  border: 3px solid #6c8cff;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--text);
+  font-weight: 800;
+  font-size: 0.95rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.magic-sky-repair-badge.is-selected {
+  background: #6c8cff;
+  color: #fff;
+}
+
 .magic-sky-canvas.magic-sky-repair-mode {
-  cursor: crosshair;
+  cursor: default;
 }
 
 .magic-sky-canvas.magic-sky-repair-mode:active {
-  cursor: crosshair;
+  cursor: default;
 }
 
 /* F4 星芒鏡 v0.1.1 - 依原圖比例輸出，不裁切直式／橫式／正方形照片 */
