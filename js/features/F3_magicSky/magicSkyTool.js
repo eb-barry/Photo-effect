@@ -1,9 +1,10 @@
-// F3 魔法天空 - Canvas 影像處理 v0.7.1
+// F3 魔法天空 - Canvas 影像處理 v0.8.0
 // 柔邊 alpha 合成 + probMap 天空敏感度 + 深色細節前景保護。
 
 import { getSkyByCategory, getSelectedSkyIdKey, resolveEffectValues } from "./magicSkyState.js";
 import {
   applyPhotoForegroundProtection,
+  applyThinLineSkyProtection,
   buildSkyMaskBitmapWithSensitivity,
   createMaskCanvasFromBitmap,
   samplePhotoImageData
@@ -144,7 +145,12 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null, 
   let layoutMask = buildLayoutMask(maskEntry, sourceImage, layout, effects.skySensitivity);
   layoutMask = applyRepairMask(layoutMask, repairMaskCanvas);
 
-  const processedMask = buildProcessedMask(layoutMask, effects.edgeFeather, effects.maskExpansion);
+  const processedMask = buildProcessedMask(
+    layoutMask,
+    effects.edgeFeather,
+    effects.maskExpansion,
+    maskEntry?.thinLineMask
+  );
 
   const adjustedPhoto = renderAdjustedPhotoLayer(sourceImage, layout, effects);
   const skyLayer = document.createElement("canvas");
@@ -169,7 +175,8 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null, 
     processedMask,
     layoutMask,
     effects.skyOpacity,
-    effects.skyEdgeRefine
+    effects.skyEdgeRefine,
+    maskEntry?.thinLineMask
   );
 }
 
@@ -331,13 +338,21 @@ function buildLayoutMask(maskEntry, sourceImage, layout, skySensitivity){
 
   if (skySensitivity > 0 && maskEntry?.probMap) {
     const photoData = samplePhotoImageData(sourceImage, maskEntry.width, maskEntry.height);
-    const bitmap = buildSkyMaskBitmapWithSensitivity(
+    let bitmap = buildSkyMaskBitmapWithSensitivity(
       maskEntry.probMap,
       photoData,
       maskEntry.width,
       maskEntry.height,
       skySensitivity
     );
+    if (maskEntry.thinLineMask) {
+      bitmap = applyThinLineSkyProtection(
+        bitmap,
+        maskEntry.thinLineMask,
+        maskEntry.width,
+        maskEntry.height
+      );
+    }
     const refinedMask = createMaskCanvasFromBitmap(
       bitmap,
       maskEntry.probMap,
@@ -373,7 +388,7 @@ function buildLayoutMask(maskEntry, sourceImage, layout, skySensitivity){
   return layoutMask;
 }
 
-function buildProcessedMask(maskCanvas, edgeFeather, maskExpansion){
+function buildProcessedMask(maskCanvas, edgeFeather, maskExpansion, thinLineMask = null){
   const output = document.createElement("canvas");
   output.width = maskCanvas.width;
   output.height = maskCanvas.height;
@@ -385,7 +400,10 @@ function buildProcessedMask(maskCanvas, edgeFeather, maskExpansion){
     applyMaskExpansion(ctx, output.width, output.height, expansion);
   }
 
-  const featherPx = MIN_MASK_FEATHER_PX + clamp(Number(edgeFeather) || 0, 0, 100) * 0.14;
+  let featherPx = MIN_MASK_FEATHER_PX + clamp(Number(edgeFeather) || 0, 0, 100) * 0.14;
+  if (thinLineMask) {
+    featherPx = Math.max(MIN_MASK_FEATHER_PX, featherPx * 0.82);
+  }
   const blurCanvas = document.createElement("canvas");
   blurCanvas.width = output.width;
   blurCanvas.height = output.height;
@@ -394,6 +412,10 @@ function buildProcessedMask(maskCanvas, edgeFeather, maskExpansion){
   blurCtx.drawImage(output, 0, 0);
   ctx.clearRect(0, 0, output.width, output.height);
   ctx.drawImage(blurCanvas, 0, 0);
+
+  if (thinLineMask) {
+    applyThinLineAlphaProtection(ctx, output.width, output.height, thinLineMask, 0.82);
+  }
 
   return output;
 }
@@ -405,7 +427,8 @@ async function compositePhotoAndSky(
   skyMaskCanvas,
   rawMaskCanvas,
   skyOpacityPercent,
-  skyEdgeRefineStrength = 0
+  skyEdgeRefineStrength = 0,
+  thinLineMask = null
 ){
   const width = photoCanvas.width;
   const height = photoCanvas.height;
@@ -445,6 +468,9 @@ async function compositePhotoAndSky(
       if (rawAlpha < 0.82) {
         skyAlpha *= computeCompositeDarkProtection(photo.data, i, width);
       }
+      if (thinLineMask) {
+        skyAlpha *= 1 - thinLineMask[i] * 0.78;
+      }
 
       const inv = 1 - skyAlpha;
       out.data[i] = clampByte(photo.data[i] * inv + sky.data[i] * skyAlpha);
@@ -459,6 +485,21 @@ async function compositePhotoAndSky(
   }
 
   ctx.putImageData(out, 0, 0);
+}
+
+function applyThinLineAlphaProtection(ctx, width, height, thinLineMask, strength){
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const pixels = imageData.data;
+  const clampedStrength = clamp(Number(strength) || 0, 0, 1);
+
+  for (let i = 0; i < thinLineMask.length; i += 1) {
+    const guard = thinLineMask[i] * clampedStrength;
+    if (guard <= 0) continue;
+    const alphaIndex = i * 4 + 3;
+    pixels[alphaIndex] = Math.round(pixels[alphaIndex] * (1 - guard));
+  }
+
+  ctx.putImageData(imageData, 0, 0);
 }
 
 function yieldToMainThread(){
