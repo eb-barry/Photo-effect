@@ -1,4 +1,4 @@
-// F3 魔法天空 - Canvas 影像處理 v0.4.0
+// F3 魔法天空 - Canvas 影像處理 v0.4.1
 // 柔邊 alpha 合成 + probMap 天空敏感度 + 深色細節前景保護。
 
 import { getSkyByCategory, getSelectedSkyIdKey, resolveEffectValues } from "./magicSkyState.js";

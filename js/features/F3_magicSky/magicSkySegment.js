@@ -1,13 +1,18 @@
-// F3 魔法天空 - AI 天空分割 v0.4.0
-// 320 推論 → probMap 快取 → 渲染時天空敏感度微調。
+// F3 魔法天空 - AI 天空分割 v0.4.1
+// 320 全圖推論 + 上半部 2×2 分塊推論 → probMap 快取。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/voyagerfromeast/skyseg/resolve/main/skyseg_fp16.onnx";
 const MODEL_CACHE_NAME = "photo-effects-skyseg-model-v1";
-const MASK_PIPELINE_VERSION = 8;
+const MASK_PIPELINE_VERSION = 9;
 const INPUT_SIZE = 320;
 const MASK_INTERMEDIATE_MAX_EDGE = 640;
+const TILED_REGION_HEIGHT_RATIO = 0.65;
+const TILED_GRID_COLS = 2;
+const TILED_GRID_ROWS = 2;
+const TILED_OVERLAP_RATIO = 0.35;
+const TILED_MIN_IMAGE_EDGE = 520;
 const SKY_CONFIDENCE_THRESHOLD = 0.58;
 const SKY_CONFIDENCE_SOFTNESS = 0.14;
 const SKY_CONNECT_THRESHOLD = 0.38;
@@ -58,8 +63,22 @@ export async function ensureSkyMask(sourceImage, photoKey, options = {}){
   const onStatus = typeof options.onStatus === "function" ? options.onStatus : () => {};
   onStatus("分析天空中…");
   const session = await ensureSession(onStatus);
-  const output = await runInference(session, sourceImage);
-  const { maskCanvas, probMap } = buildMaskCanvas(output, sourceImage.width, sourceImage.height, sourceImage);
+  const width = sourceImage.width;
+  const height = sourceImage.height;
+  const fullOutput = await runInference(session, sourceImage);
+  const fullProb = outputToProbabilities(fullOutput);
+  let probMap = upscaleProbabilityMap(fullProb, INPUT_SIZE, INPUT_SIZE, width, height);
+
+  const tileCrops = getStructureTileCrops(width, height);
+  if (tileCrops.length > 0) {
+    for (let i = 0; i < tileCrops.length; i += 1) {
+      onStatus(`精細分析建築區域… (${i + 1}/${tileCrops.length})`);
+      const tileOutput = await runInferenceOnCrop(session, sourceImage, tileCrops[i]);
+      mergeTileIntoProbMap(probMap, width, height, outputToProbabilities(tileOutput), tileCrops[i]);
+    }
+  }
+
+  const { maskCanvas } = buildMaskFromProbMap(probMap, width, height, sourceImage);
   applyPhotoForegroundProtection(maskCanvas, sourceImage);
   const entry = {
     width: sourceImage.width,
@@ -136,21 +155,88 @@ async function fetchModelBuffer(onStatus){
 
 async function runInference(session, image){
   const ort = await loadOrt();
-  const inputTensor = preprocessImage(image, ort);
+  const inputTensor = preprocessCanvas(imageToSquareCanvas(image), ort);
   const inputName = session.inputNames[0];
   const results = await session.run({ [inputName]: inputTensor });
   const outputName = session.outputNames[0];
   return results[outputName].data;
 }
 
-function preprocessImage(image, ort){
+async function runInferenceOnCrop(session, image, crop){
+  const ort = await loadOrt();
+  const canvas = document.createElement("canvas");
+  canvas.width = INPUT_SIZE;
+  canvas.height = INPUT_SIZE;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, INPUT_SIZE, INPUT_SIZE);
+  const inputTensor = preprocessCanvas(canvas, ort);
+  const inputName = session.inputNames[0];
+  const results = await session.run({ [inputName]: inputTensor });
+  const outputName = session.outputNames[0];
+  return results[outputName].data;
+}
+
+function imageToSquareCanvas(image){
   const canvas = document.createElement("canvas");
   canvas.width = INPUT_SIZE;
   canvas.height = INPUT_SIZE;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   ctx.drawImage(image, 0, 0, INPUT_SIZE, INPUT_SIZE);
+  return canvas;
+}
 
-  const { data } = ctx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
+function outputToProbabilities(outputData){
+  const probabilities = new Float32Array(INPUT_SIZE * INPUT_SIZE);
+  for (let i = 0; i < probabilities.length; i++) {
+    probabilities[i] = clamp01(outputData[i]);
+  }
+  return probabilities;
+}
+
+function getStructureTileCrops(width, height){
+  if (Math.max(width, height) < TILED_MIN_IMAGE_EDGE) return [];
+  const regionH = Math.round(height * TILED_REGION_HEIGHT_RATIO);
+  const cropW = Math.round(width / (TILED_GRID_COLS - TILED_OVERLAP_RATIO * (TILED_GRID_COLS - 1)));
+  const cropH = Math.round(regionH / (TILED_GRID_ROWS - TILED_OVERLAP_RATIO * (TILED_GRID_ROWS - 1)));
+  if (cropW < 64 || cropH < 64) return [];
+
+  const stepX = TILED_GRID_COLS > 1 ? Math.round((width - cropW) / (TILED_GRID_COLS - 1)) : 0;
+  const stepY = TILED_GRID_ROWS > 1 ? Math.round((regionH - cropH) / (TILED_GRID_ROWS - 1)) : 0;
+  const crops = [];
+
+  for (let row = 0; row < TILED_GRID_ROWS; row += 1) {
+    for (let col = 0; col < TILED_GRID_COLS; col += 1) {
+      const sx = col * stepX;
+      const sy = row * stepY;
+      const sw = Math.min(cropW, width - sx);
+      const sh = Math.min(cropH, height - sy);
+      if (sw < 64 || sh < 64) continue;
+      crops.push({ sx, sy, sw, sh });
+    }
+  }
+
+  return crops;
+}
+
+function mergeTileIntoProbMap(probMap, fullWidth, fullHeight, tileProb, crop){
+  const { sx, sy, sw, sh } = crop;
+  for (let ty = 0; ty < INPUT_SIZE; ty += 1) {
+    const fy = sy + ((ty + 0.5) / INPUT_SIZE) * sh;
+    if (fy < 0 || fy >= fullHeight) continue;
+    const y = Math.min(fullHeight - 1, Math.floor(fy));
+    for (let tx = 0; tx < INPUT_SIZE; tx += 1) {
+      const fx = sx + ((tx + 0.5) / INPUT_SIZE) * sw;
+      if (fx < 0 || fx >= fullWidth) continue;
+      const x = Math.min(fullWidth - 1, Math.floor(fx));
+      const fullIndex = y * fullWidth + x;
+      const tileValue = tileProb[ty * INPUT_SIZE + tx];
+      if (tileValue > probMap[fullIndex]) probMap[fullIndex] = tileValue;
+    }
+  }
+}
+
+function preprocessCanvas(canvas, ort){
+  const { data } = canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
   const float32Data = new Float32Array(3 * INPUT_SIZE * INPUT_SIZE);
   const plane = INPUT_SIZE * INPUT_SIZE;
 
@@ -166,17 +252,17 @@ function preprocessImage(image, ort){
   return new ort.Tensor("float32", float32Data, [1, 3, INPUT_SIZE, INPUT_SIZE]);
 }
 
-function buildMaskCanvas(outputData, width, height, sourceImage){
-  const lowProb = new Float32Array(INPUT_SIZE * INPUT_SIZE);
-  for (let i = 0; i < lowProb.length; i++) {
-    lowProb[i] = clamp01(outputData[i]);
-  }
-
-  const probMap = upscaleProbabilityMap(lowProb, INPUT_SIZE, INPUT_SIZE, width, height);
+function buildMaskFromProbMap(probMap, width, height, sourceImage){
   const photoData = sampleLowResPhoto(sourceImage, width, height);
   const connectedSky = buildSkyMaskBitmapWithSensitivity(probMap, photoData, width, height, 0);
   const maskCanvas = createMaskCanvasFromBitmap(connectedSky, probMap, width, height);
   return { maskCanvas, probMap };
+}
+
+function buildMaskCanvas(outputData, width, height, sourceImage){
+  const fullProb = outputToProbabilities(outputData);
+  const probMap = upscaleProbabilityMap(fullProb, INPUT_SIZE, INPUT_SIZE, width, height);
+  return buildMaskFromProbMap(probMap, width, height, sourceImage);
 }
 
 export function buildSkyMaskBitmapWithSensitivity(probabilities, photoData, width, height, sensitivity = 0){
