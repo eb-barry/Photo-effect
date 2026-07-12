@@ -1,4 +1,4 @@
-// F3 魔法天空 - UI v0.3.4
+// F3 魔法天空 - UI v0.9.0
 // 三按鈕分頁 + 天空類別 + 天空/照片微調 + 拖曳/縮放手勢。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
@@ -79,13 +79,9 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
   function refreshTabPanels(){
     const tab = state.activeControlTab;
     const expanded = Boolean(tab);
-    const repairPanel = root.querySelector("#repairPanel");
     tabPanels?.classList.toggle("hidden", !expanded);
     skyPanel?.classList.toggle("hidden", tab !== "sky");
     adjustControlsPanel?.classList.toggle("hidden", tab !== "skyAdjust" && tab !== "photoAdjust");
-    repairPanel?.classList.toggle("hidden", tab !== "repair");
-    canvas?.classList.toggle("magic-sky-repair-mode", tab === "repair");
-    root.querySelector("#repairRegionMarkers")?.classList.toggle("hidden", tab !== "repair");
     if (tab === "sky") requestAnimationFrame(() => refreshSkyCarouselHints(root));
   }
 
@@ -159,9 +155,6 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
     Object.assign(state, updateMagicSkyState(state, partial));
     refreshAllControls();
     persistDraft();
-    if (nextTab === "repair") {
-      renderApi.onEnterRepairTab?.();
-    }
   }
 
   tabButtons.forEach(button => button.addEventListener("click", event => {
@@ -232,7 +225,6 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
       await renderBusy("調整天空位置，請稍候…", { delay: 120 });
       persistDraft();
     });
-    enableRepairRegionPick(root, state, renderApi);
   }
 
   if (!state.activeControlTab) {
@@ -244,11 +236,7 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
 
   return {
     refreshAllControls,
-    switchSkyCategory,
-    refreshRepairRegions: (regions, selectedIds) => {
-      renderRepairRegionList(root, regions, selectedIds);
-      renderApi.onRepairMarkersUpdate?.(regions, selectedIds);
-    }
+    switchSkyCategory
   };
 }
 
@@ -276,90 +264,6 @@ export function renderSkyCategoryBar(){
       `).join("")}
     </div>
   `;
-}
-
-export function renderRepairControls(){
-  return `
-    <p class="magic-sky-repair-hint">SAM 會把照片分成<strong>天空相關</strong>與<strong>非天空</strong>兩類編號。請勾選要套用為天空的「天空」編號即可。</p>
-    <div id="repairRegionGroups" class="magic-sky-repair-groups hidden">
-      <section class="magic-sky-repair-group" aria-label="天空相關區塊">
-        <h3 class="magic-sky-repair-group-title">天空相關</h3>
-        <div id="repairSkyRegionList" class="magic-sky-repair-region-list" role="listbox"></div>
-        <p id="repairSkyRegionEmpty" class="magic-sky-repair-group-empty hidden">未偵測到天空區塊</p>
-      </section>
-      <section class="magic-sky-repair-group" aria-label="非天空區塊">
-        <h3 class="magic-sky-repair-group-title">非天空（參考）</h3>
-        <div id="repairFgRegionList" class="magic-sky-repair-region-list is-reference" role="list"></div>
-        <p id="repairFgRegionEmpty" class="magic-sky-repair-group-empty hidden">未偵測到非天空區塊</p>
-      </section>
-    </div>
-    <p id="repairRegionEmpty" class="magic-sky-repair-empty hidden">SAM 尚未分割出區塊，請按「重新分析」。</p>
-    <div class="magic-sky-repair-actions">
-      <button type="button" class="magic-sky-repair-btn" id="rescanRepairBtn">重新分析</button>
-      <button type="button" class="magic-sky-repair-btn" id="clearRepairBtn">清除修復</button>
-    </div>
-  `;
-}
-
-function renderRegionChip(region, selectedIds){
-  const selected = selectedIds?.has(region.id);
-  const classes = [
-    "magic-sky-repair-region-chip",
-    region.selectable ? "" : "is-reference",
-    selected ? "is-selected" : ""
-  ].filter(Boolean).join(" ");
-  const inner = `
-      <span class="magic-sky-repair-region-chip-id">${region.displayLabel}</span>
-      <span class="magic-sky-repair-region-chip-label">${region.groupLabel} ${region.displayLabel}</span>
-  `;
-
-  if (!region.selectable) {
-    return `<div class="${classes}" style="--region-color:${region.color}">${inner}</div>`;
-  }
-
-  return `
-    <button
-      type="button"
-      class="${classes}"
-      data-region-id="${region.id}"
-      aria-pressed="${selected}"
-      style="--region-color:${region.color}"
-    >${inner}</button>
-  `;
-}
-
-export function renderRepairRegionList(root, regions, selectedIds){
-  const groupsEl = root.querySelector("#repairRegionGroups");
-  const emptyEl = root.querySelector("#repairRegionEmpty");
-  const skyListEl = root.querySelector("#repairSkyRegionList");
-  const fgListEl = root.querySelector("#repairFgRegionList");
-  const skyEmptyEl = root.querySelector("#repairSkyRegionEmpty");
-  const fgEmptyEl = root.querySelector("#repairFgRegionEmpty");
-
-  skyListEl && (skyListEl.innerHTML = "");
-  fgListEl && (fgListEl.innerHTML = "");
-
-  if (!regions?.length) {
-    groupsEl?.classList.add("hidden");
-    emptyEl?.classList.remove("hidden");
-    return;
-  }
-
-  emptyEl?.classList.add("hidden");
-  groupsEl?.classList.remove("hidden");
-
-  const skyRegions = regions.filter(region => region.category === "sky");
-  const fgRegions = regions.filter(region => region.category === "nonSky");
-
-  if (skyListEl) {
-    skyListEl.innerHTML = skyRegions.map(region => renderRegionChip(region, selectedIds)).join("");
-  }
-  if (fgListEl) {
-    fgListEl.innerHTML = fgRegions.map(region => renderRegionChip(region, selectedIds)).join("");
-  }
-
-  skyEmptyEl?.classList.toggle("hidden", skyRegions.length > 0);
-  fgEmptyEl?.classList.toggle("hidden", fgRegions.length > 0);
 }
 
 export function renderAdjustControls(){
@@ -477,7 +381,6 @@ function enableSkyPanGesture(canvas, canvasWrap, state, gestureContext, setParti
   };
 
   canvas.addEventListener("pointerdown", event => {
-    if (state.activeControlTab === "repair") return;
     if (!state.sourceImageDataUrl) return;
     const inSky = insideSky(event.clientX, event.clientY);
     if (!inSky && pointers.size === 0) return;
@@ -552,23 +455,6 @@ function enableSkyPanGesture(canvas, canvasWrap, state, gestureContext, setParti
   canvas.addEventListener("pointercancel", endPointer);
   canvas.addEventListener("touchmove", blockTouchMove, { passive: false });
   canvasWrap?.addEventListener("touchmove", blockTouchMove, { passive: false });
-}
-
-function enableRepairRegionPick(root, state, renderApi){
-  const regionList = root.querySelector("#repairSkyRegionList");
-  const markersHost = root.querySelector("#repairRegionMarkers");
-
-  const handleToggle = async event => {
-    const target = event.target.closest("[data-region-id]");
-    if (!target || state.activeControlTab !== "repair") return;
-    if (!String(target.dataset.regionId).startsWith("sky-")) return;
-    event.preventDefault();
-    const regionId = target.dataset.regionId;
-    await renderApi.onRepairRegionToggle?.(regionId);
-  };
-
-  regionList?.addEventListener("click", handleToggle);
-  markersHost?.addEventListener("click", handleToggle);
 }
 
 function clamp(value, min, max){

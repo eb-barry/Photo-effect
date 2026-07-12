@@ -1,16 +1,16 @@
-// F3 魔法天空 - AI 天空分割 v0.8.0
-// 320 全圖 + 上半部 3×3 分塊推論；亮白天空自動補洞；細線柔順保護。
+// F3 魔法天空 - AI 天空分割 v0.9.0
+// 320 全圖 + 上半部 2×2 分塊推論；保守前景保護避免鐘／石柱被誤判為天空。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/voyagerfromeast/skyseg/resolve/main/skyseg_fp16.onnx";
 const MODEL_CACHE_NAME = "photo-effects-skyseg-model-v1";
-const MASK_PIPELINE_VERSION = 11;
+const MASK_PIPELINE_VERSION = 12;
 const INPUT_SIZE = 320;
 const MASK_INTERMEDIATE_MAX_EDGE = 640;
-const TILED_REGION_HEIGHT_RATIO = 0.72;
-const TILED_GRID_COLS = 3;
-const TILED_GRID_ROWS = 3;
+const TILED_REGION_HEIGHT_RATIO = 0.65;
+const TILED_GRID_COLS = 2;
+const TILED_GRID_ROWS = 2;
 const TILED_OVERLAP_RATIO = 0.35;
 const TILED_MIN_IMAGE_EDGE = 520;
 const SKY_CONFIDENCE_THRESHOLD = 0.58;
@@ -286,8 +286,7 @@ export function buildSkyMaskBitmapWithSensitivity(probabilities, photoData, widt
   mask = includeOccludedSkyRegions(mask, probabilities, width, height, thresholds);
   mask = includeSkyPocketsFromPhoto(mask, probabilities, photoData, width, height, thresholds);
   mask = fillSkyEnclosedHoles(mask, photoData, width, height);
-  mask = fillBrightSkyGaps(mask, probabilities, photoData, width, height);
-  mask = closeBrightSkyOpenings(mask, photoData, width, height);
+  mask = pruneFalseSkyPixels(mask, probabilities, photoData, width, height);
   return mask;
 }
 
@@ -385,67 +384,6 @@ export function samplePhotoImageData(sourceImage, width, height){
   return sampleLowResPhoto(sourceImage, width, height);
 }
 
-const GAP_REGION_MIN_PIXELS = 6;
-const GAP_REGION_MAX_RATIO = 0.35;
-
-export function discoverSkyGapRegions(probMap, photoData, width, height, coveredMask, options = {}){
-  const thresholds = resolveSensitivityThresholds(options.sensitivity ?? 0);
-  const visited = new Uint8Array(width * height);
-  const regions = [];
-
-  for (let i = 0; i < width * height; i += 1) {
-    if (coveredMask[i] || visited[i]) continue;
-    if (!canBePocketSeed(i, probMap, photoData, coveredMask, width, height, thresholds)) continue;
-
-    const component = collectPocketComponent(
-      i,
-      probMap,
-      photoData,
-      visited,
-      coveredMask,
-      width,
-      height,
-      thresholds
-    );
-    if (!shouldIncludeSkyPocket(component, probMap, photoData, coveredMask, width, height, thresholds)) {
-      continue;
-    }
-    if (component.indices.length < GAP_REGION_MIN_PIXELS) continue;
-    if (component.indices.length > width * height * GAP_REGION_MAX_RATIO) continue;
-
-    regions.push(buildGapRegion(component, width, regions.length + 1));
-  }
-
-  return regions;
-}
-
-function buildGapRegion(component, width, id){
-  const { indices, minY, maxY } = component;
-  let sumX = 0;
-  let sumY = 0;
-  let minX = width;
-  let maxX = 0;
-
-  for (const index of indices) {
-    const x = index % width;
-    const y = (index / width) | 0;
-    sumX += x;
-    sumY += y;
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x);
-  }
-
-  const count = indices.length;
-  return {
-    id,
-    indices,
-    pixelCount: count,
-    centroidX: sumX / count,
-    centroidY: sumY / count,
-    bounds: { minX, minY, maxX, maxY: maxY }
-  };
-}
-
 export function resolveSensitivityThresholds(sensitivity){
   const strength = clamp01(sensitivity);
   return {
@@ -514,7 +452,7 @@ export function applyPhotoForegroundProtection(maskCanvas, sourceImage){
 
       const lum = sampleLuminance(photo, x, y, width);
       const contrast = sampleLocalContrast(photo, x, y, width, height, lum);
-      const factor = computeDarkForegroundFactor(lum, alpha / 255, contrast);
+      const factor = computeForegroundProtectionFactor(photo, i, lum, alpha / 255, contrast);
       maskData.data[i + 3] = Math.round(alpha * factor);
     }
   }
@@ -542,8 +480,29 @@ function sampleLocalContrast(photo, x, y, width, height, centerLum){
   return maxNeighbor - centerLum;
 }
 
-function computeDarkForegroundFactor(lum, maskAlpha, contrast){
+function computeForegroundProtectionFactor(photo, byteIndex, lum, maskAlpha, contrast){
   if (maskAlpha < 0.06) return 1;
+
+  const r = photo[byteIndex];
+  const g = photo[byteIndex + 1];
+  const b = photo[byteIndex + 2];
+  const maxC = Math.max(r, g, b);
+  const minC = Math.min(r, g, b);
+  const saturation = maxC === 0 ? 0 : (maxC - minC) / maxC;
+
+  if (g > r * 1.12 && g > b * 1.08 && lum >= 0.18 && lum <= 0.78) {
+    const greenness = Math.min(1, (g / Math.max(1, Math.max(r, b)) - 1) * 2.2);
+    return Math.max(0.02, 1 - maskAlpha * (0.82 + greenness * 0.16));
+  }
+
+  if (saturation > 0.2 && lum >= 0.24 && lum <= 0.72) {
+    const isBlueSkyLike = b >= r * 0.88 && b >= g * 0.82 && lum >= 0.45;
+    if (!isBlueSkyLike) {
+      const colorStrength = Math.min(1, (saturation - 0.2) / 0.35);
+      const penalty = colorStrength * Math.min(1, maskAlpha * 1.1) * 0.9;
+      return Math.max(0.04, 1 - penalty);
+    }
+  }
 
   if (lum < 0.18 && contrast > 0.12) {
     return maskAlpha > 0.25 ? 0.04 : 1;
@@ -556,6 +515,10 @@ function computeDarkForegroundFactor(lum, maskAlpha, contrast){
   if (lum < 0.42 && contrast > 0.18 && maskAlpha < 0.82) {
     const darkness = (0.42 - lum) / 0.42;
     return Math.max(0.15, 1 - darkness * (0.82 - maskAlpha) * 1.4);
+  }
+  if (lum >= 0.35 && lum <= 0.68 && contrast > 0.14 && saturation > 0.1 && maskAlpha < 0.9) {
+    const texture = Math.min(1, contrast / 0.28) * Math.min(1, saturation / 0.28);
+    return Math.max(0.08, 1 - texture * maskAlpha * 0.85);
   }
   return 1;
 }
@@ -774,48 +737,45 @@ function fillSkyEnclosedHoles(mask, photoData, width, height){
   return output;
 }
 
-function fillBrightSkyGaps(mask, probabilities, photoData, width, height){
+function pruneFalseSkyPixels(mask, probabilities, photoData, width, height){
   const output = new Uint8Array(mask);
+  const count = width * height;
 
-  for (let pass = 0; pass < 6; pass += 1) {
-    let changed = false;
-    for (let y = 1; y < height - 1; y += 1) {
-      for (let x = 1; x < width - 1; x += 1) {
-        const index = y * width + x;
-        if (output[index] || !isBrightSkyLikePhoto(photoData, index * 4)) continue;
-        if (!isNearExistingSky(output, index, width, height, 5)) continue;
-        if (probabilities[index] < 0.06 && !isNearExistingSky(output, index, width, height, 10)) continue;
-        output[index] = 1;
-        changed = true;
-      }
+  for (let i = 0; i < count; i += 1) {
+    if (!output[i]) continue;
+    const prob = probabilities[i];
+    const byteIndex = i * 4;
+    if (prob < 0.34) {
+      output[i] = 0;
+      continue;
     }
-    if (!changed) break;
+    if (isColoredForegroundPixel(photoData, byteIndex, prob)) {
+      output[i] = 0;
+    }
   }
 
   return output;
 }
 
-function closeBrightSkyOpenings(mask, photoData, width, height){
-  const output = new Uint8Array(mask);
+function isColoredForegroundPixel(photoData, byteIndex, prob){
+  const r = photoData[byteIndex];
+  const g = photoData[byteIndex + 1];
+  const b = photoData[byteIndex + 2];
+  const lum = samplePhotoLuminance(photoData, byteIndex);
+  const maxC = Math.max(r, g, b);
+  const minC = Math.min(r, g, b);
+  const saturation = maxC === 0 ? 0 : (maxC - minC) / maxC;
 
-  for (let y = 1; y < height - 1; y += 1) {
-    for (let x = 1; x < width - 1; x += 1) {
-      const index = y * width + x;
-      if (output[index] || !isBrightSkyLikePhoto(photoData, index * 4)) continue;
+  if (g > r * 1.1 && g > b * 1.05 && lum >= 0.16 && lum <= 0.8) return true;
 
-      let skyNeighbors = 0;
-      for (let oy = -1; oy <= 1; oy += 1) {
-        for (let ox = -1; ox <= 1; ox += 1) {
-          if (!ox && !oy) continue;
-          if (output[(y + oy) * width + (x + ox)]) skyNeighbors += 1;
-        }
-      }
-
-      if (skyNeighbors >= 5) output[index] = 1;
-    }
+  if (saturation > 0.18 && lum >= 0.22 && lum <= 0.74) {
+    const isBlueSkyLike = b >= r * 0.88 && b >= g * 0.82 && lum >= 0.45;
+    if (!isBlueSkyLike && prob < 0.58) return true;
   }
 
-  return output;
+  if (prob < 0.42 && lum >= 0.32 && lum <= 0.7 && saturation > 0.1) return true;
+
+  return false;
 }
 
 export function applyThinLineSkyProtection(bitmap, thinLineMask, width, height){
@@ -861,18 +821,6 @@ function blurFloatMask(source, width, height, radius){
   }
 
   return current;
-}
-
-function isBrightSkyLikePhoto(photoData, byteIndex){
-  const lum = samplePhotoLuminance(photoData, byteIndex);
-  if (lum < 0.52) return false;
-  const r = photoData[byteIndex];
-  const g = photoData[byteIndex + 1];
-  const b = photoData[byteIndex + 2];
-  const maxC = Math.max(r, g, b);
-  const minC = Math.min(r, g, b);
-  const saturation = maxC === 0 ? 0 : (maxC - minC) / maxC;
-  return saturation <= 0.42;
 }
 
 function isSkyLikePhoto(photoData, byteIndex){

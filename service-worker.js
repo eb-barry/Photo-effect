@@ -1,4 +1,4 @@
-const CACHE_NAME = "photo-effects-v0.8.2.0";
+const CACHE_NAME = "photo-effects-v0.9.0.0";
 
 const CORE_ASSETS = [
   "./",
@@ -33,8 +33,6 @@ const CORE_ASSETS = [
   "./js/features/F3_magicSky/magicSkyAssets.js",
   "./js/features/F3_magicSky/magicSkyFeature.js",
   "./js/features/F3_magicSky/magicSkySegment.js",
-  "./js/features/F3_magicSky/magicSkySam.js",
-  "./js/features/F3_magicSky/magicSkyRepairRegions.js",
   "./js/features/F3_magicSky/magicSkyBusy.js",
   "./assets/features/F3_magicSky/sunny/manifest.json",
   "./assets/features/F3_magicSky/night/manifest.json",
