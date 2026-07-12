@@ -79,9 +79,12 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
   function refreshTabPanels(){
     const tab = state.activeControlTab;
     const expanded = Boolean(tab);
+    const repairPanel = root.querySelector("#repairPanel");
     tabPanels?.classList.toggle("hidden", !expanded);
     skyPanel?.classList.toggle("hidden", tab !== "sky");
     adjustControlsPanel?.classList.toggle("hidden", tab !== "skyAdjust" && tab !== "photoAdjust");
+    repairPanel?.classList.toggle("hidden", tab !== "repair");
+    canvas?.classList.toggle("magic-sky-repair-mode", tab === "repair");
     if (tab === "sky") requestAnimationFrame(() => refreshSkyCarouselHints(root));
   }
 
@@ -155,6 +158,9 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
     Object.assign(state, updateMagicSkyState(state, partial));
     refreshAllControls();
     persistDraft();
+    if (nextTab === "repair") {
+      renderApi.onEnterRepairTab?.();
+    }
   }
 
   tabButtons.forEach(button => button.addEventListener("click", event => {
@@ -225,6 +231,9 @@ export function setupMagicSkyUI(root, state, renderApi, gestureContext = {}){
       await renderBusy("調整天空位置，請稍候…", { delay: 120 });
       persistDraft();
     });
+    enableSamRepairTap(canvas, state, gestureContext, async point => {
+      await renderApi.onRepairTap?.(point);
+    });
   }
 
   if (!state.activeControlTab) {
@@ -259,6 +268,15 @@ export function renderSkyCategoryBar(){
           aria-pressed="false"
         >${SKY_CATEGORY_LABELS[category]}</button>
       `).join("")}
+    </div>
+  `;
+}
+
+export function renderRepairControls(){
+  return `
+    <p class="magic-sky-repair-hint">點擊照片中<strong>尚未替換的天空缺口</strong>，AI 會自動填補該區域。首次使用需下載 SAM 模型（約 44MB）。</p>
+    <div class="magic-sky-repair-actions">
+      <button type="button" class="magic-sky-repair-btn" id="clearRepairBtn">清除修復</button>
     </div>
   `;
 }
@@ -378,6 +396,7 @@ function enableSkyPanGesture(canvas, canvasWrap, state, gestureContext, setParti
   };
 
   canvas.addEventListener("pointerdown", event => {
+    if (state.activeControlTab === "repair") return;
     if (!state.sourceImageDataUrl) return;
     const inSky = insideSky(event.clientX, event.clientY);
     if (!inSky && pointers.size === 0) return;
@@ -452,6 +471,27 @@ function enableSkyPanGesture(canvas, canvasWrap, state, gestureContext, setParti
   canvas.addEventListener("pointercancel", endPointer);
   canvas.addEventListener("touchmove", blockTouchMove, { passive: false });
   canvasWrap?.addEventListener("touchmove", blockTouchMove, { passive: false });
+}
+
+function enableSamRepairTap(canvas, state, gestureContext, onRepairTap){
+  const toCanvasPoint = (clientX, clientY) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / Math.max(1, rect.width);
+    const scaleY = canvas.height / Math.max(1, rect.height);
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  };
+
+  canvas.addEventListener("click", event => {
+    if (state.activeControlTab !== "repair") return;
+    if (!state.sourceImageDataUrl) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const point = toCanvasPoint(event.clientX, event.clientY);
+    void onRepairTap?.(point);
+  });
 }
 
 function clamp(value, min, max){
