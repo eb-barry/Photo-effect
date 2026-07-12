@@ -1,4 +1,4 @@
-// F3 魔法天空 - Page Controller v0.5.0
+// F3 魔法天空 - Page Controller v0.5.1
 // 三按鈕分頁 + 遮罩上傳後固定 + iOS 拖曳鎖定。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -57,7 +57,7 @@ export async function renderMagicSkyPage(root, navigate){
 
         <div class="topbar-title">
           <h1>魔法天空</h1>
-          <p class="crystal-version" aria-hidden="true">v0.5.0</p>
+          <p class="crystal-version" aria-hidden="true">v0.5.1</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -74,9 +74,11 @@ export async function renderMagicSkyPage(root, navigate){
             <span class="magic-sky-hint">首次換天需下載 AI 模型（約 88MB），請保持網路連線</span>
           </div>
           <canvas id="editorCanvas" class="hidden crystal-canvas magic-sky-canvas"></canvas>
-          <div class="magic-sky-analyzing hidden" id="skyProcessingOverlay" role="status" aria-live="polite">
+          <div class="magic-sky-analyzing hidden" id="skyProcessingOverlay" role="status" aria-live="polite" aria-busy="false">
             <div class="magic-sky-analyzing-card">
-              <p id="skyProcessingText">處理中，請稍候…</p>
+              <div class="magic-sky-analyzing-spinner is-active" id="skyProcessingSpinner" aria-hidden="true"></div>
+              <p class="magic-sky-analyzing-stage" id="skyProcessingStage">請稍候</p>
+              <p class="magic-sky-analyzing-detail" id="skyProcessingText">處理中，請稍候…</p>
             </div>
           </div>
         </div>
@@ -111,7 +113,11 @@ export async function renderMagicSkyPage(root, navigate){
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const processing = createProcessingOverlay(
     root.querySelector("#skyProcessingOverlay"),
-    root.querySelector("#skyProcessingText")
+    root.querySelector("#skyProcessingText"),
+    {
+      spinnerEl: root.querySelector("#skyProcessingSpinner"),
+      stageEl: root.querySelector("#skyProcessingStage")
+    }
   );
 
   const state = {
@@ -128,7 +134,9 @@ export async function renderMagicSkyPage(root, navigate){
   let analyzeSerial = 0;
   let renderTask = null;
 
-  preloadSkySegmentModel().catch(error => {
+  preloadSkySegmentModel(message => {
+    if (processing.isActive()) processing.setMessage(message);
+  }).catch(error => {
     console.warn("[F3 魔法天空] AI 模型預載失敗：", error);
   });
 
@@ -160,7 +168,7 @@ export async function renderMagicSkyPage(root, navigate){
     renderTask = processing.run(
       message || "合成天空效果，請稍候…",
       renderCore,
-      options
+      { delay: options.delay ?? 0 }
     ).finally(() => {
       renderTask = null;
     });
@@ -186,9 +194,10 @@ export async function renderMagicSkyPage(root, navigate){
     const serial = ++analyzeSerial;
     processing.begin("分析天空中…", 0);
     try {
+      const reportStage = processing.bindStageStatus();
       const entry = await ensureSkyMask(sourceImage, photoKey, {
         onStatus: message => {
-          if (serial === analyzeSerial) processing.setMessage(message);
+          if (serial === analyzeSerial) reportStage(message);
         }
       });
       if (serial !== analyzeSerial) return maskEntry;
@@ -322,10 +331,9 @@ export async function renderMagicSkyPage(root, navigate){
     onEnterRepairTab: async () => {
       if (!sourceImage || !photoKey) return;
       try {
+        const reportStage = processing.bindStageStatus();
         await processing.run("準備點選修復模型…", async () => {
-          samEntry = await ensureSamEmbedding(sourceImage, photoKey, message => {
-            processing.setMessage(message);
-          });
+          samEntry = await ensureSamEmbedding(sourceImage, photoKey, reportStage);
         }, { delay: 0 });
       } catch (error) {
         console.error("[F3 魔法天空] SAM 初始化失敗：", error);
@@ -335,15 +343,12 @@ export async function renderMagicSkyPage(root, navigate){
     onRepairTap: async point => {
       if (!sourceImage || !photoKey || !outputSize) return;
       try {
+        const reportStage = processing.bindStageStatus();
         await processing.run("套用點選修復…", async () => {
           if (!samEntry) {
-            samEntry = await ensureSamEmbedding(sourceImage, photoKey, message => {
-              processing.setMessage(message);
-            });
+            samEntry = await ensureSamEmbedding(sourceImage, photoKey, reportStage);
           }
-          const maskTensor = await decodeSamClick(samEntry, point.x, point.y, message => {
-            processing.setMessage(message);
-          });
+          const maskTensor = await decodeSamClick(samEntry, point.x, point.y, reportStage);
           mergeSamMaskIntoRepair(photoKey, outputSize.width, outputSize.height, maskTensor);
           await renderCore();
         }, { delay: 0 });
