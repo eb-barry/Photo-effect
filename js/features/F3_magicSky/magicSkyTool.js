@@ -1,4 +1,4 @@
-// F3 魔法天空 - Canvas 影像處理 v0.5.0
+// F3 魔法天空 - Canvas 影像處理 v0.7.1
 // 柔邊 alpha 合成 + probMap 天空敏感度 + 深色細節前景保護。
 
 import { getSkyByCategory, getSelectedSkyIdKey, resolveEffectValues } from "./magicSkyState.js";
@@ -442,7 +442,9 @@ async function compositePhotoAndSky(
           rawAlpha
         );
       }
-      skyAlpha *= computeCompositeDarkProtection(photo.data, i, width);
+      if (rawAlpha < 0.82) {
+        skyAlpha *= computeCompositeDarkProtection(photo.data, i, width);
+      }
 
       const inv = 1 - skyAlpha;
       out.data[i] = clampByte(photo.data[i] * inv + sky.data[i] * skyAlpha);

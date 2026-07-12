@@ -1,11 +1,12 @@
-// F3 魔法天空 - AI 天空分割 v0.4.1
+// F3 魔法天空 - AI 天空分割 v0.7.1
 // 320 全圖推論 + 上半部 2×2 分塊推論 → probMap 快取。
+// 遮罩本體使用實心 alpha，避免 probMap 逐像素透明度造成天空斑點。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/voyagerfromeast/skyseg/resolve/main/skyseg_fp16.onnx";
 const MODEL_CACHE_NAME = "photo-effects-skyseg-model-v1";
-const MASK_PIPELINE_VERSION = 9;
+const MASK_PIPELINE_VERSION = 10;
 const INPUT_SIZE = 320;
 const MASK_INTERMEDIATE_MAX_EDGE = 640;
 const TILED_REGION_HEIGHT_RATIO = 0.65;
@@ -299,11 +300,12 @@ export function createMaskCanvasFromBitmap(bitmap, probabilities, width, height)
       pixels[i * 4 + 3] = 0;
       continue;
     }
-    const alpha = confidenceToAlpha(probabilities[i]);
     pixels[i * 4] = 255;
     pixels[i * 4 + 1] = 255;
     pixels[i * 4 + 2] = 255;
-    pixels[i * 4 + 3] = alpha;
+    pixels[i * 4 + 3] = isMaskEdge(bitmap, i, width, height)
+      ? confidenceToAlpha(probabilities[i])
+      : 255;
   }
   lowCtx.putImageData(imageData, 0, 0);
 
@@ -463,7 +465,7 @@ export function applyPhotoForegroundProtection(maskCanvas, sourceImage){
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
       const alpha = maskData.data[i + 3];
-      if (alpha === 0) continue;
+      if (alpha === 0 || alpha >= 250) continue;
 
       const lum = sampleLuminance(photo, x, y, width);
       const contrast = sampleLocalContrast(photo, x, y, width, height, lum);
@@ -852,6 +854,17 @@ function buildTopConnectedSkyMask(probabilities, width, height){
   }
 
   return connected;
+}
+
+function isMaskEdge(bitmap, index, width, height){
+  if (!bitmap[index]) return false;
+  const x = index % width;
+  const y = (index / width) | 0;
+  if (x > 0 && !bitmap[index - 1]) return true;
+  if (x < width - 1 && !bitmap[index + 1]) return true;
+  if (y > 0 && !bitmap[index - width]) return true;
+  if (y < height - 1 && !bitmap[index + width]) return true;
+  return false;
 }
 
 function confidenceToAlpha(probability){
