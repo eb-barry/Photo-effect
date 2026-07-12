@@ -111,7 +111,7 @@ export function getPhotoLayout(canvasWidth, canvasHeight){
   };
 }
 
-export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null, repairMaskCanvas = null){
+export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null){
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -142,8 +142,7 @@ export async function renderMagicSky(ctx, sourceImage, state, maskEntry = null, 
   }
 
   const effects = resolveEffectValues(state);
-  let layoutMask = buildLayoutMask(maskEntry, sourceImage, layout, effects.skySensitivity);
-  layoutMask = applyRepairMask(layoutMask, repairMaskCanvas);
+  const layoutMask = buildLayoutMask(maskEntry, sourceImage, layout, effects.skySensitivity);
 
   const processedMask = buildProcessedMask(
     layoutMask,
@@ -301,34 +300,6 @@ function drawSkyTexture(ctx, skyImage, width, height, offsetX = 0, offsetY = 0, 
   const x = (width - drawWidth) / 2 + panX;
   const y = (height - drawHeight) / 2 + panY;
   ctx.drawImage(skyImage, x, y, drawWidth, drawHeight);
-}
-
-function applyRepairMask(layoutMask, repairMaskCanvas){
-  if (!repairMaskCanvas || !layoutMask) return layoutMask;
-  const width = layoutMask.width;
-  const height = layoutMask.height;
-  const ctx = layoutMask.getContext("2d", { willReadFrequently: true });
-  const layoutData = ctx.getImageData(0, 0, width, height);
-  const repairCtx = repairMaskCanvas.getContext("2d", { willReadFrequently: true });
-  const repairData = repairCtx.getImageData(0, 0, repairMaskCanvas.width, repairMaskCanvas.height);
-  const layoutPixels = layoutData.data;
-  const repairPixels = repairData.data;
-  const scaleX = repairMaskCanvas.width / width;
-  const scaleY = repairMaskCanvas.height / height;
-
-  for (let y = 0; y < height; y += 1) {
-    const ry = Math.min(repairMaskCanvas.height - 1, Math.floor(y * scaleY));
-    for (let x = 0; x < width; x += 1) {
-      const rx = Math.min(repairMaskCanvas.width - 1, Math.floor(x * scaleX));
-      const repairAlpha = repairPixels[(ry * repairMaskCanvas.width + rx) * 4 + 3];
-      if (!repairAlpha) continue;
-      const idx = (y * width + x) * 4 + 3;
-      if (repairAlpha > layoutPixels[idx]) layoutPixels[idx] = repairAlpha;
-    }
-  }
-
-  ctx.putImageData(layoutData, 0, 0);
-  return layoutMask;
 }
 
 function buildLayoutMask(maskEntry, sourceImage, layout, skySensitivity){
