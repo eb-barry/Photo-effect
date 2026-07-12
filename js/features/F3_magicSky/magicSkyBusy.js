@@ -87,7 +87,7 @@ export const INTENSIVE_RENDER_PARAMS = new Set([
   "edgeFeather",
   "maskExpansion",
   "skyEdgeRefine",
-  "skyPocketFill",
+  "skySensitivity",
   "skyOffsetX",
   "skyOffsetY",
   "skyScale"

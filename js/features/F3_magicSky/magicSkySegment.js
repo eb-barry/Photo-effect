@@ -1,11 +1,11 @@
-// F3 魔法天空 - AI 天空分割 v0.3.11
-// 320 推論 → 640 中繼 → 頂部連通 + 遮蔽區 + 狹小天空口袋。
+// F3 魔法天空 - AI 天空分割 v0.4.0
+// 320 推論 → probMap 快取 → 渲染時天空敏感度微調。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/voyagerfromeast/skyseg/resolve/main/skyseg_fp16.onnx";
 const MODEL_CACHE_NAME = "photo-effects-skyseg-model-v1";
-const MASK_PIPELINE_VERSION = 7;
+const MASK_PIPELINE_VERSION = 8;
 const INPUT_SIZE = 320;
 const MASK_INTERMEDIATE_MAX_EDGE = 640;
 const SKY_CONFIDENCE_THRESHOLD = 0.58;
@@ -59,12 +59,13 @@ export async function ensureSkyMask(sourceImage, photoKey, options = {}){
   onStatus("分析天空中…");
   const session = await ensureSession(onStatus);
   const output = await runInference(session, sourceImage);
-  const maskCanvas = buildMaskCanvas(output, sourceImage.width, sourceImage.height, sourceImage);
+  const { maskCanvas, probMap } = buildMaskCanvas(output, sourceImage.width, sourceImage.height, sourceImage);
   applyPhotoForegroundProtection(maskCanvas, sourceImage);
   const entry = {
     width: sourceImage.width,
     height: sourceImage.height,
     maskCanvas,
+    probMap,
     pipelineVersion: MASK_PIPELINE_VERSION
   };
   maskCache.set(key, entry);
@@ -166,22 +167,37 @@ function preprocessImage(image, ort){
 }
 
 function buildMaskCanvas(outputData, width, height, sourceImage){
-  const probabilities = new Float32Array(INPUT_SIZE * INPUT_SIZE);
-  for (let i = 0; i < probabilities.length; i++) {
-    probabilities[i] = clamp01(outputData[i]);
+  const lowProb = new Float32Array(INPUT_SIZE * INPUT_SIZE);
+  for (let i = 0; i < lowProb.length; i++) {
+    lowProb[i] = clamp01(outputData[i]);
   }
 
-  const lowPhoto = sampleLowResPhoto(sourceImage, INPUT_SIZE, INPUT_SIZE);
-  const connectedSky = buildSkyMaskBitmap(probabilities, lowPhoto, INPUT_SIZE, INPUT_SIZE);
+  const probMap = upscaleProbabilityMap(lowProb, INPUT_SIZE, INPUT_SIZE, width, height);
+  const photoData = sampleLowResPhoto(sourceImage, width, height);
+  const connectedSky = buildSkyMaskBitmapWithSensitivity(probMap, photoData, width, height, 0);
+  const maskCanvas = createMaskCanvasFromBitmap(connectedSky, probMap, width, height);
+  return { maskCanvas, probMap };
+}
+
+export function buildSkyMaskBitmapWithSensitivity(probabilities, photoData, width, height, sensitivity = 0){
+  const thresholds = resolveSensitivityThresholds(sensitivity);
+  let mask = buildTopConnectedSkyMask(probabilities, width, height);
+  mask = includeOccludedSkyRegions(mask, probabilities, width, height, thresholds);
+  mask = includeSkyPocketsFromPhoto(mask, probabilities, photoData, width, height, thresholds);
+  mask = fillSkyEnclosedHoles(mask, photoData, width, height);
+  return mask;
+}
+
+export function createMaskCanvasFromBitmap(bitmap, probabilities, width, height){
   const lowCanvas = document.createElement("canvas");
-  lowCanvas.width = INPUT_SIZE;
-  lowCanvas.height = INPUT_SIZE;
+  lowCanvas.width = width;
+  lowCanvas.height = height;
   const lowCtx = lowCanvas.getContext("2d", { willReadFrequently: true });
-  const imageData = lowCtx.createImageData(INPUT_SIZE, INPUT_SIZE);
+  const imageData = lowCtx.createImageData(width, height);
   const pixels = imageData.data;
 
   for (let i = 0; i < probabilities.length; i++) {
-    if (!connectedSky[i]) {
+    if (!bitmap[i]) {
       pixels[i * 4 + 3] = 0;
       continue;
     }
@@ -193,10 +209,8 @@ function buildMaskCanvas(outputData, width, height, sourceImage){
   }
   lowCtx.putImageData(imageData, 0, 0);
 
-  const targetW = width;
-  const targetH = height;
-  const mid = resolveIntermediateSize(targetW, targetH);
-  const usesMidStage = mid.width < targetW || mid.height < targetH;
+  const mid = resolveIntermediateSize(width, height);
+  const usesMidStage = mid.width < width || mid.height < height;
 
   const midCanvas = document.createElement("canvas");
   midCanvas.width = mid.width;
@@ -208,21 +222,72 @@ function buildMaskCanvas(outputData, width, height, sourceImage){
   const refinedMid = refineUpscaledMask(midCanvas, usesMidStage ? 1.1 : 1.25);
 
   const maskCanvas = document.createElement("canvas");
-  maskCanvas.width = targetW;
-  maskCanvas.height = targetH;
+  maskCanvas.width = width;
+  maskCanvas.height = height;
   const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
   maskCtx.imageSmoothingEnabled = true;
   maskCtx.imageSmoothingQuality = "high";
-  maskCtx.drawImage(refinedMid, 0, 0, targetW, targetH);
+  maskCtx.drawImage(refinedMid, 0, 0, width, height);
 
   if (!usesMidStage) return refinedMid;
 
-  const finalScale = Math.max(targetW / mid.width, targetH / mid.height);
+  const finalScale = Math.max(width / mid.width, height / mid.height);
   const finalBlur = finalScale > 2 ? 0.75 : 0.5;
   return refineUpscaledMask(maskCanvas, finalBlur);
 }
 
-function applyPhotoForegroundProtection(maskCanvas, sourceImage){
+export function samplePhotoImageData(sourceImage, width, height){
+  return sampleLowResPhoto(sourceImage, width, height);
+}
+
+export function resolveSensitivityThresholds(sensitivity){
+  const strength = clamp01(sensitivity);
+  return {
+    occludedSkyThreshold: OCCLUDED_SKY_THRESHOLD - strength * 0.22,
+    occludedMinAvgProb: OCCLUDED_MIN_AVG_PROB - strength * 0.18,
+    occludedMinPixels: Math.max(6, Math.round(OCCLUDED_MIN_PIXELS - strength * 8)),
+    pocketProbFloor: POCKET_PROB_FLOOR - strength * 0.1,
+    pocketSeedProb: 0.28 - strength * 0.14,
+    pocketProbPeakMin: 0.22 - strength * 0.1,
+    pocketAvgProbMin: 0.16 - strength * 0.08,
+    pocketAvgProbNearMin: 0.24 - strength * 0.1,
+    pocketProbPeakNearMin: 0.34 - strength * 0.12,
+    pocketNearSkyRadius: POCKET_NEAR_SKY_RADIUS + Math.round(strength * 4)
+  };
+}
+
+function upscaleProbabilityMap(source, srcWidth, srcHeight, dstWidth, dstHeight){
+  const output = new Float32Array(dstWidth * dstHeight);
+  if (srcWidth === dstWidth && srcHeight === dstHeight) {
+    output.set(source);
+    return output;
+  }
+
+  const xScale = srcWidth / dstWidth;
+  const yScale = srcHeight / dstHeight;
+  for (let y = 0; y < dstHeight; y += 1) {
+    const srcY = y * yScale;
+    const y0 = Math.floor(srcY);
+    const y1 = Math.min(srcHeight - 1, y0 + 1);
+    const yWeight = srcY - y0;
+    for (let x = 0; x < dstWidth; x += 1) {
+      const srcX = x * xScale;
+      const x0 = Math.floor(srcX);
+      const x1 = Math.min(srcWidth - 1, x0 + 1);
+      const xWeight = srcX - x0;
+      const i00 = y0 * srcWidth + x0;
+      const i10 = y0 * srcWidth + x1;
+      const i01 = y1 * srcWidth + x0;
+      const i11 = y1 * srcWidth + x1;
+      const top = source[i00] * (1 - xWeight) + source[i10] * xWeight;
+      const bottom = source[i01] * (1 - xWeight) + source[i11] * xWeight;
+      output[y * dstWidth + x] = top * (1 - yWeight) + bottom * yWeight;
+    }
+  }
+  return output;
+}
+
+export function applyPhotoForegroundProtection(maskCanvas, sourceImage){
   const width = maskCanvas.width;
   const height = maskCanvas.height;
   const photoCanvas = document.createElement("canvas");
@@ -329,23 +394,22 @@ function sampleLowResPhoto(image, width, height){
   return ctx.getImageData(0, 0, width, height).data;
 }
 
-function buildSkyMaskBitmap(probabilities, photoData, width, height){
-  let mask = buildTopConnectedSkyMask(probabilities, width, height);
-  mask = includeOccludedSkyRegions(mask, probabilities, width, height);
-  mask = includeSkyPocketsFromPhoto(mask, probabilities, photoData, width, height);
-  mask = fillSkyEnclosedHoles(mask, photoData, width, height);
-  return mask;
-}
-
-function includeOccludedSkyRegions(included, probabilities, width, height){
+function includeOccludedSkyRegions(included, probabilities, width, height, thresholds = resolveSensitivityThresholds(0)){
   const output = new Uint8Array(included);
   const visited = new Uint8Array(width * height);
 
   for (let i = 0; i < width * height; i++) {
-    if (output[i] || visited[i] || probabilities[i] < OCCLUDED_SKY_THRESHOLD) continue;
+    if (output[i] || visited[i] || probabilities[i] < thresholds.occludedSkyThreshold) continue;
 
-    const component = collectSkyComponent(i, probabilities, visited, width, height, OCCLUDED_SKY_THRESHOLD);
-    if (!shouldIncludeOccludedSkyComponent(component, probabilities, height)) continue;
+    const component = collectSkyComponent(
+      i,
+      probabilities,
+      visited,
+      width,
+      height,
+      thresholds.occludedSkyThreshold
+    );
+    if (!shouldIncludeOccludedSkyComponent(component, probabilities, height, thresholds)) continue;
 
     for (const index of component.indices) {
       output[index] = 1;
@@ -355,16 +419,25 @@ function includeOccludedSkyRegions(included, probabilities, width, height){
   return output;
 }
 
-function includeSkyPocketsFromPhoto(included, probabilities, photoData, width, height){
+function includeSkyPocketsFromPhoto(included, probabilities, photoData, width, height, thresholds = resolveSensitivityThresholds(0)){
   const output = new Uint8Array(included);
   const visited = new Uint8Array(width * height);
 
   for (let i = 0; i < width * height; i++) {
     if (output[i] || visited[i]) continue;
-    if (!canBePocketSeed(i, probabilities, photoData, output, width, height)) continue;
+    if (!canBePocketSeed(i, probabilities, photoData, output, width, height, thresholds)) continue;
 
-    const component = collectPocketComponent(i, probabilities, photoData, visited, output, width, height);
-    if (!shouldIncludeSkyPocket(component, probabilities, photoData, output, width, height)) continue;
+    const component = collectPocketComponent(
+      i,
+      probabilities,
+      photoData,
+      visited,
+      output,
+      width,
+      height,
+      thresholds
+    );
+    if (!shouldIncludeSkyPocket(component, probabilities, photoData, output, width, height, thresholds)) continue;
 
     for (const index of component.indices) {
       output[index] = 1;
@@ -374,17 +447,20 @@ function includeSkyPocketsFromPhoto(included, probabilities, photoData, width, h
   return output;
 }
 
-function canBePocketSeed(index, probabilities, photoData, mask, width, height){
+function canBePocketSeed(index, probabilities, photoData, mask, width, height, thresholds){
   if (!isSkyLikePhoto(photoData, index * 4)) return false;
   const prob = probabilities[index];
-  if (prob >= 0.28) return true;
-  if (prob >= POCKET_PROB_FLOOR && isNearExistingSky(mask, index, width, height, POCKET_NEAR_SKY_RADIUS)) {
+  if (prob >= thresholds.pocketSeedProb) return true;
+  if (
+    prob >= thresholds.pocketProbFloor
+    && isNearExistingSky(mask, index, width, height, thresholds.pocketNearSkyRadius)
+  ) {
     return true;
   }
   return false;
 }
 
-function collectPocketComponent(startIndex, probabilities, photoData, visited, mask, width, height){
+function collectPocketComponent(startIndex, probabilities, photoData, visited, mask, width, height, thresholds){
   const indices = [];
   let minY = height;
   let maxY = 0;
@@ -412,7 +488,10 @@ function collectPocketComponent(startIndex, probabilities, photoData, visited, m
     if (visited[neighbor] || mask[neighbor]) return;
     if (!isSkyLikePhoto(photoData, neighbor * 4)) return;
     const prob = probabilities[neighbor];
-    if (prob < POCKET_PROB_FLOOR && !isNearExistingSky(mask, neighbor, width, height, POCKET_NEAR_SKY_RADIUS)) {
+    if (
+      prob < thresholds.pocketProbFloor
+      && !isNearExistingSky(mask, neighbor, width, height, thresholds.pocketNearSkyRadius)
+    ) {
       return;
     }
     visited[neighbor] = 1;
@@ -420,7 +499,7 @@ function collectPocketComponent(startIndex, probabilities, photoData, visited, m
   }
 }
 
-function shouldIncludeSkyPocket(component, probabilities, photoData, mask, width, height){
+function shouldIncludeSkyPocket(component, probabilities, photoData, mask, width, height, thresholds){
   const { indices, maxY } = component;
   if (indices.length < POCKET_MIN_PIXELS) return false;
   if (maxY >= height - OCCLUDED_BOTTOM_EXCLUDE_ROWS) return false;
@@ -443,10 +522,16 @@ function shouldIncludeSkyPocket(component, probabilities, photoData, mask, width
   const averageProb = probSum / indices.length;
   const averageLum = lumSum / indices.length;
   if (averageLum < POCKET_MIN_PHOTO_LUM) return false;
-  if (probPeak < 0.22 && averageProb < 0.16) return false;
+  if (probPeak < thresholds.pocketProbPeakMin && averageProb < thresholds.pocketAvgProbMin) return false;
 
   const nearSkyRatio = nearSkyCount / indices.length;
-  if (nearSkyRatio < 0.08 && averageProb < 0.24 && probPeak < 0.34) return false;
+  if (
+    nearSkyRatio < 0.08
+    && averageProb < thresholds.pocketAvgProbNearMin
+    && probPeak < thresholds.pocketProbPeakNearMin
+  ) {
+    return false;
+  }
 
   return true;
 }
@@ -555,9 +640,9 @@ function collectSkyComponent(startIndex, probabilities, visited, width, height, 
   }
 }
 
-function shouldIncludeOccludedSkyComponent(component, probabilities, height){
+function shouldIncludeOccludedSkyComponent(component, probabilities, height, thresholds){
   const { indices, maxY } = component;
-  if (indices.length < OCCLUDED_MIN_PIXELS) return false;
+  if (indices.length < thresholds.occludedMinPixels) return false;
   if (maxY >= height - OCCLUDED_BOTTOM_EXCLUDE_ROWS) return false;
 
   let sum = 0;
@@ -569,7 +654,7 @@ function shouldIncludeOccludedSkyComponent(component, probabilities, height){
   }
 
   const average = sum / indices.length;
-  if (average < OCCLUDED_MIN_AVG_PROB) return false;
+  if (average < thresholds.occludedMinAvgProb) return false;
   if (peak < SKY_CONFIDENCE_THRESHOLD) return false;
 
   return true;

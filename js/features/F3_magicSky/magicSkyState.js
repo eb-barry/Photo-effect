@@ -1,10 +1,10 @@
-// F3 魔法天空 - 狀態管理 v0.3.14
-// 雙極滑桿（中點 0、±150）+ 換天/換圖重置。
+// F3 魔法天空 - 狀態管理 v0.4.0
+// 雙極滑桿（中點 0、±150）+ probMap 天空敏感度。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
 
 export const MAGIC_SKY_FEATURE_ID = "F3_magicSky";
-export const MAGIC_SKY_FEATURE_VERSION = "0.3.14";
+export const MAGIC_SKY_FEATURE_VERSION = "0.4.0";
 export const MAGIC_SKY_DRAFT_KEY = "photoEffects.F3_magicSky.draft.v3";
 
 export const ADJUST_SLIDER_MIN = -150;
@@ -52,7 +52,7 @@ export const EDGE_PARAMETERS = [
   { id: "edgeFeather", label: "柔光", ...SLIDER_DEF },
   { id: "maskExpansion", label: "邊界擴張", ...SLIDER_DEF },
   { id: "skyEdgeRefine", label: "邊緣精修", ...SLIDER_DEF },
-  { id: "skyPocketFill", label: "缺口填補", ...SLIDER_DEF }
+  { id: "skySensitivity", label: "天空敏感度", ...SLIDER_DEF }
 ];
 
 export const SKY_ADJUST_PARAMETERS = [...SKY_PARAMETERS, ...EDGE_PARAMETERS];
@@ -85,7 +85,7 @@ export function getDefaultAdjustmentState(){
     edgeFeather: 0,
     maskExpansion: 0,
     skyEdgeRefine: 0,
-    skyPocketFill: 0
+    skySensitivity: 0
   };
 }
 
@@ -112,7 +112,7 @@ export function resolveEffectValues(state){
     edgeFeather: clamp(36 + (slider("edgeFeather") / ADJUST_SLIDER_MAX) * 64, 0, 100),
     maskExpansion: clamp(-2 + (slider("maskExpansion") / ADJUST_SLIDER_MAX) * 42, -40, 40),
     skyEdgeRefine: Math.max(0, slider("skyEdgeRefine") / ADJUST_SLIDER_MAX),
-    skyPocketFill: Math.max(0, slider("skyPocketFill") / ADJUST_SLIDER_MAX)
+    skySensitivity: Math.max(0, slider("skySensitivity") / ADJUST_SLIDER_MAX)
   };
 }
 
@@ -238,6 +238,13 @@ function migrateLegacyDraft(parsed){
   if (legacyVersion < "0.3.4") {
     next.photoWarmth = 0;
     next.photoSaturation = 0;
+  }
+  if (legacyVersion < "0.4.0") {
+    if (Number.isFinite(Number(next.skyPocketFill))) {
+      next.skySensitivity = Math.max(0, Number(next.skyPocketFill));
+    }
+    delete next.skyPocketFill;
+    if (!Number.isFinite(Number(next.skySensitivity))) next.skySensitivity = 0;
   }
 
   return next;
