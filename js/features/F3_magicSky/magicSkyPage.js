@@ -1,4 +1,4 @@
-// F3 魔法天空 - Page Controller v0.6.0
+// F3 魔法天空 - Page Controller v0.7.0
 // 三按鈕分頁 + 遮罩上傳後固定 + iOS 拖曳鎖定。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -62,7 +62,7 @@ export async function renderMagicSkyPage(root, navigate){
 
         <div class="topbar-title">
           <h1>魔法天空</h1>
-          <p class="crystal-version" aria-hidden="true">v0.6.0</p>
+          <p class="crystal-version" aria-hidden="true">v0.7.0</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -379,7 +379,7 @@ export async function renderMagicSkyPage(root, navigate){
     onEnterRepairTab: async () => {
       if (!sourceImage || !photoKey) return;
       try {
-        await processing.run("分析天空候選區域…", async () => {
+        await processing.run("SAM 分割區塊中…", async () => {
           await scanRepairRegions();
           await renderCore();
         }, { delay: 0 });
@@ -390,7 +390,7 @@ export async function renderMagicSkyPage(root, navigate){
       }
     },
     onRepairRegionToggle: async regionId => {
-      if (!sourceImage || !photoKey || !outputSize) return;
+      if (!sourceImage || !photoKey || !outputSize || !String(regionId).startsWith("sky-")) return;
       if (selectedRepairRegionIds.has(regionId)) selectedRepairRegionIds.delete(regionId);
       else selectedRepairRegionIds.add(regionId);
       applyRepairSelection();
