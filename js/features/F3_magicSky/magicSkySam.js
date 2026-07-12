@@ -1,4 +1,4 @@
-// F3 魔法天空 - MobileSAM 點選修復 v0.5.2
+// F3 魔法天空 - MobileSAM 點選修復 v0.5.3
 // Encoder 一次 / 每次點擊 decoder → 合併修復遮罩。
 
 const ORT_VERSION = "1.22.0";
@@ -284,20 +284,20 @@ function preprocessSamImage(image, ort){
   ctx.drawImage(image, 0, 0, resizedW, resizedH);
 
   const { data } = ctx.getImageData(0, 0, SAM_INPUT_SIZE, SAM_INPUT_SIZE);
-  const float32Data = new Float32Array(3 * SAM_INPUT_SIZE * SAM_INPUT_SIZE);
-  const plane = SAM_INPUT_SIZE * SAM_INPUT_SIZE;
+  const float32Data = new Float32Array(SAM_INPUT_SIZE * SAM_INPUT_SIZE * 3);
 
-  for (let i = 0; i < plane; i += 1) {
+  for (let i = 0; i < SAM_INPUT_SIZE * SAM_INPUT_SIZE; i += 1) {
     const r = data[i * 4];
     const g = data[i * 4 + 1];
     const b = data[i * 4 + 2];
-    float32Data[i] = (r - SAM_MEAN[0]) / SAM_STD[0];
-    float32Data[i + plane] = (g - SAM_MEAN[1]) / SAM_STD[1];
-    float32Data[i + plane * 2] = (b - SAM_MEAN[2]) / SAM_STD[2];
+    const base = i * 3;
+    float32Data[base] = (r - SAM_MEAN[0]) / SAM_STD[0];
+    float32Data[base + 1] = (g - SAM_MEAN[1]) / SAM_STD[1];
+    float32Data[base + 2] = (b - SAM_MEAN[2]) / SAM_STD[2];
   }
 
   return {
-    tensor: new ort.Tensor("float32", float32Data, [1, 3, SAM_INPUT_SIZE, SAM_INPUT_SIZE]),
+    tensor: new ort.Tensor("float32", float32Data, [SAM_INPUT_SIZE, SAM_INPUT_SIZE, 3]),
     resizedW,
     resizedH
   };
