@@ -1,4 +1,4 @@
-const CACHE_NAME = "photo-effects-v0.5.0.1";
+const CACHE_NAME = "photo-effects-v0.5.2.0";
 
 const CORE_ASSETS = [
   "./",
@@ -64,15 +64,24 @@ function isAppCodeRequest(url){
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
 
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
   event.respondWith(
     fetch(event.request, { cache: "no-store" })
       .then(response => {
-        if (response && response.ok && isAppCodeRequest(new URL(event.request.url))) {
+        if (response && response.ok && isAppCodeRequest(url)) {
           const copy = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
         }
         return response;
       })
-      .catch(() => caches.match(event.request).then(cached => cached || caches.match("./index.html")))
+      .catch(() => caches.match(event.request).then(cached => {
+        if (cached) return cached;
+        if (event.request.mode === "navigate" || event.request.destination === "document") {
+          return caches.match("./index.html");
+        }
+        return Response.error();
+      }))
   );
 });

@@ -1,11 +1,19 @@
-// F3 魔法天空 - MobileSAM 點選修復 v0.5.0
+// F3 魔法天空 - MobileSAM 點選修復 v0.5.2
 // Encoder 一次 / 每次點擊 decoder → 合併修復遮罩。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
-const SAM_ENCODER_URL = "https://huggingface.co/Heliosoph/sam-onnx/resolve/main/mobile_sam_image_encoder.onnx";
-const SAM_DECODER_URL = "https://huggingface.co/Heliosoph/sam-onnx/resolve/main/sam_mask_decoder_single.onnx";
-const SAM_MODEL_CACHE = "photo-effects-mobilesam-v1";
+const SAM_ENCODER_URLS = [
+  "https://huggingface.co/Heliosoph/sam-onnx/resolve/main/mobile_sam_image_encoder.onnx",
+  "https://huggingface.co/Acly/MobileSAM/resolve/main/mobile_sam_image_encoder.onnx"
+];
+const SAM_DECODER_URLS = [
+  "https://huggingface.co/Heliosoph/sam-onnx/resolve/main/sam_mask_decoder_single.onnx",
+  "https://huggingface.co/Acly/MobileSAM/resolve/main/sam_mask_decoder_single.onnx"
+];
+const SAM_MODEL_CACHE = "photo-effects-mobilesam-v2";
+const SAM_ENCODER_MIN_BYTES = 20 * 1024 * 1024;
+const SAM_DECODER_MIN_BYTES = 12 * 1024 * 1024;
 const SAM_INPUT_SIZE = 1024;
 const SAM_MEAN = [123.675, 116.28, 103.53];
 const SAM_STD = [58.395, 57.12, 57.375];
@@ -39,9 +47,13 @@ export async function ensureSamEmbedding(sourceImage, photoKey, onStatus = () =>
   const encoder = await ensureEncoderSession(onStatus);
   onStatus("SAM 影像編碼中…");
   const preprocessed = preprocessSamImage(sourceImage, ort);
-  const inputName = encoder.inputNames[0];
+  const inputName = encoder.inputNames.includes("input_image")
+    ? "input_image"
+    : encoder.inputNames[0];
   const results = await encoder.run({ [inputName]: preprocessed.tensor });
-  const embeddingName = encoder.outputNames[0];
+  const embeddingName = encoder.outputNames.includes("image_embeddings")
+    ? "image_embeddings"
+    : encoder.outputNames[0];
   const entry = {
     width: sourceImage.width,
     height: sourceImage.height,
@@ -84,8 +96,10 @@ export async function decodeSamClick(samEntry, imageX, imageY, onStatus = () => 
   };
 
   const results = await decoder.run(feeds);
-  const masks = results[decoder.outputNames[0]];
-  return masks;
+  const maskOutputName = decoder.outputNames.includes("masks")
+    ? "masks"
+    : decoder.outputNames[0];
+  return results[maskOutputName];
 }
 
 export function mergeSamMaskIntoRepair(photoKey, width, height, maskTensor){
@@ -123,13 +137,13 @@ export function mergeSamMaskIntoRepair(photoKey, width, height, maskTensor){
 
 async function ensureEncoderSession(onStatus){
   if (!encoderSessionPromise) {
-    encoderSessionPromise = (async () => {
-      onStatus("下載 SAM 編碼模型（首次約 28MB）…");
-      const ort = await loadOrt();
-      const buffer = await fetchModelBuffer(SAM_ENCODER_URL, onStatus, "SAM 編碼模型");
-      onStatus("初始化 SAM 編碼模型…");
-      return ort.InferenceSession.create(buffer, { executionProviders: ["wasm"] });
-    })().catch(error => {
+    encoderSessionPromise = createModelSession(
+      SAM_ENCODER_URLS,
+      SAM_ENCODER_MIN_BYTES,
+      onStatus,
+      "SAM 編碼模型",
+      "下載 SAM 編碼模型（首次約 28MB）…"
+    ).catch(error => {
       encoderSessionPromise = null;
       throw error;
     });
@@ -139,13 +153,13 @@ async function ensureEncoderSession(onStatus){
 
 async function ensureDecoderSession(onStatus){
   if (!decoderSessionPromise) {
-    decoderSessionPromise = (async () => {
-      onStatus("下載 SAM 解碼模型（首次約 16MB）…");
-      const ort = await loadOrt();
-      const buffer = await fetchModelBuffer(SAM_DECODER_URL, onStatus, "SAM 解碼模型");
-      onStatus("初始化 SAM 解碼模型…");
-      return ort.InferenceSession.create(buffer, { executionProviders: ["wasm"] });
-    })().catch(error => {
+    decoderSessionPromise = createModelSession(
+      SAM_DECODER_URLS,
+      SAM_DECODER_MIN_BYTES,
+      onStatus,
+      "SAM 解碼模型",
+      "下載 SAM 解碼模型（首次約 16MB）…"
+    ).catch(error => {
       decoderSessionPromise = null;
       throw error;
     });
@@ -153,39 +167,106 @@ async function ensureDecoderSession(onStatus){
   return decoderSessionPromise;
 }
 
-async function fetchModelBuffer(url, onStatus, label){
+async function createModelSession(urls, minBytes, onStatus, label, downloadMessage){
+  const ort = await loadOrt();
+  onStatus(downloadMessage);
+  const buffer = await fetchModelBuffer(urls, onStatus, label, minBytes);
+  onStatus(`初始化 ${label}…`);
+  try {
+    return await ort.InferenceSession.create(buffer, { executionProviders: ["wasm"] });
+  } catch (error) {
+    await invalidateModelCache(urls);
+    throw new Error(`${label}初始化失敗：${error?.message || error}`);
+  }
+}
+
+async function fetchModelBuffer(urls, onStatus, label, minBytes){
+  let lastError = null;
+  for (const url of urls) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await fetchModelBufferOnce(url, onStatus, label, minBytes);
+      } catch (error) {
+        lastError = error;
+        console.warn(`[F3 SAM] ${label} 下載失敗（${url}，第 ${attempt + 1} 次）：`, error);
+        await invalidateModelCache([url]);
+        if (attempt < 2) {
+          onStatus(`${label}下載重試中（${attempt + 2}/3）…`);
+          await delay(1000 * (attempt + 1));
+        }
+      }
+    }
+  }
+  throw lastError || new Error(`${label}下載失敗`);
+}
+
+async function fetchModelBufferOnce(url, onStatus, label, minBytes){
   if (typeof caches !== "undefined") {
     try {
       const cache = await caches.open(SAM_MODEL_CACHE);
       const cached = await cache.match(url);
       if (cached) {
-        onStatus(`讀取已快取的 ${label}…`);
-        return cached.arrayBuffer();
+        const buffer = await cached.arrayBuffer();
+        if (isValidModelBuffer(buffer, minBytes)) {
+          onStatus(`讀取已快取的 ${label}…`);
+          return buffer;
+        }
+        await cache.delete(url);
       }
     } catch (error) {
       console.warn("[F3 SAM] 模型快取讀取失敗：", error);
     }
   }
 
-  const response = await fetch(url);
+  onStatus(`下載 ${label}…`);
+  const response = await fetch(url, { cache: "no-store", redirect: "follow" });
   if (!response.ok) {
-    throw new Error(`${label}下載失敗（${response.status}）`);
+    throw new Error(`${label}下載失敗（HTTP ${response.status}）`);
   }
+
   const buffer = await response.arrayBuffer();
-  if (buffer.byteLength < 1024) {
-    throw new Error(`${label}檔案異常`);
+  if (!isValidModelBuffer(buffer, minBytes)) {
+    throw new Error(`${label}檔案異常（${formatBytes(buffer.byteLength)}）`);
   }
 
   if (typeof caches !== "undefined") {
     try {
       const cache = await caches.open(SAM_MODEL_CACHE);
-      await cache.put(url, new Response(buffer.slice(0)));
+      await cache.put(url, new Response(buffer.slice(0), {
+        headers: { "Content-Type": "application/octet-stream" }
+      }));
     } catch (error) {
       console.warn("[F3 SAM] 模型快取寫入失敗：", error);
     }
   }
 
   return buffer;
+}
+
+async function invalidateModelCache(urls){
+  if (typeof caches === "undefined") return;
+  try {
+    const cache = await caches.open(SAM_MODEL_CACHE);
+    await Promise.all(urls.map(url => cache.delete(url)));
+  } catch (error) {
+    console.warn("[F3 SAM] 模型快取清除失敗：", error);
+  }
+}
+
+function isValidModelBuffer(buffer, minBytes){
+  if (!buffer || buffer.byteLength < minBytes) return false;
+  const bytes = new Uint8Array(buffer, 0, Math.min(8, buffer.byteLength));
+  return bytes[0] !== 0x3c;
+}
+
+function formatBytes(bytes){
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${bytes}B`;
+}
+
+function delay(ms){
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function preprocessSamImage(image, ort){
@@ -225,7 +306,6 @@ function preprocessSamImage(image, ort){
 async function loadOrt(){
   if (ortModule) return ortModule;
   ortModule = await import(`${ORT_BASE}/ort.bundle.min.mjs`);
-  ortModule.env.wasm.numThreads = 1;
   ortModule.env.wasm.wasmPaths = ORT_BASE + "/";
   return ortModule;
 }
