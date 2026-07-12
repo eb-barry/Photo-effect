@@ -1,28 +1,52 @@
-// F3 魔法天空 - 處理中提示 UI
+// F3 魔法天空 - 畫布中央處理中提示 UI v0.5.1
 
-export function createProcessingOverlay(overlayEl, textEl){
+export function createProcessingOverlay(overlayEl, textEl, options = {}){
+  const spinnerEl = options.spinnerEl || null;
+  const stageEl = options.stageEl || null;
   let depth = 0;
   let timer = null;
   let visible = false;
 
+  const setBusyVisual = active => {
+    overlayEl?.setAttribute("aria-busy", active ? "true" : "false");
+    spinnerEl?.classList.toggle("is-active", active);
+  };
+
   const setMessage = message => {
-    if (textEl && message) textEl.textContent = message;
+    if (!message) return;
+    if (textEl) textEl.textContent = message;
+    if (stageEl) stageEl.textContent = inferStageLabel(message);
+    if (depth > 0) {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (!visible) showNow(message);
+    }
   };
 
   const showNow = message => {
-    if (message) setMessage(message);
+    if (message) {
+      if (textEl) textEl.textContent = message;
+      if (stageEl) stageEl.textContent = inferStageLabel(message);
+    }
     overlayEl?.classList.remove("hidden");
+    setBusyVisual(true);
     visible = true;
   };
 
   const hideNow = () => {
     overlayEl?.classList.add("hidden");
+    setBusyVisual(false);
     visible = false;
   };
 
   const begin = (message, delayMs = 150) => {
     depth += 1;
-    if (message) setMessage(message);
+    if (message) {
+      if (textEl) textEl.textContent = message;
+      if (stageEl) stageEl.textContent = inferStageLabel(message);
+    }
 
     if (visible || timer) return;
 
@@ -48,7 +72,7 @@ export function createProcessingOverlay(overlayEl, textEl){
   };
 
   const run = async (message, task, options = {}) => {
-    begin(message, options.delay ?? 150);
+    begin(message, options.delay ?? 0);
     try {
       return await task();
     } finally {
@@ -67,7 +91,29 @@ export function createProcessingOverlay(overlayEl, textEl){
 
   const isActive = () => depth > 0 || visible;
 
-  return { begin, end, run, reset, isActive, setMessage, showNow, hideNow };
+  const bindStageStatus = () => message => setMessage(message);
+
+  return {
+    begin,
+    end,
+    run,
+    reset,
+    isActive,
+    setMessage,
+    showNow,
+    hideNow,
+    bindStageStatus
+  };
+}
+
+export function inferStageLabel(message){
+  const text = String(message || "");
+  if (/下載|快取|讀取已快取/.test(text)) return "模型準備中";
+  if (/初始化/.test(text)) return "初始化模型";
+  if (/編碼|分析天空|精細分析|建築區域/.test(text)) return "影像分析中";
+  if (/解碼|修復遮罩|產生修復/.test(text)) return "點選修復中";
+  if (/合成|調整|切換|儲存|分享|讀取照片|更新預覽|清除/.test(text)) return "處理中";
+  return "請稍候";
 }
 
 export const INTENSIVE_RENDER_PARAMS = new Set([

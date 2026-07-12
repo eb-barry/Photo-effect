@@ -37,7 +37,7 @@ export async function ensureSamEmbedding(sourceImage, photoKey, onStatus = () =>
 
   const ort = await loadOrt();
   const encoder = await ensureEncoderSession(onStatus);
-  onStatus("準備 SAM 影像編碼…");
+  onStatus("SAM 影像編碼中…");
   const preprocessed = preprocessSamImage(sourceImage, ort);
   const inputName = encoder.inputNames[0];
   const results = await encoder.run({ [inputName]: preprocessed.tensor });
@@ -57,7 +57,7 @@ export async function decodeSamClick(samEntry, imageX, imageY, onStatus = () => 
   if (!samEntry?.embeddings) {
     throw new Error("Missing SAM embedding");
   }
-  onStatus("產生修復遮罩…");
+  onStatus("解碼修復遮罩…");
   const ort = await loadOrt();
   const decoder = await ensureDecoderSession(onStatus);
   const pointCoords = new ort.Tensor(
