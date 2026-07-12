@@ -1,10 +1,10 @@
-// F3 魔法天空 - 狀態管理 v0.9.0
+// F3 魔法天空 - 狀態管理 v0.9.1
 // 雙極滑桿（中點 0、±150）+ probMap 天空敏感度。
 
 import { getMagicSkyItems } from "./magicSkyAssets.js";
 
 export const MAGIC_SKY_FEATURE_ID = "F3_magicSky";
-export const MAGIC_SKY_FEATURE_VERSION = "0.9.0";
+export const MAGIC_SKY_FEATURE_VERSION = "0.9.1";
 export const MAGIC_SKY_DRAFT_KEY = "photoEffects.F3_magicSky.draft.v3";
 
 export const ADJUST_SLIDER_MIN = -150;

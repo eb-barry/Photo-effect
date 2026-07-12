@@ -1,11 +1,11 @@
-// F3 魔法天空 - AI 天空分割 v0.9.0
-// 320 全圖 + 上半部 2×2 分塊推論；保守前景保護避免鐘／石柱被誤判為天空。
+// F3 魔法天空 - AI 天空分割 v0.9.1
+// 320 全圖 + 上半部 2×2 分塊推論；結構縫隙天空補洞 + 前景保護。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/voyagerfromeast/skyseg/resolve/main/skyseg_fp16.onnx";
 const MODEL_CACHE_NAME = "photo-effects-skyseg-model-v1";
-const MASK_PIPELINE_VERSION = 12;
+const MASK_PIPELINE_VERSION = 13;
 const INPUT_SIZE = 320;
 const MASK_INTERMEDIATE_MAX_EDGE = 640;
 const TILED_REGION_HEIGHT_RATIO = 0.65;
@@ -287,6 +287,7 @@ export function buildSkyMaskBitmapWithSensitivity(probabilities, photoData, widt
   mask = includeSkyPocketsFromPhoto(mask, probabilities, photoData, width, height, thresholds);
   mask = fillSkyEnclosedHoles(mask, photoData, width, height);
   mask = pruneFalseSkyPixels(mask, probabilities, photoData, width, height);
+  mask = fillStructuralSkyGaps(mask, probabilities, photoData, width, height);
   return mask;
 }
 
@@ -745,7 +746,7 @@ function pruneFalseSkyPixels(mask, probabilities, photoData, width, height){
     if (!output[i]) continue;
     const prob = probabilities[i];
     const byteIndex = i * 4;
-    if (prob < 0.34) {
+    if (prob < 0.34 && !isProtectedStructuralGapPixel(output, probabilities, photoData, i, width, height)) {
       output[i] = 0;
       continue;
     }
@@ -755,6 +756,156 @@ function pruneFalseSkyPixels(mask, probabilities, photoData, width, height){
   }
 
   return output;
+}
+
+function fillStructuralSkyGaps(mask, probabilities, photoData, width, height){
+  const output = new Uint8Array(mask);
+  const maxY = Math.floor(height * 0.8);
+
+  for (let pass = 0; pass < 6; pass += 1) {
+    let changed = false;
+    for (let y = 1; y < maxY; y += 1) {
+      for (let x = 1; x < width - 1; x += 1) {
+        const index = y * width + x;
+        if (output[index]) continue;
+        if (!canFillStructuralSkyGap(output, probabilities, photoData, index, width, height)) continue;
+        output[index] = 1;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+
+  return output;
+}
+
+function canFillStructuralSkyGap(mask, probabilities, photoData, index, width, height){
+  const byteIndex = index * 4;
+  if (!isBrightGapCandidate(photoData, byteIndex)) return false;
+  if (isColoredForegroundPixel(photoData, byteIndex, probabilities[index])) return false;
+  if (isTexturedStonePixel(photoData, index, width, height)) return false;
+
+  const prob = probabilities[index];
+  const nearSkyClose = isNearExistingSky(mask, index, width, height, 5);
+  const nearSkyFar = isNearExistingSky(mask, index, width, height, 11);
+  if (!nearSkyClose && !nearSkyFar) return false;
+
+  if (hasSkyAcrossCorridor(mask, index, width, height)) return true;
+  if (countSkyNeighbors(mask, index, width, height, 1) >= 4) return true;
+  if (nearSkyClose && prob >= 0.03) return true;
+  if (nearSkyFar && prob >= 0.1) return true;
+  if (nearSkyFar && isBrightGapCandidate(photoData, byteIndex, 0.5)) return true;
+
+  return false;
+}
+
+function isProtectedStructuralGapPixel(mask, probabilities, photoData, index, width, height){
+  const byteIndex = index * 4;
+  if (!isBrightGapCandidate(photoData, byteIndex)) return false;
+  if (isColoredForegroundPixel(photoData, byteIndex, probabilities[index])) return false;
+  if (isTexturedStonePixel(photoData, index, width, height)) return false;
+  if (countSkyNeighbors(mask, index, width, height, 2) < 3) return false;
+  return isNearExistingSky(mask, index, width, height, 6);
+}
+
+function isBrightGapCandidate(photoData, byteIndex, lumFloor = 0.5){
+  const lum = samplePhotoLuminance(photoData, byteIndex);
+  if (lum < lumFloor) return false;
+  const r = photoData[byteIndex];
+  const g = photoData[byteIndex + 1];
+  const b = photoData[byteIndex + 2];
+  const maxC = Math.max(r, g, b);
+  const minC = Math.min(r, g, b);
+  const saturation = maxC === 0 ? 0 : (maxC - minC) / maxC;
+  if (lum >= 0.58 && saturation <= 0.42) return true;
+  if (lum >= 0.5 && saturation <= 0.28) return true;
+  return lum >= 0.66 && saturation <= 0.35;
+}
+
+function isTexturedStonePixel(photoData, index, width, height){
+  const y = (index / width) | 0;
+  if (y >= height * 0.72) return true;
+
+  const byteIndex = index * 4;
+  const lum = samplePhotoLuminance(photoData, byteIndex);
+  if (lum < 0.42 || lum > 0.82) return false;
+
+  const r = photoData[byteIndex];
+  const g = photoData[byteIndex + 1];
+  const b = photoData[byteIndex + 2];
+  if (g > r * 1.08 && g > b * 1.05) return false;
+
+  const texture = sampleLocalLumVariance(photoData, index, width, height, 2);
+  const maxC = Math.max(r, g, b);
+  const minC = Math.min(r, g, b);
+  const saturation = maxC === 0 ? 0 : (maxC - minC) / maxC;
+
+  return texture > 0.0018 && saturation < 0.34 && lum >= 0.46;
+}
+
+function sampleLocalLumVariance(photoData, index, width, height, radius){
+  const x = index % width;
+  const y = (index / width) | 0;
+  let sum = 0;
+  let sumSq = 0;
+  let count = 0;
+
+  for (let oy = -radius; oy <= radius; oy += 1) {
+    for (let ox = -radius; ox <= radius; ox += 1) {
+      const nx = x + ox;
+      const ny = y + oy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      const lum = samplePhotoLuminance(photoData, (ny * width + nx) * 4);
+      sum += lum;
+      sumSq += lum * lum;
+      count += 1;
+    }
+  }
+
+  if (count < 4) return 0;
+  const mean = sum / count;
+  return Math.max(0, sumSq / count - mean * mean);
+}
+
+function countSkyNeighbors(mask, index, width, height, radius){
+  const x = index % width;
+  const y = (index / width) | 0;
+  let count = 0;
+
+  for (let oy = -radius; oy <= radius; oy += 1) {
+    for (let ox = -radius; ox <= radius; ox += 1) {
+      if (!ox && !oy) continue;
+      const nx = x + ox;
+      const ny = y + oy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      if (mask[ny * width + nx]) count += 1;
+    }
+  }
+
+  return count;
+}
+
+function hasSkyAcrossCorridor(mask, index, width, height){
+  const x = index % width;
+  const y = (index / width) | 0;
+  const horizontalSpan = 14;
+  const verticalSpan = 12;
+
+  let leftSky = false;
+  let rightSky = false;
+  for (let dx = 1; dx <= horizontalSpan; dx += 1) {
+    if (x - dx >= 0 && mask[y * width + (x - dx)]) leftSky = true;
+    if (x + dx < width && mask[y * width + (x + dx)]) rightSky = true;
+  }
+  if (leftSky && rightSky) return true;
+
+  let topSky = false;
+  let bottomSky = false;
+  for (let dy = 1; dy <= verticalSpan; dy += 1) {
+    if (y - dy >= 0 && mask[(y - dy) * width + x]) topSky = true;
+    if (y + dy < height && mask[(y + dy) * width + x]) bottomSky = true;
+  }
+  return topSky && bottomSky;
 }
 
 function isColoredForegroundPixel(photoData, byteIndex, prob){
