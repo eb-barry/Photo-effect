@@ -205,9 +205,11 @@ export function setupStarburstUI(root, state, render, persistDraft = () => {}){
     const config = getEffectConfig();
     const numValue = Number(effectSlider.value);
     if (POSITION_IDS.has(config.id)) {
+      // Pass ONLY positionX/Y — NOT starburstX/Y — so updateStarburstState routes to the
+      // slider branch, keeps ghostRefX/Y frozen, and translates the ghost pattern rigidly.
       const partial = config.id === "positionX"
-        ? { positionX: numValue, starburstX: numValue / 100, hasPlacedPoint: true }
-        : { positionY: numValue, starburstY: numValue / 100, hasPlacedPoint: true };
+        ? { positionX: numValue, hasPlacedPoint: true }
+        : { positionY: numValue, hasPlacedPoint: true };
       Object.assign(state, updateStarburstState(state, partial));
     } else {
       Object.assign(state, updateStarburstState(state, { [config.id]: numValue }));
