@@ -1,4 +1,4 @@
-// F4 星芒鏡 - UI v0.1.1
+// F4 星芒鏡 - UI v0.1.2
 // 三按鈕分頁（光圈葉片／光源／星芒效果）+ 下拉選單 + 單一滑桿 + 畫布點選/拖曳定位。
 
 import {
@@ -110,6 +110,8 @@ export function setupStarburstUI(root, state, render, persistDraft = () => {}){
     lightIntensityValue.textContent = `${Math.round(state.lightIntensity)}`;
   }
 
+  const POSITION_IDS = new Set(["positionX", "positionY"]);
+
   function getEffectConfig(){
     return EFFECT_PARAMETERS.find(item => item.id === state.selectedEffectParameter) || EFFECT_PARAMETERS[0];
   }
@@ -124,13 +126,15 @@ export function setupStarburstUI(root, state, render, persistDraft = () => {}){
 
   function refreshEffectSlider(){
     const config = getEffectConfig();
-    const value = Number(state[config.id]);
+    const stateValue = POSITION_IDS.has(config.id)
+      ? (config.id === "positionX" ? state.starburstX * 100 : state.starburstY * 100)
+      : Number(state[config.id]);
     effectSlider.min = config.min;
     effectSlider.max = config.max;
     effectSlider.step = config.step;
-    effectSlider.value = value;
+    effectSlider.value = stateValue;
     effectSliderLabel.textContent = config.label;
-    effectSliderValue.textContent = formatParameterValue(value, config);
+    effectSliderValue.textContent = formatParameterValue(stateValue, config);
   }
 
   function refreshAllControls(){
@@ -199,8 +203,16 @@ export function setupStarburstUI(root, state, render, persistDraft = () => {}){
 
   effectSlider?.addEventListener("input", () => {
     const config = getEffectConfig();
-    Object.assign(state, updateStarburstState(state, { [config.id]: Number(effectSlider.value) }));
-    effectSliderValue.textContent = formatParameterValue(state[config.id], config);
+    const numValue = Number(effectSlider.value);
+    if (POSITION_IDS.has(config.id)) {
+      const partial = config.id === "positionX"
+        ? { positionX: numValue, starburstX: numValue / 100, hasPlacedPoint: true }
+        : { positionY: numValue, starburstY: numValue / 100, hasPlacedPoint: true };
+      Object.assign(state, updateStarburstState(state, partial));
+    } else {
+      Object.assign(state, updateStarburstState(state, { [config.id]: numValue }));
+    }
+    effectSliderValue.textContent = formatParameterValue(numValue, config);
     scheduleRender(16);
   });
   effectSlider?.addEventListener("change", () => persistDraft());
@@ -223,6 +235,7 @@ export function setupStarburstUI(root, state, render, persistDraft = () => {}){
   if (canvas) {
     enableStarburstPointerGesture(canvas, state, partial => {
       Object.assign(state, updateStarburstState(state, partial));
+      if (POSITION_IDS.has(state.selectedEffectParameter)) refreshEffectSlider();
       render();
     }, () => persistDraft());
   }
@@ -249,7 +262,7 @@ export function renderControlTabs(){
 export function renderAperturePanel(){
   return `
     <div class="selection-row crystal-adjust-row">
-      <label for="bladeCountSelect" class="selection-label">葉片數</label>
+      <label for="bladeCountSelect" class="selection-label">光圈葉片數</label>
       <select id="bladeCountSelect" class="select-control" aria-label="光圈葉片數"></select>
     </div>
     <p class="note" id="bladeSpikeHint"></p>
@@ -302,6 +315,7 @@ export function renderEffectPanel(){
 function formatParameterValue(value, config){
   const number = Number(value ?? 0);
   if (config.unit === "fstop") return `f/${number.toFixed(1)}`;
+  if (config.unit === "position") return `${number.toFixed(0)}%`;
   return `${Math.round(number)}`;
 }
 

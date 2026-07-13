@@ -1,9 +1,9 @@
-// F4 星芒鏡 - 狀態管理 v0.1.1
+// F4 星芒鏡 - 狀態管理 v0.1.2
 // 光圈葉片／光源／星芒效果 三分頁 + 單一可拖曳星芒座標。
 
 export const STARBURST_FEATURE_ID = "F4_starburst";
-export const STARBURST_FEATURE_VERSION = "0.1.1";
-export const STARBURST_DRAFT_KEY = "photoEffects.F4_starburst.draft.v1";
+export const STARBURST_FEATURE_VERSION = "0.1.2";
+export const STARBURST_DRAFT_KEY = "photoEffects.F4_starburst.draft.v2";
 
 export const STARBURST_CONTROL_TABS = [
   { id: "aperture", label: "光圈葉片" },
@@ -50,7 +50,9 @@ export const EFFECT_PARAMETERS = [
   { id: "flare", label: "眩光", min: 0, max: 100, step: 1, unit: "percent" },
   { id: "halation", label: "光暈", min: 0, max: 100, step: 1, unit: "percent" },
   { id: "sharpness", label: "銳利度", min: 0, max: 100, step: 1, unit: "percent" },
-  { id: "dispersion", label: "色散", min: 0, max: 100, step: 1, unit: "percent" }
+  { id: "dispersion", label: "色散", min: 0, max: 100, step: 1, unit: "percent" },
+  { id: "positionX", label: "水平移動", min: 2, max: 98, step: 0.5, unit: "position" },
+  { id: "positionY", label: "垂直移動", min: 2, max: 98, step: 0.5, unit: "position" }
 ];
 
 export const DEFAULT_STARBURST_X = 0.5;
@@ -79,6 +81,8 @@ export function createDefaultStarburstState(){
     halation: 30,
     sharpness: 60,
     dispersion: 26,
+    positionX: DEFAULT_STARBURST_X * 100,
+    positionY: DEFAULT_STARBURST_Y * 100,
 
     starburstX: DEFAULT_STARBURST_X,
     starburstY: DEFAULT_STARBURST_Y,
@@ -105,7 +109,9 @@ export function resetStarburstAdjustments(currentState){
     flare: defaults.flare,
     halation: defaults.halation,
     sharpness: defaults.sharpness,
-    dispersion: defaults.dispersion
+    dispersion: defaults.dispersion,
+    positionX: defaults.positionX,
+    positionY: defaults.positionY
   });
 }
 
@@ -149,8 +155,21 @@ export function updateStarburstState(currentState, partial){
   }
 
   next.lightIntensity = clampNumber(next.lightIntensity, 0, 100, createDefaultValue("lightIntensity"));
-  next.starburstX = clampNumber(next.starburstX, 0.02, 0.98, DEFAULT_STARBURST_X);
-  next.starburstY = clampNumber(next.starburstY, 0.02, 0.98, DEFAULT_STARBURST_Y);
+
+  // Keep starburstX/Y and positionX/Y in sync.
+  // Direct pointer drag writes starburstX/Y → reflect into positionX/Y.
+  // Slider writes positionX/Y → reflect into starburstX/Y.
+  if (partial && ("starburstX" in partial || "starburstY" in partial)) {
+    next.starburstX = clampNumber(next.starburstX, 0.02, 0.98, DEFAULT_STARBURST_X);
+    next.starburstY = clampNumber(next.starburstY, 0.02, 0.98, DEFAULT_STARBURST_Y);
+    next.positionX = Math.round(next.starburstX * 100 * 2) / 2;
+    next.positionY = Math.round(next.starburstY * 100 * 2) / 2;
+  } else {
+    next.positionX = clampNumber(next.positionX, 2, 98, DEFAULT_STARBURST_X * 100);
+    next.positionY = clampNumber(next.positionY, 2, 98, DEFAULT_STARBURST_Y * 100);
+    next.starburstX = next.positionX / 100;
+    next.starburstY = next.positionY / 100;
+  }
   next.hasPlacedPoint = Boolean(next.hasPlacedPoint);
 
   return next;
