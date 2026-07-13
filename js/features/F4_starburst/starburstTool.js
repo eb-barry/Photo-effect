@@ -1,4 +1,4 @@
-// F4 星芒鏡 - Canvas 影像處理 v0.1.1
+// F4 星芒鏡 - Canvas 影像處理 v0.1.2
 // 2D FFT 光圈繞射核心 + 幽靈/眩光/光暈疊層 + 色散與背景光衰減合成。
 
 import { getLightSourceById, getSpikeCount } from "./starburstState.js";
@@ -80,7 +80,7 @@ export async function renderStarburstLens(ctx, sourceImage, state, options = {})
 
   drawHalation(layerCtx, point, minDim, state.halation, tintColor);
   drawFlare(layerCtx, point, minDim, state.flare, tintColor);
-  drawGhosting(layerCtx, point, width, height, minDim, state.ghosting, tintColor);
+  drawGhosting(layerCtx, point, width, height, minDim, state.ghosting, tintColor, state);
   drawStarburstCore(layerCtx, point, minDim, state, tintColor, lightSource.color);
 
   ctx.save();
@@ -253,46 +253,158 @@ function drawHalation(ctx, point, minDim, halationValue, tintColor){
   ctx.restore();
 }
 
-function drawGhosting(ctx, point, width, height, minDim, ghostingValue, tintColor){
+/**
+ * 幽靈效應（Lens Ghost / Ghost Flare）。
+ *
+ * 物理特性：
+ *  - 形狀 = 當下光圈多邊形的投影（7 片 → 七角形鬼影）。
+ *  - 顏色：5/6/7 片 → 琥珀/淡黃色；其餘 → 綠色、紫紅色、暗藍色系交錯。
+ *  - 高透明度，以 source-over 低 alpha 疊加，背景依然清晰可見。
+ *  - 弱（0–30）：1–2 個柔焦光斑，靠近光源，近乎透明。
+ *  - 強（70–100）：沿對軸線排成「光斑項鍊」（3–7 個），邊界清晰，
+ *    疊加輕微的 Flare Veil 白霧讓原本色彩飽和度降低。
+ */
+function drawGhosting(ctx, point, width, height, minDim, ghostingValue, tintColor, state){
   const amount = clamp(Number(ghostingValue ?? 0), 0, 100) / 100;
-  if (amount <= 0.02) return;
+  if (amount <= 0.01) return;
+
+  const bladeCount = clamp(Number(state.bladeCount) || 7, 5, 11);
+  const curvature = clamp(Number(state.bladeCurvature ?? 0), 0, 100) / 100;
+  const asymmetry = clamp(Number(state.randomAsymmetry ?? 0), 0, 100) / 100;
 
   const cx = width / 2;
   const cy = height / 2;
   const dx = point.x - cx;
   const dy = point.y - cy;
-  const count = Math.max(1, Math.round(1 + amount * 4));
+
+  const count = Math.max(1, Math.round(1 + amount * 6));
+
+  const isWarmBlade = bladeCount <= 7;
+  const ghostPalette = isWarmBlade
+    ? [[220, 170, 60], [240, 200, 90], [200, 140, 30], [230, 190, 80], [255, 210, 100], [195, 155, 40], [215, 175, 55]]
+    : [[60, 200, 80], [170, 60, 200], [50, 80, 210], [60, 200, 140], [200, 50, 180], [40, 100, 220], [80, 210, 100]];
 
   for (let i = 1; i <= count; i++) {
-    const t = -0.55 - i * 0.42;
+    const t = -(0.30 + i * 0.28 + (i - 1) * 0.08 * amount);
     const gx = cx + dx * t;
     const gy = cy + dy * t;
-    const sizeFactor = Math.max(0.05, 1 - i * 0.16) * (0.14 + amount * 0.1);
-    const radius = minDim * sizeFactor;
-    if (radius < 2) continue;
-    const isRing = i % 2 === 0;
-    const ghostColor = i % 2 === 0 ? blendRgb(tintColor, [130, 200, 255], 0.4) : blendRgb(tintColor, [255, 140, 190], 0.35);
-    const opacity = (0.16 * amount) / i;
+
+    const sizeT = Math.max(0.08, 1 - (i - 1) * 0.12);
+    const baseRadius = minDim * (0.045 + amount * 0.045) * sizeT;
+    if (baseRadius < 1.5) continue;
+
+    const ghostColor = ghostPalette[(i - 1) % ghostPalette.length];
+
+    const edgeSoftness = clamp(1 - amount * 0.85, 0.08, 1);
+    const baseAlpha = clamp(amount * 0.35 * (1.2 - (i - 1) * 0.14), 0.015, 0.55);
+
+    drawGhostPolygon(ctx, gx, gy, baseRadius, bladeCount, curvature, asymmetry, ghostColor, baseAlpha, edgeSoftness, i);
+  }
+
+  if (amount > 0.55) {
+    drawFlareVeil(ctx, point, width, height, minDim, amount);
+  }
+}
+
+function drawGhostPolygon(ctx, cx, cy, radius, bladeCount, curvature, asymmetry, color, baseAlpha, softness, index){
+  const size = Math.ceil(radius * 2 + 4);
+  const ghostCanvas = document.createElement("canvas");
+  ghostCanvas.width = size;
+  ghostCanvas.height = size;
+  const gctx = ghostCanvas.getContext("2d");
+  const half = size / 2;
+
+  const rand = createSeededRandom(bladeCount * 7919 + index * 997 + 31);
+  const vertices = [];
+  for (let i = 0; i < bladeCount; i++) {
+    const baseAngle = -Math.PI / 2 + i * ((Math.PI * 2) / bladeCount);
+    const angleJitter = (rand() - 0.5) * asymmetry * ((Math.PI * 2) / bladeCount) * 0.28;
+    const radiusJitter = 1 + (rand() - 0.5) * asymmetry * 0.30;
+    vertices.push({ angle: baseAngle + angleJitter, r: radius * radiusJitter });
+  }
+
+  gctx.beginPath();
+  for (let i = 0; i <= bladeCount; i++) {
+    const curr = vertices[i % bladeCount];
+    const x = half + Math.cos(curr.angle) * curr.r;
+    const y = half + Math.sin(curr.angle) * curr.r;
+    if (i === 0) { gctx.moveTo(x, y); continue; }
+    const prev = vertices[(i - 1) % bladeCount];
+    let ca = curr.angle;
+    if (ca < prev.angle) ca += Math.PI * 2;
+    const midA = (prev.angle + ca) / 2;
+    const avgR = (prev.r + curr.r) / 2;
+    const bulge = avgR + (radius * 1.15 - avgR) * curvature;
+    gctx.quadraticCurveTo(half + Math.cos(midA) * bulge, half + Math.sin(midA) * bulge, x, y);
+  }
+  gctx.closePath();
+
+  const innerColor = blendColor(color, [255, 255, 255], 0.18);
+  const outerColor = blendColor(color, [0, 0, 0], 0.10);
+
+  const radGrad = gctx.createRadialGradient(half, half, radius * 0.15, half, half, radius * 1.0);
+  radGrad.addColorStop(0, `rgba(${innerColor[0]},${innerColor[1]},${innerColor[2]},${clamp(baseAlpha * 0.9, 0, 1)})`);
+  radGrad.addColorStop(0.55, `rgba(${color[0]},${color[1]},${color[2]},${clamp(baseAlpha * 0.7, 0, 1)})`);
+  radGrad.addColorStop(1, `rgba(${outerColor[0]},${outerColor[1]},${outerColor[2]},${clamp(baseAlpha * 0.3, 0, 1)})`);
+  gctx.fillStyle = radGrad;
+  gctx.fill();
+
+  if (softness < 0.5) {
+    const strokeAlpha = clamp(baseAlpha * 1.4, 0, 0.7);
+    const edgeColor = blendColor(color, [180, 100, 255], 0.35);
+    gctx.strokeStyle = `rgba(${edgeColor[0]},${edgeColor[1]},${edgeColor[2]},${strokeAlpha})`;
+    gctx.lineWidth = Math.max(0.8, radius * 0.06);
+    gctx.stroke();
+  }
+
+  if (softness > 0.25) {
+    const blurPx = softness * radius * 0.28;
+    const blurred = document.createElement("canvas");
+    blurred.width = size;
+    blurred.height = size;
+    const bctx = blurred.getContext("2d");
+    bctx.filter = `blur(${blurPx.toFixed(2)}px)`;
+    bctx.drawImage(ghostCanvas, 0, 0);
 
     ctx.save();
-    ctx.globalCompositeOperation = "lighter";
-    if (isRing) {
-      ctx.strokeStyle = `rgba(${ghostColor[0]},${ghostColor[1]},${ghostColor[2]},${opacity})`;
-      ctx.lineWidth = Math.max(1, radius * 0.16);
-      ctx.beginPath();
-      ctx.arc(gx, gy, radius, 0, Math.PI * 2);
-      ctx.stroke();
-    } else {
-      const gradient = ctx.createRadialGradient(gx, gy, 0, gx, gy, radius);
-      gradient.addColorStop(0, `rgba(${ghostColor[0]},${ghostColor[1]},${ghostColor[2]},${opacity})`);
-      gradient.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.arc(gx, gy, radius, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 1;
+    ctx.drawImage(blurred, cx - half, cy - half);
+    ctx.restore();
+  } else {
+    ctx.save();
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 1;
+    ctx.drawImage(ghostCanvas, cx - half, cy - half);
     ctx.restore();
   }
+}
+
+function drawFlareVeil(ctx, point, width, height, minDim, amount){
+  const veilStrength = clamp((amount - 0.55) / 0.45, 0, 1) * 0.22;
+  if (veilStrength < 0.005) return;
+
+  const veilRadius = minDim * (0.55 + amount * 0.3);
+  const veil = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, veilRadius);
+  veil.addColorStop(0, `rgba(255,255,255,${veilStrength * 0.9})`);
+  veil.addColorStop(0.45, `rgba(245,240,230,${veilStrength * 0.45})`);
+  veil.addColorStop(1, "rgba(255,255,255,0)");
+
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = veil;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, veilRadius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function blendColor(a, b, t){
+  return [
+    clamp(a[0] + (b[0] - a[0]) * t, 0, 255),
+    clamp(a[1] + (b[1] - a[1]) * t, 0, 255),
+    clamp(a[2] + (b[2] - a[2]) * t, 0, 255)
+  ];
 }
 
 function drawPositionMarker(ctx, point){
