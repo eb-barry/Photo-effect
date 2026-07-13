@@ -1,4 +1,4 @@
-// F4 星芒鏡 - Page Controller v0.1.2
+// F4 星芒鏡 - Page Controller v0.1.3
 // Topbar + canvas + 三按鈕分頁（光圈葉片／光源／星芒效果）+ 點選/拖曳定位星芒。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -32,7 +32,7 @@ export async function renderStarburstPage(root, navigate){
 
         <div class="topbar-title">
           <h1>星芒鏡</h1>
-          <p class="crystal-version" aria-hidden="true">v0.1.2</p>
+          <p class="crystal-version" aria-hidden="true">v0.1.3</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">

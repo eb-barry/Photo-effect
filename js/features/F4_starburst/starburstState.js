@@ -1,9 +1,9 @@
-// F4 星芒鏡 - 狀態管理 v0.1.2
+// F4 星芒鏡 - 狀態管理 v0.1.3
 // 光圈葉片／光源／星芒效果 三分頁 + 單一可拖曳星芒座標。
 
 export const STARBURST_FEATURE_ID = "F4_starburst";
-export const STARBURST_FEATURE_VERSION = "0.1.2";
-export const STARBURST_DRAFT_KEY = "photoEffects.F4_starburst.draft.v2";
+export const STARBURST_FEATURE_VERSION = "0.1.3";
+export const STARBURST_DRAFT_KEY = "photoEffects.F4_starburst.draft.v3";
 
 export const STARBURST_CONTROL_TABS = [
   { id: "aperture", label: "光圈葉片" },
@@ -86,6 +86,8 @@ export function createDefaultStarburstState(){
 
     starburstX: DEFAULT_STARBURST_X,
     starburstY: DEFAULT_STARBURST_Y,
+    ghostRefX: DEFAULT_STARBURST_X,
+    ghostRefY: DEFAULT_STARBURST_Y,
     hasPlacedPoint: false,
 
     updatedAt: Date.now()
@@ -119,6 +121,8 @@ export function resetStarburstPosition(currentState){
   return updateStarburstState(currentState, {
     starburstX: DEFAULT_STARBURST_X,
     starburstY: DEFAULT_STARBURST_Y,
+    ghostRefX: DEFAULT_STARBURST_X,
+    ghostRefY: DEFAULT_STARBURST_Y,
     hasPlacedPoint: true
   });
 }
@@ -157,18 +161,24 @@ export function updateStarburstState(currentState, partial){
   next.lightIntensity = clampNumber(next.lightIntensity, 0, 100, createDefaultValue("lightIntensity"));
 
   // Keep starburstX/Y and positionX/Y in sync.
-  // Direct pointer drag writes starburstX/Y → reflect into positionX/Y.
-  // Slider writes positionX/Y → reflect into starburstX/Y.
+  // Pointer drag writes starburstX/Y → reflect positionX/Y AND lock ghost axis (ghostRefX/Y).
+  // Slider writes positionX/Y → only translate star; ghost axis (ghostRefX/Y) stays frozen
+  // so the ghost pattern translates rigidly without changing angle or density.
   if (partial && ("starburstX" in partial || "starburstY" in partial)) {
     next.starburstX = clampNumber(next.starburstX, 0.02, 0.98, DEFAULT_STARBURST_X);
     next.starburstY = clampNumber(next.starburstY, 0.02, 0.98, DEFAULT_STARBURST_Y);
     next.positionX = Math.round(next.starburstX * 100 * 2) / 2;
     next.positionY = Math.round(next.starburstY * 100 * 2) / 2;
+    next.ghostRefX = next.starburstX;
+    next.ghostRefY = next.starburstY;
   } else {
     next.positionX = clampNumber(next.positionX, 2, 98, DEFAULT_STARBURST_X * 100);
     next.positionY = clampNumber(next.positionY, 2, 98, DEFAULT_STARBURST_Y * 100);
     next.starburstX = next.positionX / 100;
     next.starburstY = next.positionY / 100;
+    // ghostRefX/Y not updated → ghost axis stays as established by last drag
+    next.ghostRefX = clampNumber(next.ghostRefX, 0.02, 0.98, DEFAULT_STARBURST_X);
+    next.ghostRefY = clampNumber(next.ghostRefY, 0.02, 0.98, DEFAULT_STARBURST_Y);
   }
   next.hasPlacedPoint = Boolean(next.hasPlacedPoint);
 
