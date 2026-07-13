@@ -1,4 +1,4 @@
-// F4 星芒鏡 - Canvas 影像處理 v0.1.2
+// F4 星芒鏡 - Canvas 影像處理 v0.1.3
 // 2D FFT 光圈繞射核心 + 幽靈/眩光/光暈疊層 + 色散與背景光衰減合成。
 
 import { getLightSourceById, getSpikeCount } from "./starburstState.js";
@@ -256,13 +256,15 @@ function drawHalation(ctx, point, minDim, halationValue, tintColor){
 /**
  * 幽靈效應（Lens Ghost / Ghost Flare）。
  *
- * 物理特性：
- *  - 形狀 = 當下光圈多邊形的投影（7 片 → 七角形鬼影）。
- *  - 顏色：5/6/7 片 → 琥珀/淡黃色；其餘 → 綠色、紫紅色、暗藍色系交錯。
- *  - 高透明度，以 source-over 低 alpha 疊加，背景依然清晰可見。
- *  - 弱（0–30）：1–2 個柔焦光斑，靠近光源，近乎透明。
- *  - 強（70–100）：沿對軸線排成「光斑項鍊」（3–7 個），邊界清晰，
- *    疊加輕微的 Flare Veil 白霧讓原本色彩飽和度降低。
+ * - 形狀 = 當下光圈多邊形（7 片葉片 → 七角形鬼影）。
+ * - 顏色：5–7 片（暖色系）琥珀/淡黃；8–11 片（冷色系）綠/紫紅/暗藍交錯。
+ * - 高透明度（source-over 低 alpha），背景依然清晰可見。
+ * - 弱：1–2 個柔焦光斑，靠近光源；強：沿對軸線排成「光斑項鍊」+ Flare Veil。
+ *
+ * 位置邏輯：
+ *  - ghostRefX/Y 是用手指拖曳時鎖定的「軸心參考座標」。
+ *  - 使用滑桿平移時，軸心不變，整個光斑串以 (dx, dy) 剛體平移，
+ *    角度與排列密度均保持不變。
  */
 function drawGhosting(ctx, point, width, height, minDim, ghostingValue, tintColor, state){
   const amount = clamp(Number(ghostingValue ?? 0), 0, 100) / 100;
@@ -274,8 +276,17 @@ function drawGhosting(ctx, point, width, height, minDim, ghostingValue, tintColo
 
   const cx = width / 2;
   const cy = height / 2;
-  const dx = point.x - cx;
-  const dy = point.y - cy;
+
+  // Ghost axis is derived from the locked reference position (set by finger drag).
+  // When slider translates the star, refX/refY stay fixed so the necklace angle is preserved.
+  const refX = clamp(Number(state.ghostRefX ?? state.starburstX), 0.02, 0.98) * width;
+  const refY = clamp(Number(state.ghostRefY ?? state.starburstY), 0.02, 0.98) * height;
+  const axisDx = refX - cx;
+  const axisDy = refY - cy;
+
+  // Rigid translation applied on top of the reference-based ghost positions.
+  const translateX = point.x - refX;
+  const translateY = point.y - refY;
 
   const count = Math.max(1, Math.round(1 + amount * 6));
 
@@ -286,19 +297,18 @@ function drawGhosting(ctx, point, width, height, minDim, ghostingValue, tintColo
 
   for (let i = 1; i <= count; i++) {
     const t = -(0.30 + i * 0.28 + (i - 1) * 0.08 * amount);
-    const gx = cx + dx * t;
-    const gy = cy + dy * t;
+    const gx = cx + axisDx * t + translateX;
+    const gy = cy + axisDy * t + translateY;
 
     const sizeT = Math.max(0.08, 1 - (i - 1) * 0.12);
     const baseRadius = minDim * (0.045 + amount * 0.045) * sizeT;
     if (baseRadius < 1.5) continue;
 
     const ghostColor = ghostPalette[(i - 1) % ghostPalette.length];
+    const baseAlpha = clamp(amount * 0.35 * (1.2 - (i - 1) * 0.14), 0.015, 0.50);
+    const blurAmount = clamp(1 - amount * 0.82, 0.06, 1);
 
-    const edgeSoftness = clamp(1 - amount * 0.85, 0.08, 1);
-    const baseAlpha = clamp(amount * 0.35 * (1.2 - (i - 1) * 0.14), 0.015, 0.55);
-
-    drawGhostPolygon(ctx, gx, gy, baseRadius, bladeCount, curvature, asymmetry, ghostColor, baseAlpha, edgeSoftness, i);
+    drawGhostPolygon(ctx, gx, gy, baseRadius, bladeCount, curvature, asymmetry, ghostColor, baseAlpha, blurAmount, i);
   }
 
   if (amount > 0.55) {
@@ -306,13 +316,23 @@ function drawGhosting(ctx, point, width, height, minDim, ghostingValue, tintColo
   }
 }
 
-function drawGhostPolygon(ctx, cx, cy, radius, bladeCount, curvature, asymmetry, color, baseAlpha, softness, index){
-  const size = Math.ceil(radius * 2 + 4);
+/**
+ * 繪製單顆多邊形鬼影光斑，消除可見輪廓圓環：
+ *  - 徑向漸層在距多邊形邊緣 ~18% 處即衰減至 alpha=0，確保邊界透明。
+ *  - 不畫 stroke，只靠漸層 fill + 模糊實現柔和幾何感。
+ *  - 畫布四周留出足夠 padding，讓模糊不被截斷。
+ */
+function drawGhostPolygon(ctx, cx, cy, radius, bladeCount, curvature, asymmetry, color, baseAlpha, blurAmount, index){
+  const minBlurPx = 2.5;
+  const blurPx = Math.max(minBlurPx, blurAmount * radius * 0.40);
+  const pad = Math.ceil(blurPx * 2.5);
+  const size = Math.ceil(radius * 2) + pad * 2;
+  const half = size / 2;
+
   const ghostCanvas = document.createElement("canvas");
   ghostCanvas.width = size;
   ghostCanvas.height = size;
   const gctx = ghostCanvas.getContext("2d");
-  const half = size / 2;
 
   const rand = createSeededRandom(bladeCount * 7919 + index * 997 + 31);
   const vertices = [];
@@ -339,45 +359,29 @@ function drawGhostPolygon(ctx, cx, cy, radius, bladeCount, curvature, asymmetry,
   }
   gctx.closePath();
 
-  const innerColor = blendColor(color, [255, 255, 255], 0.18);
-  const outerColor = blendColor(color, [0, 0, 0], 0.10);
-
-  const radGrad = gctx.createRadialGradient(half, half, radius * 0.15, half, half, radius * 1.0);
-  radGrad.addColorStop(0, `rgba(${innerColor[0]},${innerColor[1]},${innerColor[2]},${clamp(baseAlpha * 0.9, 0, 1)})`);
-  radGrad.addColorStop(0.55, `rgba(${color[0]},${color[1]},${color[2]},${clamp(baseAlpha * 0.7, 0, 1)})`);
-  radGrad.addColorStop(1, `rgba(${outerColor[0]},${outerColor[1]},${outerColor[2]},${clamp(baseAlpha * 0.3, 0, 1)})`);
+  // Gradient fades to 0 at 82% of radius so the polygon boundary is already transparent —
+  // no visible ring at the polygon edge regardless of blur amount.
+  const innerColor = blendColor(color, [255, 255, 255], 0.15);
+  const gradRadius = radius * 0.82;
+  const radGrad = gctx.createRadialGradient(half, half, 0, half, half, gradRadius);
+  radGrad.addColorStop(0, `rgba(${innerColor[0]},${innerColor[1]},${innerColor[2]},${clamp(baseAlpha * 0.88, 0, 1)})`);
+  radGrad.addColorStop(0.50, `rgba(${color[0]},${color[1]},${color[2]},${clamp(baseAlpha * 0.60, 0, 1)})`);
+  radGrad.addColorStop(1, `rgba(${color[0]},${color[1]},${color[2]},0)`);
   gctx.fillStyle = radGrad;
   gctx.fill();
+  // No stroke — prevents the visible ring outline entirely.
 
-  if (softness < 0.5) {
-    const strokeAlpha = clamp(baseAlpha * 1.4, 0, 0.7);
-    const edgeColor = blendColor(color, [180, 100, 255], 0.35);
-    gctx.strokeStyle = `rgba(${edgeColor[0]},${edgeColor[1]},${edgeColor[2]},${strokeAlpha})`;
-    gctx.lineWidth = Math.max(0.8, radius * 0.06);
-    gctx.stroke();
-  }
+  const blurred = document.createElement("canvas");
+  blurred.width = size;
+  blurred.height = size;
+  const bctx = blurred.getContext("2d");
+  bctx.filter = `blur(${blurPx.toFixed(2)}px)`;
+  bctx.drawImage(ghostCanvas, 0, 0);
 
-  if (softness > 0.25) {
-    const blurPx = softness * radius * 0.28;
-    const blurred = document.createElement("canvas");
-    blurred.width = size;
-    blurred.height = size;
-    const bctx = blurred.getContext("2d");
-    bctx.filter = `blur(${blurPx.toFixed(2)}px)`;
-    bctx.drawImage(ghostCanvas, 0, 0);
-
-    ctx.save();
-    ctx.globalCompositeOperation = "source-over";
-    ctx.globalAlpha = 1;
-    ctx.drawImage(blurred, cx - half, cy - half);
-    ctx.restore();
-  } else {
-    ctx.save();
-    ctx.globalCompositeOperation = "source-over";
-    ctx.globalAlpha = 1;
-    ctx.drawImage(ghostCanvas, cx - half, cy - half);
-    ctx.restore();
-  }
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.drawImage(blurred, cx - half, cy - half);
+  ctx.restore();
 }
 
 function drawFlareVeil(ctx, point, width, height, minDim, amount){
