@@ -1,5 +1,5 @@
-// F5 框住美好 - Page Controller v0.1.2
-// Topbar + canvas + 分類開關 + 材質縮圖列 + 參數下拉／滑桿。
+// F5 框住美好 - Page Controller v0.1.3
+// Topbar + canvas + 分類開關 + 材質縮圖列（動態讀取全部 .webp）+ 參數下拉／滑桿。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -7,6 +7,7 @@ import {
   FRAME_FEATURE_VERSION,
   clearFrameDraft,
   createDefaultFrameState,
+  getFirstAvailableFrameType,
   loadFrameDraft,
   saveFrameDraft,
   updateFrameState
@@ -100,10 +101,7 @@ export async function renderFramePage(root, navigate){
   let contentSize = null;
   let renderSerial = 0;
   let openSerial = 0;
-
-  loadFrameAssetCatalog().catch(error => {
-    console.warn("[F5 框住美好] 素材清單載入失敗，使用程序化材質：", error);
-  });
+  let frameUi = null;
 
   const applyCanvasSize = size => {
     canvas.width = size.width;
@@ -143,6 +141,11 @@ export async function renderFramePage(root, navigate){
     saveFrameDraft(state);
   };
 
+  const renderAndPersist = async () => {
+    await render();
+    persistDraft();
+  };
+
   const resetEditorSession = () => {
     sourceImage = null;
     contentSize = null;
@@ -162,11 +165,6 @@ export async function renderFramePage(root, navigate){
     resetEditorSession();
   };
 
-  const renderAndPersist = async () => {
-    await render();
-    persistDraft();
-  };
-
   const openPhoto = async (dataUrl, statePartial) => {
     const serial = ++openSerial;
     const image = await loadImageFromDataUrl(dataUrl);
@@ -179,6 +177,17 @@ export async function renderFramePage(root, navigate){
     }
     return true;
   };
+
+  frameUi = setupFrameUI(root, state, renderAndPersist, persistDraft);
+
+  // Load all category manifests (auto-synced from *.webp) then refresh thumbs.
+  try {
+    await loadFrameAssetCatalog();
+    Object.assign(state, updateFrameState(state, {}));
+    frameUi.refreshAllControls();
+  } catch (error) {
+    console.warn("[F5 框住美好] 素材清單載入失敗：", error);
+  }
 
   root.querySelector("#homeBtn")?.addEventListener("click", event => {
     event.preventDefault();
@@ -197,11 +206,12 @@ export async function renderFramePage(root, navigate){
 
     try {
       const dataUrl = await fileToDataUrl(file);
+      const first = getFirstAvailableFrameType();
       const applied = await openPhoto(dataUrl, {
         sourceImageDataUrl: dataUrl,
         activeCategory: "classic",
         selectedCategoryId: "classic",
-        frameTypeId: "wood"
+        frameTypeId: first?.id || state.frameTypeId || "wood"
       });
       if (!applied) return;
       showEditor();
@@ -214,8 +224,6 @@ export async function renderFramePage(root, navigate){
       imageInput.value = "";
     }
   });
-
-  const frameUi = setupFrameUI(root, state, renderAndPersist, persistDraft);
 
   root.querySelector("#savePhotoBtn")?.addEventListener("click", async event => {
     event.preventDefault();
@@ -251,16 +259,14 @@ export async function renderFramePage(root, navigate){
     }
   });
 
-  restoreDraftOnOpen();
-
-  async function restoreDraftOnOpen(){
-    if (!state.sourceImageDataUrl) return;
+  if (state.sourceImageDataUrl) {
     try {
       const applied = await openPhoto(state.sourceImageDataUrl);
-      if (!applied) return;
-      showEditor();
-      await render();
-      frameUi?.refreshAllControls?.();
+      if (applied) {
+        showEditor();
+        await render();
+        frameUi?.refreshAllControls?.();
+      }
     } catch (error) {
       console.warn("[F5 框住美好] 草稿還原失敗：", error);
       clearFrameDraft();

@@ -1,9 +1,9 @@
-// F5 框住美好 - 狀態管理 v0.1.2
-// 僅列出已有材質圖的畫框；activeCategory 可為 null（收合材質列）。
+// F5 框住美好 - 狀態管理 v0.1.3
+// Frame type lists are filled dynamically from texture manifests (all *.webp).
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.1.2";
-export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v2";
+export const FRAME_FEATURE_VERSION = "0.1.3";
+export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v3";
 
 export const FRAME_CATEGORIES = [
   { id: "classic", label: "經典畫框" },
@@ -14,25 +14,8 @@ export const FRAME_CATEGORIES = [
   { id: "light", label: "光影氛圍" }
 ];
 
-/** 只收錄已有材質 WebP 的畫框；無材質者不列入。 */
-export const FRAME_TYPES = {
-  classic: [
-    { id: "wood", label: "木紋", materialId: "wood", thumb: "./assets/features/F5_frame/textures/classic/wood.webp" },
-    { id: "walnut", label: "胡桃木", materialId: "walnut", thumb: "./assets/features/F5_frame/textures/classic/walnut.webp" },
-    { id: "oak", label: "橡木", materialId: "oak", thumb: "./assets/features/F5_frame/textures/classic/oak.webp" },
-    { id: "pine", label: "松木", materialId: "pine", thumb: "./assets/features/F5_frame/textures/classic/pine.webp" },
-    { id: "gold", label: "金框", materialId: "gold", thumb: "./assets/features/F5_frame/textures/classic/gold.webp" },
-    { id: "silver", label: "銀框", materialId: "silver", thumb: "./assets/features/F5_frame/textures/classic/silver.webp" },
-    { id: "bronze", label: "銅框", materialId: "bronze", thumb: "./assets/features/F5_frame/textures/classic/bronze.webp" },
-    { id: "aluminum", label: "鋁框", materialId: "aluminum", thumb: "./assets/features/F5_frame/textures/classic/aluminum.webp" },
-    { id: "acrylic", label: "壓克力", materialId: "acrylic", thumb: "./assets/features/F5_frame/textures/classic/acrylic.webp" }
-  ],
-  professional: [],
-  artistic: [],
-  dimensional: [],
-  smart: [],
-  light: []
-};
+/** Populated at runtime by frameAssets.loadFrameAssetCatalog(). */
+const dynamicFrameTypes = Object.fromEntries(FRAME_CATEGORIES.map(item => [item.id, []]));
 
 export const FRAME_PARAMETERS = [
   { id: "frameWidth", label: "框寬", min: 8, max: 96, step: 1, unit: "px" },
@@ -43,8 +26,21 @@ export const FRAME_PARAMETERS = [
   { id: "opacity", label: "不透明度", min: 40, max: 100, step: 1, unit: "percent" }
 ];
 
+export function setFrameTypesFromCatalog(categoryId, catalogItems = []){
+  if (!Object.prototype.hasOwnProperty.call(dynamicFrameTypes, categoryId)) return;
+  dynamicFrameTypes[categoryId] = (catalogItems || []).map(item => ({
+    id: item.id,
+    label: item.label,
+    materialId: item.materialId || item.id,
+    thumb: item.thumb || item.asset,
+    file: item.file,
+    asset: item.asset,
+    defaults: item.defaults || undefined
+  }));
+}
+
 export function getFrameTypesForCategory(categoryId){
-  return FRAME_TYPES[categoryId] || [];
+  return dynamicFrameTypes[categoryId] || [];
 }
 
 export function findFrameType(categoryId, frameTypeId){
@@ -52,22 +48,40 @@ export function findFrameType(categoryId, frameTypeId){
   return list.find(item => item.id === frameTypeId) || null;
 }
 
+export function findFrameTypeAnywhere(frameTypeId){
+  for (const category of FRAME_CATEGORIES) {
+    const hit = findFrameType(category.id, frameTypeId);
+    if (hit) return { categoryId: category.id, type: hit };
+  }
+  return null;
+}
+
 /** Resolve applied frame even when the category panel is collapsed (activeCategory = null). */
 export function resolveAppliedFrameType(state){
   const categoryId = state.selectedCategoryId || state.activeCategory || "classic";
   return findFrameType(categoryId, state.frameTypeId)
-    || findFrameType("classic", state.frameTypeId)
-    || FRAME_TYPES.classic[0]
+    || findFrameTypeAnywhere(state.frameTypeId)?.type
+    || getFrameTypesForCategory("classic")[0]
+    || getFirstAvailableFrameType()
     || null;
 }
 
+export function getFirstAvailableFrameType(){
+  for (const category of FRAME_CATEGORIES) {
+    const first = getFrameTypesForCategory(category.id)[0];
+    if (first) return first;
+  }
+  return null;
+}
+
 export function createDefaultFrameState(){
+  const firstClassic = getFrameTypesForCategory("classic")[0];
   return {
     featureId: FRAME_FEATURE_ID,
     featureVersion: FRAME_FEATURE_VERSION,
     activeCategory: "classic",
     selectedCategoryId: "classic",
-    frameTypeId: "wood",
+    frameTypeId: firstClassic?.id || "wood",
     selectedParameter: "frameWidth",
     sourceImageDataUrl: null,
 
@@ -117,15 +131,15 @@ export function updateFrameState(currentState, partial){
   next.activeCategory = normalizeActiveCategory(next.activeCategory);
   next.selectedCategoryId = normalizeSelectedCategoryId(next.selectedCategoryId);
 
-  const appliedCategory = next.selectedCategoryId;
-  const types = getFrameTypesForCategory(appliedCategory);
-  if (!types.some(item => item.id === next.frameTypeId)) {
-    const classicTypes = getFrameTypesForCategory("classic");
-    if (classicTypes.some(item => item.id === next.frameTypeId)) {
-      next.selectedCategoryId = "classic";
+  const types = getFrameTypesForCategory(next.selectedCategoryId);
+  if (types.length && !types.some(item => item.id === next.frameTypeId)) {
+    const found = findFrameTypeAnywhere(next.frameTypeId);
+    if (found) {
+      next.selectedCategoryId = found.categoryId;
     } else {
-      next.selectedCategoryId = "classic";
-      next.frameTypeId = classicTypes[0]?.id || "wood";
+      const first = getFirstAvailableFrameType();
+      next.selectedCategoryId = first ? FRAME_CATEGORIES.find(c => getFrameTypesForCategory(c.id).some(t => t.id === first.id))?.id || "classic" : "classic";
+      next.frameTypeId = first?.id || next.frameTypeId;
     }
   }
 
