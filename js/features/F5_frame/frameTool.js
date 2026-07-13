@@ -1,7 +1,7 @@
 // F5 框住美好 - Canvas 影像處理 v0.1.0
 
 import { renderFramedPhoto, resolveFramedOutputSize, mapStyleToMaterial } from "../../core/frameRenderer.js";
-import { getFrameTypeById } from "./frameState.js";
+import { resolveAppliedFrameType } from "./frameState.js";
 import { loadTextureForMaterial } from "./frameAssets.js";
 
 export const FRAME_MAX_EDGE = 1600;
@@ -47,7 +47,7 @@ export function resolveContentSize(image, maxEdge = FRAME_MAX_EDGE){
 }
 
 export function resolveFrameCanvasSize(contentSize, state){
-  const type = getFrameTypeById(state.activeCategory, state.frameTypeId);
+  const type = resolveAppliedFrameType(state);
   return resolveFramedOutputSize(contentSize.width, contentSize.height, {
     frameWidth: state.frameWidth,
     innerPadding: state.innerPadding,
@@ -68,7 +68,7 @@ export async function renderFrameStudio(ctx, sourceImage, state){
     return;
   }
 
-  const type = getFrameTypeById(state.activeCategory, state.frameTypeId);
+  const type = resolveAppliedFrameType(state);
   const frameStyle = type?.id || state.frameTypeId;
   const materialId = type?.materialId || mapStyleToMaterial(frameStyle);
   const textureImage = await loadTextureForMaterial(materialId);

@@ -1,39 +1,33 @@
-// F5 框住美好 - 狀態管理 v0.1.0
+// F5 框住美好 - 狀態管理 v0.1.2
+// 僅列出已有材質圖的畫框；activeCategory 可為 null（收合材質列）。
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.1.1";
-export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v1";
+export const FRAME_FEATURE_VERSION = "0.1.2";
+export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v2";
 
 export const FRAME_CATEGORIES = [
-  { id: "classic", label: "經典畫框", enabled: true },
-  { id: "professional", label: "專業畫框", enabled: true },
-  { id: "artistic", label: "藝術畫框", enabled: false },
-  { id: "dimensional", label: "立體畫框", enabled: false },
-  { id: "smart", label: "智慧畫框", enabled: false },
-  { id: "light", label: "光影氛圍", enabled: false }
+  { id: "classic", label: "經典畫框" },
+  { id: "professional", label: "專業畫框" },
+  { id: "artistic", label: "藝術畫框" },
+  { id: "dimensional", label: "立體畫框" },
+  { id: "smart", label: "智慧畫框" },
+  { id: "light", label: "光影氛圍" }
 ];
 
+/** 只收錄已有材質 WebP 的畫框；無材質者不列入。 */
 export const FRAME_TYPES = {
   classic: [
-    { id: "whiteBorder", label: "白邊框", materialId: "white" },
-    { id: "blackBorder", label: "黑邊框", materialId: "black" },
-    { id: "thinBorder", label: "細邊框", materialId: "white", defaults: { frameWidth: 12 } },
-    { id: "thickBorder", label: "粗邊框", materialId: "black", defaults: { frameWidth: 64 } },
-    { id: "wood", label: "木紋", materialId: "wood" },
-    { id: "walnut", label: "胡桃木", materialId: "walnut" },
-    { id: "oak", label: "橡木", materialId: "oak" },
-    { id: "pine", label: "松木", materialId: "pine" },
-    { id: "gold", label: "金框", materialId: "gold" },
-    { id: "silver", label: "銀框", materialId: "silver" },
-    { id: "bronze", label: "銅框", materialId: "bronze" },
-    { id: "aluminum", label: "鋁框", materialId: "aluminum" },
-    { id: "acrylic", label: "壓克力", materialId: "acrylic" }
+    { id: "wood", label: "木紋", materialId: "wood", thumb: "./assets/features/F5_frame/textures/classic/wood.webp" },
+    { id: "walnut", label: "胡桃木", materialId: "walnut", thumb: "./assets/features/F5_frame/textures/classic/walnut.webp" },
+    { id: "oak", label: "橡木", materialId: "oak", thumb: "./assets/features/F5_frame/textures/classic/oak.webp" },
+    { id: "pine", label: "松木", materialId: "pine", thumb: "./assets/features/F5_frame/textures/classic/pine.webp" },
+    { id: "gold", label: "金框", materialId: "gold", thumb: "./assets/features/F5_frame/textures/classic/gold.webp" },
+    { id: "silver", label: "銀框", materialId: "silver", thumb: "./assets/features/F5_frame/textures/classic/silver.webp" },
+    { id: "bronze", label: "銅框", materialId: "bronze", thumb: "./assets/features/F5_frame/textures/classic/bronze.webp" },
+    { id: "aluminum", label: "鋁框", materialId: "aluminum", thumb: "./assets/features/F5_frame/textures/classic/aluminum.webp" },
+    { id: "acrylic", label: "壓克力", materialId: "acrylic", thumb: "./assets/features/F5_frame/textures/classic/acrylic.webp" }
   ],
-  professional: [
-    { id: "gallery", label: "畫廊框", materialId: "gallery", defaults: { frameWidth: 42, innerPadding: 18 } },
-    { id: "polaroid", label: "拍立得", materialId: "polaroid", defaults: { frameWidth: 28, innerPadding: 10, cornerRadius: 4 } },
-    { id: "filmBorder", label: "底片邊框", materialId: "film", defaults: { frameWidth: 48, innerPadding: 4, cornerRadius: 0 } }
-  ],
+  professional: [],
   artistic: [],
   dimensional: [],
   smart: [],
@@ -53,9 +47,18 @@ export function getFrameTypesForCategory(categoryId){
   return FRAME_TYPES[categoryId] || [];
 }
 
-export function getFrameTypeById(categoryId, frameTypeId){
+export function findFrameType(categoryId, frameTypeId){
   const list = getFrameTypesForCategory(categoryId);
-  return list.find(item => item.id === frameTypeId) || list[0] || null;
+  return list.find(item => item.id === frameTypeId) || null;
+}
+
+/** Resolve applied frame even when the category panel is collapsed (activeCategory = null). */
+export function resolveAppliedFrameType(state){
+  const categoryId = state.selectedCategoryId || state.activeCategory || "classic";
+  return findFrameType(categoryId, state.frameTypeId)
+    || findFrameType("classic", state.frameTypeId)
+    || FRAME_TYPES.classic[0]
+    || null;
 }
 
 export function createDefaultFrameState(){
@@ -63,6 +66,7 @@ export function createDefaultFrameState(){
     featureId: FRAME_FEATURE_ID,
     featureVersion: FRAME_FEATURE_VERSION,
     activeCategory: "classic",
+    selectedCategoryId: "classic",
     frameTypeId: "wood",
     selectedParameter: "frameWidth",
     sourceImageDataUrl: null,
@@ -80,7 +84,7 @@ export function createDefaultFrameState(){
 
 export function resetFrameAdjustments(currentState){
   const defaults = createDefaultFrameState();
-  const type = getFrameTypeById(currentState.activeCategory, currentState.frameTypeId);
+  const type = resolveAppliedFrameType(currentState);
   return updateFrameState(currentState, {
     frameWidth: type?.defaults?.frameWidth ?? defaults.frameWidth,
     cornerRadius: type?.defaults?.cornerRadius ?? defaults.cornerRadius,
@@ -93,6 +97,12 @@ export function resetFrameAdjustments(currentState){
 }
 
 export function normalizeActiveCategory(categoryId){
+  if (categoryId === null || categoryId === "" || categoryId === "none") return null;
+  if (FRAME_CATEGORIES.some(item => item.id === categoryId)) return categoryId;
+  return "classic";
+}
+
+export function normalizeSelectedCategoryId(categoryId){
   if (FRAME_CATEGORIES.some(item => item.id === categoryId)) return categoryId;
   return "classic";
 }
@@ -105,9 +115,18 @@ export function updateFrameState(currentState, partial){
   };
 
   next.activeCategory = normalizeActiveCategory(next.activeCategory);
-  const types = getFrameTypesForCategory(next.activeCategory);
+  next.selectedCategoryId = normalizeSelectedCategoryId(next.selectedCategoryId);
+
+  const appliedCategory = next.selectedCategoryId;
+  const types = getFrameTypesForCategory(appliedCategory);
   if (!types.some(item => item.id === next.frameTypeId)) {
-    next.frameTypeId = types[0]?.id || "wood";
+    const classicTypes = getFrameTypesForCategory("classic");
+    if (classicTypes.some(item => item.id === next.frameTypeId)) {
+      next.selectedCategoryId = "classic";
+    } else {
+      next.selectedCategoryId = "classic";
+      next.frameTypeId = classicTypes[0]?.id || "wood";
+    }
   }
 
   next.selectedParameter = FRAME_PARAMETERS.some(item => item.id === next.selectedParameter)
@@ -116,21 +135,22 @@ export function updateFrameState(currentState, partial){
 
   for (const parameter of FRAME_PARAMETERS) {
     const fallback = createDefaultFrameState()[parameter.id];
-    let value = clampNumber(next[parameter.id], parameter.min, parameter.max, fallback);
-    if (parameter.id === "opacity") {
-      // Store as 40–100 UI percent.
-      value = clampNumber(next[parameter.id], parameter.min, parameter.max, fallback);
-    }
-    next[parameter.id] = value;
+    next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, fallback);
   }
 
   return next;
 }
 
-export function applyFrameTypeDefaults(currentState, frameTypeId){
-  const type = getFrameTypeById(currentState.activeCategory, frameTypeId);
-  if (!type) return updateFrameState(currentState, { frameTypeId });
+export function applyFrameTypeDefaults(currentState, categoryId, frameTypeId){
+  const type = findFrameType(categoryId, frameTypeId);
+  if (!type) {
+    return updateFrameState(currentState, {
+      selectedCategoryId: categoryId,
+      frameTypeId
+    });
+  }
   return updateFrameState(currentState, {
+    selectedCategoryId: categoryId,
     frameTypeId: type.id,
     ...(type.defaults || {})
   });

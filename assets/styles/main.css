@@ -854,6 +854,14 @@ body.magic-sky-scroll-locked {
   background: linear-gradient(145deg, rgba(10, 186, 181, 0.72), rgba(7, 99, 96, 0.88));
 }
 
+.frame-material-panel {
+  margin-top: 8px;
+}
+
+.frame-material-button {
+  flex: 0 0 104px;
+}
+
 .frame-page .crystal-canvas-wrap.frame-canvas-wrap {
   aspect-ratio: auto;
   width: 100%;

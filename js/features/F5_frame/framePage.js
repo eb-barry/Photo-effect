@@ -1,5 +1,5 @@
-// F5 框住美好 - Page Controller v0.1.0
-// Topbar + canvas + 6 個可水平滑動分類 + 類型／參數下拉 + 單一滑桿。
+// F5 框住美好 - Page Controller v0.1.2
+// Topbar + canvas + 分類開關 + 材質縮圖列 + 參數下拉／滑桿。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -19,7 +19,11 @@ import {
   resolveContentSize,
   resolveFrameCanvasSize
 } from "./frameTool.js";
-import { renderCategoryScroller, renderFrameControlsPanel, setupFrameUI } from "./frameUI.js";
+import {
+  renderAdjustControlsPanel,
+  renderCategoryScroller,
+  setupFrameUI
+} from "./frameUI.js";
 
 export function initFramePage(root, shared = {}){
   return renderFramePage(root, shared.goHome || shared.navigate || (() => {}));
@@ -66,11 +70,14 @@ export async function renderFramePage(root, navigate){
           </div>
         </div>
 
+        <div id="frameMaterialPanel" class="frame-material-panel hidden" aria-label="畫框材質">
+          <div id="frameMaterialHost"></div>
+        </div>
         <p class="note hidden" id="frameCategoryNote"></p>
 
         <div class="crystal-tab-panels hidden" id="frameControlsPanel">
           <div class="crystal-tab-panel" role="tabpanel" aria-label="畫框調整">
-            ${renderFrameControlsPanel()}
+            ${renderAdjustControlsPanel()}
           </div>
         </div>
       </section>
@@ -143,6 +150,7 @@ export async function renderFramePage(root, navigate){
     root.querySelector("#emptyCanvas")?.classList.remove("hidden");
     canvas.classList.add("hidden");
     root.querySelector("#frameCategoryBar")?.classList.add("hidden");
+    root.querySelector("#frameMaterialPanel")?.classList.add("hidden");
     root.querySelector("#frameControlsPanel")?.classList.add("hidden");
     root.querySelector("#frameCategoryNote")?.classList.add("hidden");
     root.querySelector("#resetFrameSettingsBtn")?.classList.add("hidden");
@@ -191,7 +199,9 @@ export async function renderFramePage(root, navigate){
       const dataUrl = await fileToDataUrl(file);
       const applied = await openPhoto(dataUrl, {
         sourceImageDataUrl: dataUrl,
-        activeCategory: "classic"
+        activeCategory: "classic",
+        selectedCategoryId: "classic",
+        frameTypeId: "wood"
       });
       if (!applied) return;
       showEditor();
