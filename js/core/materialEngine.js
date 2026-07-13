@@ -132,7 +132,7 @@ export function createMaterialPattern(materialId, options = {}){
   const size = Math.max(64, Math.min(512, Number(options.size) || 256));
   const textureImage = options.textureImage || null;
   const opacity = clamp01(options.opacity ?? 1);
-  const cacheKey = `${materialId}|${size}|${textureImage ? "tex" : "proc"}|${opacity.toFixed(2)}`;
+  const cacheKey = `${materialId}|${size}|${textureImage ? `tex:${textureImage.width}x${textureImage.height}` : "proc"}|${opacity.toFixed(2)}`;
 
   if (materialCache.has(cacheKey)) {
     const cached = materialCache.get(cacheKey);
@@ -147,19 +147,19 @@ export function createMaterialPattern(materialId, options = {}){
   const ctx = canvas.getContext("2d");
   const preset = getMaterialPreset(materialId);
 
-  paintProceduralMaterial(ctx, size, preset);
-
   if (textureImage) {
-    ctx.save();
-    ctx.globalAlpha = 0.72;
-    ctx.globalCompositeOperation = "multiply";
-    tileImage(ctx, textureImage, size);
-    ctx.restore();
-    ctx.save();
-    ctx.globalAlpha = 0.35;
-    ctx.globalCompositeOperation = "overlay";
-    tileImage(ctx, textureImage, size);
-    ctx.restore();
+    // Prefer the provided WebP as the primary surface.
+    ctx.drawImage(textureImage, 0, 0, size, size);
+    if ((preset.gloss || 0) > 0.3) {
+      const gradient = ctx.createLinearGradient(0, 0, size, size);
+      gradient.addColorStop(0, `rgba(255,255,255,${0.06 + preset.gloss * 0.08})`);
+      gradient.addColorStop(0.5, "rgba(255,255,255,0)");
+      gradient.addColorStop(1, `rgba(0,0,0,${0.06 + (preset.metallic || 0) * 0.08})`);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, size, size);
+    }
+  } else {
+    paintProceduralMaterial(ctx, size, preset);
   }
 
   if (opacity < 1) {
@@ -178,6 +178,15 @@ export function createMaterialPattern(materialId, options = {}){
 }
 
 export function createMaterialFillStyle(ctx, materialId, options = {}){
+  // When a full texture image is available, tile it directly for sharper detail.
+  if (options.textureImage) {
+    try {
+      const direct = ctx.createPattern(options.textureImage, "repeat");
+      if (direct) return direct;
+    } catch {
+      // fall through to pattern canvas
+    }
+  }
   const patternCanvas = createMaterialPattern(materialId, options);
   return ctx.createPattern(patternCanvas, "repeat");
 }

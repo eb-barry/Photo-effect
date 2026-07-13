@@ -1,7 +1,7 @@
 // F5 框住美好 - 狀態管理 v0.1.0
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.1.0";
+export const FRAME_FEATURE_VERSION = "0.1.1";
 export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v1";
 
 export const FRAME_CATEGORIES = [
