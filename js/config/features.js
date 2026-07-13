@@ -12,14 +12,20 @@ const FEATURE_ROUTES = {
   F1: "F1_mirror",
   F2: "F2_crystalBall",
   F3: "F3_magicSky",
-  F4: "F4_starburst"
+  F4: "F4_starburst",
+  F5: "F5_frame"
+};
+
+/** Override display labels when filename label differs from product name. */
+const FEATURE_LABELS = {
+  F5: "框住美好"
 };
 
 export function buildFeatures(){
   const active = FEATURE_FILES.map(fileName => {
     const match = fileName.match(/^(F\d+)-(.+)\.(webp|png|jpg|jpeg)$/i);
     const id = match ? match[1] : fileName.split("-")[0];
-    const label = match ? match[2] : id;
+    const label = FEATURE_LABELS[id] || (match ? match[2] : id);
     const route = FEATURE_ROUTES[id] || null;
     return {
       id,

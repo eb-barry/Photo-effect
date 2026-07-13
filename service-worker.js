@@ -1,4 +1,4 @@
-const CACHE_NAME = "photo-effects-v0.9.4.0";
+const CACHE_NAME = "photo-effects-v0.9.5.0";
 
 const CORE_ASSETS = [
   "./",
@@ -12,6 +12,9 @@ const CORE_ASSETS = [
   "./js/core/exportManager.js",
   "./js/core/iconLoader.js",
   "./js/core/imageLoader.js",
+  "./js/core/materialEngine.js",
+  "./js/core/frameRenderer.js",
+  "./js/core/photoAnalyzer.js",
   "./js/home/homeScreen.js",
   "./js/settings/settingsPage.js",
   "./js/features/F1_mirror/mirrorPage.js",
@@ -41,7 +44,15 @@ const CORE_ASSETS = [
   "./js/features/F4_starburst/starburstTool.js",
   "./js/features/F4_starburst/starburstUI.js",
   "./js/features/F4_starburst/starburstState.js",
-  "./js/features/F4_starburst/starburstFeature.js"
+  "./js/features/F4_starburst/starburstFeature.js",
+  "./js/features/F5_frame/framePage.js",
+  "./js/features/F5_frame/frameTool.js",
+  "./js/features/F5_frame/frameUI.js",
+  "./js/features/F5_frame/frameState.js",
+  "./js/features/F5_frame/frameAssets.js",
+  "./js/features/F5_frame/frameFeature.js",
+  "./assets/features/F5_frame/textures/classic/manifest.json",
+  "./assets/features/F5_frame/textures/professional/manifest.json"
 ];
 
 self.addEventListener("install", event => {

@@ -30,8 +30,9 @@ application.
                                                          source & starburst
                                                          effects
 
-  F5         畫框 (Frame)           📋                   Professional
-                                                         frames & borders
+  F5         框住美好 (Frame)       🚧                   Phase 1 MVP:
+                                                         classic + gallery /
+                                                         polaroid / film
 
   F6         照片牆 (Photo Wall)    📋                   Multi-photo
                                                          collage
