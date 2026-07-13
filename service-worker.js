@@ -1,4 +1,4 @@
-const CACHE_NAME = "photo-effects-v0.9.5.0";
+const CACHE_NAME = "photo-effects-v0.9.5.1";
 
 const CORE_ASSETS = [
   "./",
@@ -52,6 +52,15 @@ const CORE_ASSETS = [
   "./js/features/F5_frame/frameAssets.js",
   "./js/features/F5_frame/frameFeature.js",
   "./assets/features/F5_frame/textures/classic/manifest.json",
+  "./assets/features/F5_frame/textures/classic/wood.webp",
+  "./assets/features/F5_frame/textures/classic/walnut.webp",
+  "./assets/features/F5_frame/textures/classic/oak.webp",
+  "./assets/features/F5_frame/textures/classic/pine.webp",
+  "./assets/features/F5_frame/textures/classic/gold.webp",
+  "./assets/features/F5_frame/textures/classic/silver.webp",
+  "./assets/features/F5_frame/textures/classic/bronze.webp",
+  "./assets/features/F5_frame/textures/classic/aluminum.webp",
+  "./assets/features/F5_frame/textures/classic/acrylic.webp",
   "./assets/features/F5_frame/textures/professional/manifest.json"
 ];
 

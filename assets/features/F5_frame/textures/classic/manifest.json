@@ -1,3 +1,13 @@
 {
-  "items": []
+  "items": [
+    { "id": "wood", "label": "木紋", "file": "wood.webp" },
+    { "id": "walnut", "label": "胡桃木", "file": "walnut.webp" },
+    { "id": "oak", "label": "橡木", "file": "oak.webp" },
+    { "id": "pine", "label": "松木", "file": "pine.webp" },
+    { "id": "gold", "label": "金", "file": "gold.webp" },
+    { "id": "silver", "label": "銀", "file": "silver.webp" },
+    { "id": "bronze", "label": "銅", "file": "bronze.webp" },
+    { "id": "aluminum", "label": "鋁", "file": "aluminum.webp" },
+    { "id": "acrylic", "label": "壓克力", "file": "acrylic.webp" }
+  ]
 }
