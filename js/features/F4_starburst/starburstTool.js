@@ -1,4 +1,4 @@
-// F4 星芒鏡 - Canvas 影像處理 v0.1.3
+// F4 星芒鏡 - Canvas 影像處理 v0.1.4
 // 2D FFT 光圈繞射核心 + 幽靈/眩光/光暈疊層 + 色散與背景光衰減合成。
 
 import { getLightSourceById, getSpikeCount } from "./starburstState.js";
@@ -259,12 +259,12 @@ function drawHalation(ctx, point, minDim, halationValue, tintColor){
  * - 形狀 = 當下光圈多邊形（7 片葉片 → 七角形鬼影）。
  * - 顏色：5–7 片（暖色系）琥珀/淡黃；8–11 片（冷色系）綠/紫紅/暗藍交錯。
  * - 高透明度（source-over 低 alpha），背景依然清晰可見。
- * - 弱：1–2 個柔焦光斑，靠近光源；強：沿對軸線排成「光斑項鍊」+ Flare Veil。
+ * - 弱：1–2 個柔焦光斑；強：沿指定角度排成「光斑項鍊」+ Flare Veil。
  *
- * 位置邏輯：
- *  - ghostRefX/Y 是用手指拖曳時鎖定的「軸心參考座標」。
- *  - 使用滑桿平移時，軸心不變，整個光斑串以 (dx, dy) 剛體平移，
- *    角度與排列密度均保持不變。
+ * 定位模型（v0.1.4）：
+ *  - ghostAngle（0–360°）：光斑從星芒中心向外放射的方向。
+ *  - ghostDensity（0–100）：光斑鏈的緊密程度；越高越緊湊，越低越分散。
+ *  - 星芒移動（手指或其他操作）時，整組光斑完整跟隨，角度與密度不變。
  */
 function drawGhosting(ctx, point, width, height, minDim, ghostingValue, tintColor, state){
   const amount = clamp(Number(ghostingValue ?? 0), 0, 100) / 100;
@@ -274,19 +274,14 @@ function drawGhosting(ctx, point, width, height, minDim, ghostingValue, tintColo
   const curvature = clamp(Number(state.bladeCurvature ?? 0), 0, 100) / 100;
   const asymmetry = clamp(Number(state.randomAsymmetry ?? 0), 0, 100) / 100;
 
-  const cx = width / 2;
-  const cy = height / 2;
+  const angleDeg = clamp(Number(state.ghostAngle ?? 200), 0, 360);
+  const angleRad = (angleDeg * Math.PI) / 180;
+  const dirX = Math.cos(angleRad);
+  const dirY = Math.sin(angleRad);
 
-  // Ghost axis is derived from the locked reference position (set by finger drag).
-  // When slider translates the star, refX/refY stay fixed so the necklace angle is preserved.
-  const refX = clamp(Number(state.ghostRefX ?? state.starburstX), 0.02, 0.98) * width;
-  const refY = clamp(Number(state.ghostRefY ?? state.starburstY), 0.02, 0.98) * height;
-  const axisDx = refX - cx;
-  const axisDy = refY - cy;
-
-  // Rigid translation applied on top of the reference-based ghost positions.
-  const translateX = point.x - refX;
-  const translateY = point.y - refY;
+  // density 0 → chain spreads far out; density 100 → chain packed tight
+  const density = clamp(Number(state.ghostDensity ?? 50), 0, 100) / 100;
+  const chainLength = minDim * (0.22 + (1 - density) * 0.68);
 
   const count = Math.max(1, Math.round(1 + amount * 6));
 
@@ -296,12 +291,13 @@ function drawGhosting(ctx, point, width, height, minDim, ghostingValue, tintColo
     : [[60, 200, 80], [170, 60, 200], [50, 80, 210], [60, 200, 140], [200, 50, 180], [40, 100, 220], [80, 210, 100]];
 
   for (let i = 1; i <= count; i++) {
-    const t = -(0.30 + i * 0.28 + (i - 1) * 0.08 * amount);
-    const gx = cx + axisDx * t + translateX;
-    const gy = cy + axisDy * t + translateY;
+    const distFraction = i / (count + 0.5);
+    const dist = chainLength * distFraction;
+    const gx = point.x + dirX * dist;
+    const gy = point.y + dirY * dist;
 
     const sizeT = Math.max(0.08, 1 - (i - 1) * 0.12);
-    const baseRadius = minDim * (0.045 + amount * 0.045) * sizeT;
+    const baseRadius = minDim * (0.042 + amount * 0.042) * sizeT;
     if (baseRadius < 1.5) continue;
 
     const ghostColor = ghostPalette[(i - 1) % ghostPalette.length];

@@ -1,4 +1,4 @@
-// F4 星芒鏡 - Feature entry metadata v0.1.3
+// F4 星芒鏡 - Feature entry metadata v0.1.4
 
 import { initStarburstPage } from "./starburstPage.js";
 
@@ -17,7 +17,7 @@ export const starburstFeature = {
   enabled: true,
   disabled: false,
   isAvailable: true,
-  version: "0.1.3",
+  version: "0.1.4",
   mount: initStarburstPage
 };
 
