@@ -815,3 +815,71 @@ body.magic-sky-scroll-locked {
   display: block;
   object-fit: contain;
 }
+
+/* F5 框住美好 v0.1.0 - 6 個可水平滑動分類按鈕 */
+.frame-category-scroller {
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.frame-category-track {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 2px 8px;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.frame-category-track::-webkit-scrollbar {
+  display: none;
+}
+
+.frame-category-button {
+  flex: 0 0 auto;
+  min-width: 96px;
+  scroll-snap-align: start;
+  white-space: nowrap;
+}
+
+.frame-category-button.is-preview:not(.active) {
+  opacity: 0.72;
+}
+
+.frame-category-button.is-preview.active {
+  background: linear-gradient(145deg, rgba(10, 186, 181, 0.72), rgba(7, 99, 96, 0.88));
+}
+
+.frame-page .crystal-canvas-wrap.frame-canvas-wrap {
+  aspect-ratio: auto;
+  width: 100%;
+  max-width: 100%;
+}
+
+.frame-page .crystal-canvas-wrap.frame-canvas-wrap[data-orientation="landscape"] {
+  max-height: min(72vh, 920px);
+}
+
+.frame-page .crystal-canvas-wrap.frame-canvas-wrap[data-orientation="portrait"] {
+  max-height: min(92vh, 1320px);
+}
+
+.frame-page .frame-canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: contain;
+}
+
+@media (max-width: 430px) {
+  .frame-category-button {
+    min-width: 88px;
+    min-height: 44px;
+    font-size: 0.74rem;
+    padding: 8px 10px;
+  }
+}
