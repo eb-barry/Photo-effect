@@ -1,52 +1,51 @@
-// F5 框住美好 - 素材清單載入（manifest.json，可擴充；缺檔時程序化 fallback）
+// F5 框住美好 - 素材清單載入 v0.1.3
+// Driven by per-category manifest.json (auto-synced from all *.webp in the folder).
 
-const CLASSIC_MANIFEST_URL = "./assets/features/F5_frame/textures/classic/manifest.json";
-const PROFESSIONAL_MANIFEST_URL = "./assets/features/F5_frame/textures/professional/manifest.json";
-const CLASSIC_BASE = "./assets/features/F5_frame/textures/classic/";
-const PROFESSIONAL_BASE = "./assets/features/F5_frame/textures/professional/";
+import { setFrameTypesFromCatalog } from "./frameState.js";
 
-/** Built-in classic texture map so empty/outdated manifests still resolve files. */
-export const DEFAULT_CLASSIC_TEXTURES = [
-  { id: "wood", label: "木紋", file: "wood.webp" },
-  { id: "walnut", label: "胡桃木", file: "walnut.webp" },
-  { id: "oak", label: "橡木", file: "oak.webp" },
-  { id: "pine", label: "松木", file: "pine.webp" },
-  { id: "gold", label: "金", file: "gold.webp" },
-  { id: "silver", label: "銀", file: "silver.webp" },
-  { id: "bronze", label: "銅", file: "bronze.webp" },
-  { id: "aluminum", label: "鋁", file: "aluminum.webp" },
-  { id: "acrylic", label: "壓克力", file: "acrylic.webp" }
-];
+const TEXTURE_ROOT = "./assets/features/F5_frame/textures/";
 
-export const DEFAULT_PROFESSIONAL_TEXTURES = [
-  { id: "gallery", label: "畫廊框", file: "gallery.webp" },
-  { id: "polaroid", label: "拍立得", file: "polaroid.webp" },
-  { id: "film", label: "底片邊框", file: "film-border.webp" }
+export const FRAME_TEXTURE_CATEGORIES = [
+  "classic",
+  "professional",
+  "artistic",
+  "dimensional",
+  "smart",
+  "light"
 ];
 
 const textureCache = new Map();
-
-let classicCatalog = DEFAULT_CLASSIC_TEXTURES.map(item => withAsset(item, CLASSIC_BASE));
-let professionalCatalog = DEFAULT_PROFESSIONAL_TEXTURES.map(item => withAsset(item, PROFESSIONAL_BASE));
+const catalogs = Object.fromEntries(FRAME_TEXTURE_CATEGORIES.map(id => [id, []]));
 let catalogPromise = null;
 
 export function getClassicTextureCatalog(){
-  return classicCatalog;
+  return catalogs.classic;
 }
 
 export function getProfessionalTextureCatalog(){
-  return professionalCatalog;
+  return catalogs.professional;
+}
+
+export function getTextureCatalog(categoryId){
+  return catalogs[categoryId] || [];
+}
+
+export function getAllTextureCatalogs(){
+  return { ...catalogs };
 }
 
 export function loadFrameAssetCatalog(){
   if (!catalogPromise) {
-    catalogPromise = Promise.all([
-      loadManifest(CLASSIC_MANIFEST_URL, CLASSIC_BASE, DEFAULT_CLASSIC_TEXTURES),
-      loadManifest(PROFESSIONAL_MANIFEST_URL, PROFESSIONAL_BASE, DEFAULT_PROFESSIONAL_TEXTURES)
-    ]).then(([classic, professional]) => {
-      classicCatalog = classic;
-      professionalCatalog = professional;
-      return { classic, professional };
+    catalogPromise = Promise.all(
+      FRAME_TEXTURE_CATEGORIES.map(async categoryId => {
+        const items = await loadCategoryManifest(categoryId);
+        catalogs[categoryId] = items;
+        setFrameTypesFromCatalog(categoryId, items);
+        return { categoryId, items };
+      })
+    ).then(results => {
+      const byCategory = Object.fromEntries(results.map(item => [item.categoryId, item.items]));
+      return byCategory;
     });
   }
   return catalogPromise;
@@ -58,14 +57,20 @@ export async function loadTextureForMaterial(materialId){
 
   await loadFrameAssetCatalog();
 
-  const candidates = collectTextureCandidates(materialId);
-  for (const url of candidates) {
+  const entry = findCatalogEntry(materialId);
+  const candidates = [];
+  if (entry?.asset) candidates.push(entry.asset);
+  for (const categoryId of FRAME_TEXTURE_CATEGORIES) {
+    candidates.push(`${TEXTURE_ROOT}${categoryId}/${encodeURIComponent(`${materialId}.webp`)}`);
+  }
+
+  for (const url of [...new Set(candidates)]) {
     try {
       const image = await loadImage(url);
       textureCache.set(materialId, image);
       return image;
     } catch {
-      // try next candidate
+      // try next
     }
   }
 
@@ -74,55 +79,91 @@ export async function loadTextureForMaterial(materialId){
   return null;
 }
 
-function collectTextureCandidates(materialId){
-  const urls = [];
-  const entry = [...classicCatalog, ...professionalCatalog].find(item => item.id === materialId);
-  if (entry?.asset) urls.push(entry.asset);
-
-  // Direct path fallbacks (works even if manifest items were empty).
-  urls.push(`${CLASSIC_BASE}${materialId}.webp`);
-  urls.push(`${PROFESSIONAL_BASE}${materialId}.webp`);
-  if (materialId === "film") {
-    urls.push(`${PROFESSIONAL_BASE}film-border.webp`);
+function findCatalogEntry(materialId){
+  for (const categoryId of FRAME_TEXTURE_CATEGORIES) {
+    const hit = catalogs[categoryId].find(item => item.id === materialId || item.materialId === materialId);
+    if (hit) return hit;
   }
-
-  return [...new Set(urls)];
+  return null;
 }
 
-async function loadManifest(url, basePath, defaults){
-  const fallback = defaults.map(item => withAsset(item, basePath));
+async function loadCategoryManifest(categoryId){
+  const basePath = `${TEXTURE_ROOT}${categoryId}/`;
+  const url = `${basePath}manifest.json`;
   try {
     const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) return fallback;
+    if (!response.ok) return [];
     const data = await response.json();
-    const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : null;
-    if (!items?.length) return fallback;
-
-    const fromManifest = items.map((item, index) => normalizeManifestItem(item, basePath, index));
-    // Merge defaults so known ids are never dropped if manifest is partial.
-    const byId = new Map(fallback.map(item => [item.id, item]));
-    for (const item of fromManifest) byId.set(item.id, item);
-    return [...byId.values()];
+    const items = Array.isArray(data?.items)
+      ? data.items
+      : Array.isArray(data?.files)
+        ? data.files.map(file => (typeof file === "string" ? { file } : file))
+        : Array.isArray(data)
+          ? data
+          : null;
+    if (!items?.length) return [];
+    return items
+      .map((item, index) => normalizeManifestItem(item, basePath, categoryId, index))
+      .filter(Boolean);
   } catch (error) {
     console.warn(`[F5 框住美好] 無法載入素材清單：${url}`, error);
-    return fallback;
+    return [];
   }
 }
 
-function normalizeManifestItem(item, basePath, index){
-  const fallbackId = `texture${index + 1}`;
-  const id = typeof item?.id === "string" && item.id ? item.id : fallbackId;
-  const file = typeof item?.file === "string" && item.file ? item.file : `${id}.webp`;
-  const asset = typeof item?.asset === "string" && item.asset ? item.asset : `${basePath}${file}`;
-  const label = typeof item?.label === "string" && item.label ? item.label : id;
-  return { id, label, asset, file };
+function normalizeManifestItem(item, basePath, categoryId, index){
+  if (typeof item === "string") {
+    item = { file: item };
+  }
+  if (!item || typeof item !== "object") return null;
+
+  const file = typeof item.file === "string" && item.file
+    ? item.file
+    : typeof item.asset === "string"
+      ? item.asset.split("/").pop()
+      : null;
+  if (!file || !/\.webp$/i.test(file)) return null;
+
+  const baseName = file.replace(/\.webp$/i, "");
+  const id = typeof item.id === "string" && item.id
+    ? item.id
+    : slugify(baseName) || `${categoryId}-${index + 1}`;
+  const label = typeof item.label === "string" && item.label
+    ? item.label
+    : titleLabel(baseName);
+  const encodedFile = file.split("/").map(encodeURIComponent).join("/");
+  const asset = typeof item.asset === "string" && item.asset
+    ? item.asset
+    : `${basePath}${encodedFile}`;
+
+  return {
+    id,
+    label,
+    file,
+    asset,
+    materialId: id,
+    thumb: asset,
+    categoryId
+  };
 }
 
-function withAsset(item, basePath){
-  return {
-    ...item,
-    asset: `${basePath}${item.file}`
-  };
+function slugify(name){
+  return String(name)
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9\u4e00-\u9fff-]+/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function titleLabel(name){
+  return String(name)
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b([a-z])/g, (_, ch) => ch.toUpperCase());
 }
 
 function loadImage(url){
