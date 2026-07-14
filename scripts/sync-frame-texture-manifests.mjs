@@ -5,7 +5,9 @@
  *
  * Drop new .webp files into:
  *   assets/features/F5_frame/textures/classic/
- *   assets/features/F5_frame/textures/professional/
+ *   assets/features/F5_frame/gallery/walls/
+ *   assets/features/F5_frame/polaroid/papers/
+ *   assets/features/F5_frame/film/borders/
  * then run this script (or let the agent run it) so the app picks them up.
  */
 
@@ -21,10 +23,13 @@ const CATEGORIES = [
   { id: "artistic", dir: "assets/features/F5_frame/textures/artistic" },
   { id: "dimensional", dir: "assets/features/F5_frame/textures/dimensional" },
   { id: "smart", dir: "assets/features/F5_frame/textures/smart" },
-  { id: "light", dir: "assets/features/F5_frame/textures/light" }
+  { id: "light", dir: "assets/features/F5_frame/textures/light" },
+  { id: "gallery-walls", dir: "assets/features/F5_frame/gallery/walls" },
+  { id: "polaroid-papers", dir: "assets/features/F5_frame/polaroid/papers" },
+  { id: "film-borders", dir: "assets/features/F5_frame/film/borders" }
 ];
 
-/** Optional display-name overrides for known classic ids. */
+/** Optional display-name overrides for known classic / wall ids. */
 const LABEL_OVERRIDES = {
   wood: "木紋",
   walnut: "胡桃木",
@@ -34,7 +39,15 @@ const LABEL_OVERRIDES = {
   silver: "銀框",
   bronze: "銅框",
   aluminum: "鋁框",
-  acrylic: "壓克力"
+  acrylic: "壓克力",
+  wall_white: "Modern White",
+  wall_concrete: "Concrete",
+  wall_black: "Black Gallery",
+  wall_white_wood: "White Wood",
+  wall_stone: "Luxury Stone",
+  wall_washi: "Japanese Washi",
+  wall_nordic: "Nordic",
+  wall_industrial: "Industrial"
 };
 
 const PREFERRED_ORDER = [

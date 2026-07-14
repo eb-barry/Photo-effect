@@ -1,5 +1,5 @@
-// F5 框住美好 - Page Controller v0.1.3
-// Topbar + canvas + 分類開關 + 材質縮圖列（動態讀取全部 .webp）+ 參數下拉／滑桿。
+// F5 框住美好 - Page Controller v0.2.0
+// Topbar + canvas + 分類開關 + 經典材質／專業 Gallery + 參數下拉／滑桿。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -23,8 +23,10 @@ import {
 import {
   renderAdjustControlsPanel,
   renderCategoryScroller,
+  renderProfessionalSubTabs,
   setupFrameUI
 } from "./frameUI.js";
+import { loadGalleryWallCatalog } from "./galleryAssets.js";
 
 export function initFramePage(root, shared = {}){
   return renderFramePage(root, shared.goHome || shared.navigate || (() => {}));
@@ -75,6 +77,15 @@ export async function renderFramePage(root, navigate){
           <div id="frameMaterialHost"></div>
         </div>
         <p class="note hidden" id="frameCategoryNote"></p>
+
+        <div class="frame-category-scroller frame-subtab-scroller hidden" id="professionalSubBar" role="tablist" aria-label="Gallery 調整">
+          <div class="frame-category-track">
+            ${renderProfessionalSubTabs()}
+          </div>
+        </div>
+        <div id="galleryWallPanel" class="frame-material-panel hidden" aria-label="展牆">
+          <div id="galleryWallHost"></div>
+        </div>
 
         <div class="crystal-tab-panels hidden" id="frameControlsPanel">
           <div class="crystal-tab-panel" role="tabpanel" aria-label="畫框調整">
@@ -154,6 +165,8 @@ export async function renderFramePage(root, navigate){
     canvas.classList.add("hidden");
     root.querySelector("#frameCategoryBar")?.classList.add("hidden");
     root.querySelector("#frameMaterialPanel")?.classList.add("hidden");
+    root.querySelector("#professionalSubBar")?.classList.add("hidden");
+    root.querySelector("#galleryWallPanel")?.classList.add("hidden");
     root.querySelector("#frameControlsPanel")?.classList.add("hidden");
     root.querySelector("#frameCategoryNote")?.classList.add("hidden");
     root.querySelector("#resetFrameSettingsBtn")?.classList.add("hidden");
@@ -180,9 +193,12 @@ export async function renderFramePage(root, navigate){
 
   frameUi = setupFrameUI(root, state, renderAndPersist, persistDraft);
 
-  // Load all category manifests (auto-synced from *.webp) then refresh thumbs.
+  // Load classic texture manifests + gallery walls, then refresh thumbs.
   try {
-    await loadFrameAssetCatalog();
+    await Promise.all([
+      loadFrameAssetCatalog(),
+      loadGalleryWallCatalog()
+    ]);
     Object.assign(state, updateFrameState(state, {}));
     frameUi.refreshAllControls();
   } catch (error) {

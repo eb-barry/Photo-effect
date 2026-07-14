@@ -1,4 +1,4 @@
-const CACHE_NAME = "photo-effects-v0.9.5.3";
+const CACHE_NAME = "photo-effects-v0.9.6.0";
 
 const CORE_ASSETS = [
   "./",
@@ -51,8 +51,10 @@ const CORE_ASSETS = [
   "./js/features/F5_frame/frameState.js",
   "./js/features/F5_frame/frameAssets.js",
   "./js/features/F5_frame/frameFeature.js",
+  "./js/features/F5_frame/galleryAssets.js",
   "./assets/features/F5_frame/textures/classic/manifest.json",
-  "./assets/features/F5_frame/textures/professional/manifest.json"
+  "./assets/features/F5_frame/textures/professional/manifest.json",
+  "./assets/features/F5_frame/gallery/walls/manifest.json"
 ];
 
 self.addEventListener("install", event => {

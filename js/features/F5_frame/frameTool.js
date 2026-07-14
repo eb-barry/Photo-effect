@@ -1,8 +1,19 @@
-// F5 框住美好 - Canvas 影像處理 v0.1.0
+// F5 框住美好 - Canvas 影像處理 v0.2.0
 
-import { renderFramedPhoto, resolveFramedOutputSize, mapStyleToMaterial } from "../../core/frameRenderer.js";
-import { resolveAppliedFrameType } from "./frameState.js";
+import {
+  mapStyleToMaterial,
+  renderFramedPhoto,
+  renderGalleryPresentation,
+  resolveFramedOutputSize,
+  resolveGalleryOutputSize
+} from "../../core/frameRenderer.js";
+import { resolveGalleryWallImage } from "./galleryAssets.js";
 import { loadTextureForMaterial } from "./frameAssets.js";
+import {
+  getGalleryWallById,
+  isGalleryMode,
+  resolveAppliedFrameType
+} from "./frameState.js";
 
 export const FRAME_MAX_EDGE = 1600;
 export const FRAME_OUTPUT_WIDTH = 1200;
@@ -47,12 +58,20 @@ export function resolveContentSize(image, maxEdge = FRAME_MAX_EDGE){
 }
 
 export function resolveFrameCanvasSize(contentSize, state){
+  if (isGalleryMode(state)) {
+    return resolveGalleryOutputSize(contentSize.width, contentSize.height, {
+      frameWidth: state.frameWidth,
+      innerPadding: state.innerPadding,
+      wallMarginRatio: 0.22
+    });
+  }
+
   const type = resolveAppliedFrameType(state);
   return resolveFramedOutputSize(contentSize.width, contentSize.height, {
     frameWidth: state.frameWidth,
     innerPadding: state.innerPadding,
     outerPadding: state.outerPadding,
-    shadow: state.shadow,
+    shadow: state.galleryShadowOpacity ?? 32,
     frameStyle: type?.id || state.frameTypeId
   });
 }
@@ -68,18 +87,45 @@ export async function renderFrameStudio(ctx, sourceImage, state){
     return;
   }
 
+  const contentSize = resolveContentSize(sourceImage);
+  const contentCanvas = document.createElement("canvas");
+  contentCanvas.width = contentSize.width;
+  contentCanvas.height = contentSize.height;
+  contentCanvas.getContext("2d").drawImage(sourceImage, 0, 0, contentSize.width, contentSize.height);
+
+  if (isGalleryMode(state)) {
+    const wall = getGalleryWallById(state.galleryWallId);
+    const wallImage = await resolveGalleryWallImage(state.galleryWallId);
+    renderGalleryPresentation(ctx, contentCanvas, {
+      frameWidth: state.frameWidth,
+      cornerRadius: state.cornerRadius,
+      innerPadding: state.innerPadding,
+      opacity: (Number(state.opacity) || 100) / 100,
+      contentWidth: contentSize.width,
+      contentHeight: contentSize.height,
+      wallColor: wall?.color || "#f4f3ef",
+      wallImage,
+      galleryLightMode: state.galleryLightMode,
+      galleryLightIntensity: state.galleryLightIntensity,
+      galleryLightRadius: state.galleryLightRadius,
+      galleryLightWarmth: state.galleryLightWarmth,
+      galleryLightAngle: state.galleryLightAngle,
+      galleryLightShadow: state.galleryLightShadow,
+      galleryShadowDistance: state.galleryShadowDistance,
+      galleryShadowBlur: state.galleryShadowBlur,
+      galleryShadowOpacity: state.galleryShadowOpacity,
+      galleryShadowDirection: state.galleryShadowDirection,
+      galleryTitle: state.galleryTitle,
+      galleryAuthor: state.galleryAuthor,
+      showCaption: false
+    });
+    return;
+  }
+
   const type = resolveAppliedFrameType(state);
   const frameStyle = type?.id || state.frameTypeId;
   const materialId = type?.materialId || mapStyleToMaterial(frameStyle);
   const textureImage = await loadTextureForMaterial(materialId);
-
-  const contentSize = resolveContentSize(sourceImage);
-  // Draw source into an intermediate content canvas at target content size.
-  const contentCanvas = document.createElement("canvas");
-  contentCanvas.width = contentSize.width;
-  contentCanvas.height = contentSize.height;
-  const contentCtx = contentCanvas.getContext("2d");
-  contentCtx.drawImage(sourceImage, 0, 0, contentSize.width, contentSize.height);
 
   renderFramedPhoto(ctx, contentCanvas, {
     frameStyle,
@@ -88,7 +134,7 @@ export async function renderFrameStudio(ctx, sourceImage, state){
     cornerRadius: state.cornerRadius,
     innerPadding: state.innerPadding,
     outerPadding: state.outerPadding,
-    shadow: state.shadow,
+    shadow: 32,
     opacity: (Number(state.opacity) || 100) / 100,
     textureImage,
     contentWidth: contentSize.width,

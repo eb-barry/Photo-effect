@@ -1,11 +1,15 @@
-// F5 框住美好 - UI v0.1.3
-// 6 個可水平滑動分類（再點收合）+ 材質縮圖水平捲動（動態 manifest）+ 參數下拉 + 單一滑桿。
+// F5 框住美好 - UI v0.2.0
+// 分類開關 + 經典材質縮圖 / 專業類型縮圖 + Gallery 第二層分頁 + 參數下拉／滑桿。
 
 import {
   FRAME_CATEGORIES,
-  FRAME_PARAMETERS,
+  GALLERY_LIGHT_MODES,
+  GALLERY_SUB_TABS,
+  PROFESSIONAL_TYPES,
   applyFrameTypeDefaults,
   getFrameTypesForCategory,
+  getGalleryWallCatalog,
+  getParametersForContext,
   resetFrameAdjustments,
   updateFrameState
 } from "./frameState.js";
@@ -15,6 +19,11 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}){
   const materialHost = root.querySelector("#frameMaterialHost");
   const materialPanel = root.querySelector("#frameMaterialPanel");
   const categoryNote = root.querySelector("#frameCategoryNote");
+  const professionalSubBar = root.querySelector("#professionalSubBar");
+  const wallHost = root.querySelector("#galleryWallHost");
+  const wallPanel = root.querySelector("#galleryWallPanel");
+  const lightModeRow = root.querySelector("#galleryLightModeRow");
+  const lightModeSelect = root.querySelector("#galleryLightModeSelect");
   const paramSelect = root.querySelector("#frameParamSelect");
   const slider = root.querySelector("#frameSlider");
   const sliderLabel = root.querySelector("#frameSliderLabel");
@@ -41,10 +50,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}){
     materialPanel?.classList.toggle("hidden", !expanded);
 
     if (!expanded) {
-      if (categoryNote) {
-        categoryNote.classList.add("hidden");
-        categoryNote.textContent = "";
-      }
+      categoryNote?.classList.add("hidden");
       if (materialHost) materialHost.innerHTML = "";
       return;
     }
@@ -61,17 +67,14 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}){
       return;
     }
 
-    if (categoryNote) {
-      categoryNote.classList.add("hidden");
-      categoryNote.textContent = "";
-    }
-
+    categoryNote?.classList.add("hidden");
     if (materialHost) {
-      materialHost.innerHTML = renderMaterialCarousel(types, categoryId);
-      const carousel = materialHost.querySelector("[data-frame-material-carousel]");
+      materialHost.innerHTML = categoryId === "professional"
+        ? renderProfessionalTypeCarousel(types)
+        : renderMaterialCarousel(types, categoryId);
+      const carousel = materialHost.querySelector("[data-frame-material-carousel], [data-professional-type-carousel]");
       if (carousel) setupMaterialCarousel(carousel);
     }
-
     refreshMaterialButtons();
   }
 
@@ -84,13 +87,59 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}){
     });
   }
 
+  function refreshProfessionalSubBar(){
+    const show = state.activeCategory === "professional" && state.frameTypeId === "gallery"
+      && state.selectedCategoryId === "professional";
+    professionalSubBar?.classList.toggle("hidden", !show);
+    if (!show) {
+      wallPanel?.classList.add("hidden");
+      lightModeRow?.classList.add("hidden");
+      return;
+    }
+
+    professionalSubBar.querySelectorAll("[data-gallery-subtab]").forEach(button => {
+      const active = state.activeProfessionalSubTab === button.dataset.gallerySubtab;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+
+    const sub = state.activeProfessionalSubTab;
+    const showWalls = sub === "wall";
+    wallPanel?.classList.toggle("hidden", !showWalls);
+    lightModeRow?.classList.toggle("hidden", sub !== "light");
+
+    if (showWalls && wallHost) {
+      wallHost.innerHTML = renderWallCarousel(getGalleryWallCatalog());
+      const carousel = wallHost.querySelector("[data-gallery-wall-carousel]");
+      if (carousel) setupMaterialCarousel(carousel);
+      refreshWallButtons();
+    }
+
+    if (sub === "light" && lightModeSelect) {
+      lightModeSelect.innerHTML = GALLERY_LIGHT_MODES
+        .map(item => `<option value="${item.id}" ${item.id === state.galleryLightMode ? "selected" : ""}>${item.label}</option>`)
+        .join("");
+      lightModeSelect.classList.add("selected");
+    }
+  }
+
+  function refreshWallButtons(){
+    root.querySelectorAll("[data-gallery-wall]").forEach(button => {
+      const active = button.dataset.galleryWall === state.galleryWallId;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  }
+
   function getParameterConfig(){
-    return FRAME_PARAMETERS.find(item => item.id === state.selectedParameter) || FRAME_PARAMETERS[0];
+    const list = getParametersForContext(state);
+    return list.find(item => item.id === state.selectedParameter) || list[0];
   }
 
   function refreshParamSelect(){
     if (!paramSelect) return;
-    paramSelect.innerHTML = FRAME_PARAMETERS
+    const list = getParametersForContext(state);
+    paramSelect.innerHTML = list
       .map(item => `<option value="${item.id}" ${item.id === state.selectedParameter ? "selected" : ""}>${item.label}</option>`)
       .join("");
     paramSelect.classList.add("selected");
@@ -99,6 +148,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}){
   function refreshSlider(){
     if (!slider) return;
     const config = getParameterConfig();
+    if (!config) return;
     const value = Number(state[config.id]);
     slider.min = config.min;
     slider.max = config.max;
@@ -108,9 +158,25 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}){
     if (sliderValue) sliderValue.textContent = formatParameterValue(value, config);
   }
 
+  function refreshComingSoonNote(){
+    if (state.activeCategory !== "professional") return;
+    const type = PROFESSIONAL_TYPES.find(item => item.id === state.frameTypeId);
+    if (type && !type.enabled) {
+      if (categoryNote) {
+        categoryNote.classList.remove("hidden");
+        categoryNote.textContent = `${type.label}即將推出`;
+      }
+      professionalSubBar?.classList.add("hidden");
+      wallPanel?.classList.add("hidden");
+      lightModeRow?.classList.add("hidden");
+    }
+  }
+
   function refreshAllControls(){
     refreshCategoryButtons();
     refreshMaterialPanel();
+    refreshProfessionalSubBar();
+    refreshComingSoonNote();
     refreshParamSelect();
     refreshSlider();
   }
@@ -134,8 +200,42 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}){
     const categoryId = button.dataset.frameCategory;
     const frameTypeId = button.dataset.frameType;
     Object.assign(state, applyFrameTypeDefaults(state, categoryId, frameTypeId));
-    refreshMaterialButtons();
-    refreshSlider();
+    if (categoryId === "professional" && frameTypeId === "gallery") {
+      Object.assign(state, updateFrameState(state, { activeProfessionalSubTab: state.activeProfessionalSubTab || "wall" }));
+    }
+    refreshAllControls();
+    scheduleRender();
+    persistDraft();
+  });
+
+  professionalSubBar?.addEventListener("click", event => {
+    const button = event.target.closest("[data-gallery-subtab]");
+    if (!button) return;
+    event.preventDefault();
+    const tabId = button.dataset.gallerySubtab;
+    const next = state.activeProfessionalSubTab === tabId ? null : tabId;
+    const patch = { activeProfessionalSubTab: next };
+    if (next === "light") patch.selectedParameter = "galleryLightIntensity";
+    if (next === "shadow") patch.selectedParameter = "galleryShadowDistance";
+    if (next === "frame") patch.selectedParameter = "frameWidth";
+    Object.assign(state, updateFrameState(state, patch));
+    refreshAllControls();
+    persistDraft();
+  });
+
+  wallHost?.addEventListener("click", event => {
+    const button = event.target.closest("[data-gallery-wall]");
+    if (!button) return;
+    event.preventDefault();
+    Object.assign(state, updateFrameState(state, { galleryWallId: button.dataset.galleryWall }));
+    refreshWallButtons();
+    scheduleRender();
+    persistDraft();
+  });
+
+  lightModeSelect?.addEventListener("change", () => {
+    Object.assign(state, updateFrameState(state, { galleryLightMode: lightModeSelect.value }));
+    lightModeSelect.classList.add("selected");
     scheduleRender();
     persistDraft();
   });
@@ -179,8 +279,23 @@ export function renderCategoryScroller(){
   `).join("");
 }
 
+export function renderProfessionalSubTabs(){
+  return GALLERY_SUB_TABS.map(tab => `
+    <button
+      type="button"
+      class="crystal-tab-button frame-subtab-button"
+      data-gallery-subtab="${tab.id}"
+      aria-pressed="false"
+    >${tab.label}</button>
+  `).join("");
+}
+
 export function renderAdjustControlsPanel(){
   return `
+    <div class="selection-row crystal-adjust-row hidden" id="galleryLightModeRow">
+      <label for="galleryLightModeSelect" class="selection-label">燈光模式</label>
+      <select id="galleryLightModeSelect" class="select-control" aria-label="燈光模式"></select>
+    </div>
     <div class="selection-row crystal-adjust-row">
       <label for="frameParamSelect" class="selection-label">調整項目</label>
       <select id="frameParamSelect" class="select-control" aria-label="調整項目"></select>
@@ -220,6 +335,54 @@ export function renderMaterialCarousel(types, categoryId){
   `;
 }
 
+export function renderProfessionalTypeCarousel(types){
+  const buttons = types.map(item => `
+    <button
+      type="button"
+      class="crystal-scene-button frame-professional-button ${item.enabled ? "" : "is-soon"}"
+      data-frame-category="professional"
+      data-frame-type="${item.id}"
+      aria-label="${item.label}"
+      title="${item.label}"
+    >
+      <span class="frame-professional-swatch" style="background:${item.swatch || "#ddd"}"></span>
+      <span class="frame-professional-label">${item.label}</span>
+    </button>
+  `).join("");
+
+  return `
+    <div class="crystal-asset-carousel" data-professional-type-carousel="professional">
+      <span class="crystal-carousel-hint crystal-carousel-hint-left hidden" aria-hidden="true"></span>
+      <div class="crystal-asset-track" role="group" aria-label="專業畫框類型">${buttons}</div>
+      <span class="crystal-carousel-hint crystal-carousel-hint-right hidden" aria-hidden="true"></span>
+    </div>
+  `;
+}
+
+export function renderWallCarousel(walls){
+  const buttons = walls.map(item => `
+    <button
+      type="button"
+      class="crystal-scene-button frame-material-button"
+      data-gallery-wall="${item.id}"
+      aria-label="${item.label}"
+      title="${item.label}"
+    >
+      <span class="crystal-scene-thumb frame-material-thumb frame-wall-thumb" style="background:${item.color || "#ddd"}">
+        ${item.thumb ? `<img src="${item.thumb}" alt="" loading="lazy" onerror="this.remove()" />` : ""}
+      </span>
+    </button>
+  `).join("");
+
+  return `
+    <div class="crystal-asset-carousel" data-gallery-wall-carousel="walls">
+      <span class="crystal-carousel-hint crystal-carousel-hint-left hidden" aria-hidden="true"></span>
+      <div class="crystal-asset-track" role="group" aria-label="展牆">${buttons}</div>
+      <span class="crystal-carousel-hint crystal-carousel-hint-right hidden" aria-hidden="true"></span>
+    </div>
+  `;
+}
+
 function setupMaterialCarousel(carousel){
   const track = carousel.querySelector(".crystal-asset-track");
   const left = carousel.querySelector(".crystal-carousel-hint-left");
@@ -247,6 +410,7 @@ function updateCarouselHints(track, leftHint, rightHint){
 function formatParameterValue(value, config){
   const number = Number(value ?? 0);
   if (config.unit === "percent") return `${Math.round(number)}%`;
+  if (config.unit === "degree") return `${Math.round(number)}°`;
   if (config.unit === "px") return `${Math.round(number)}`;
   return `${Math.round(number)}`;
 }
