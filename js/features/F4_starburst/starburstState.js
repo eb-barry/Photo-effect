@@ -166,6 +166,7 @@ export function saveStarburstDraft(state){
   try {
     const saved = {
       ...state,
+      sourceImageDataUrl: null,
       featureId: STARBURST_FEATURE_ID,
       featureVersion: STARBURST_FEATURE_VERSION,
       updatedAt: Date.now()

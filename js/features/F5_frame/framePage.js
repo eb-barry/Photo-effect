@@ -1,4 +1,4 @@
-// F5 框住美好 - Page Controller v0.3.0
+// F5 框住美好 - Page Controller v0.3.2
 // Classic frames + Professional Gallery scene compositing (Layer2 pan/pinch).
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -18,6 +18,7 @@ import { loadFrameAssetCatalog } from "./frameAssets.js";
 import { loadGalleryWallCatalog } from "./galleryAssets.js";
 import {
   fileToDataUrl,
+  invalidateFrameLayerCache,
   loadImageFromDataUrl,
   renderFrameStudio,
   resolveContentSize,
@@ -114,7 +115,8 @@ export async function renderFramePage(root, navigate){
   const imageInput = root.querySelector("#imageInput");
   const canvas = root.querySelector("#editorCanvas");
   const canvasWrap = root.querySelector("#canvasWrap");
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  // Preview path does not read pixels; avoid willReadFrequently (hurts GPU path).
+  const ctx = canvas.getContext("2d", { alpha: false });
 
   const state = {
     ...savedState,
@@ -126,8 +128,11 @@ export async function renderFramePage(root, navigate){
   let renderSerial = 0;
   let openSerial = 0;
   let frameUi = null;
+  let draftTimer = null;
+  let gestureFast = false;
 
   const applyCanvasSize = size => {
+    if (canvas.width === size.width && canvas.height === size.height) return;
     canvas.width = size.width;
     canvas.height = size.height;
     canvasWrap.style.aspectRatio = `${size.width} / ${size.height}`;
@@ -140,12 +145,14 @@ export async function renderFramePage(root, navigate){
     applyCanvasSize(framed);
   };
 
-  const render = async () => {
+  const render = async (options = {}) => {
     if (!sourceImage || !contentSize) return;
     const serial = ++renderSerial;
     syncCanvasToState();
     try {
-      await renderFrameStudio(ctx, sourceImage, state);
+      await renderFrameStudio(ctx, sourceImage, state, {
+        fastPreview: Boolean(options.fastPreview ?? gestureFast)
+      });
       if (serial !== renderSerial) return;
       canvas.style.cursor = isGalleryMode(state) ? "grab" : "";
     } catch (error) {
@@ -161,19 +168,31 @@ export async function renderFramePage(root, navigate){
     root.querySelector("#frameControlsPanel")?.classList.remove("hidden");
   };
 
-  const persistDraft = () => {
+  const persistDraft = (immediate = false) => {
     if (!state.sourceImageDataUrl) return;
-    saveFrameDraft(state);
+    const flush = () => {
+      draftTimer = null;
+      saveFrameDraft(state);
+    };
+    if (immediate) {
+      clearTimeout(draftTimer);
+      flush();
+      return;
+    }
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(flush, 450);
   };
 
   const renderAndPersist = async () => {
-    await render();
-    persistDraft();
+    gestureFast = false;
+    await render({ fastPreview: false });
+    persistDraft(true);
   };
 
   const resetEditorSession = () => {
     sourceImage = null;
     contentSize = null;
+    invalidateFrameLayerCache();
     Object.assign(state, updateFrameState(createDefaultFrameState(), {}));
     root.querySelector("#emptyCanvas")?.classList.remove("hidden");
     canvas.classList.add("hidden");
@@ -190,6 +209,7 @@ export async function renderFramePage(root, navigate){
   };
 
   const finalizeExportSession = () => {
+    clearTimeout(draftTimer);
     clearFrameDraft();
     resetEditorSession();
   };
@@ -198,6 +218,7 @@ export async function renderFramePage(root, navigate){
     const serial = ++openSerial;
     const image = await loadImageFromDataUrl(dataUrl);
     if (serial !== openSerial) return false;
+    invalidateFrameLayerCache();
     sourceImage = image;
     contentSize = resolveContentSize(image);
     const sceneId = pickDefaultGallerySceneId(contentSize.width, contentSize.height, statePartial?.gallerySceneId || state.gallerySceneId);
@@ -210,8 +231,17 @@ export async function renderFramePage(root, navigate){
     return true;
   };
 
-  frameUi = setupFrameUI(root, state, renderAndPersist, persistDraft, {
-    getPhotoSize: () => contentSize || { width: 1200, height: 1600 }
+  frameUi = setupFrameUI(root, state, (opts) => {
+    if (opts?.fastPreview) gestureFast = true;
+    return render(opts || {});
+  }, persistDraft, {
+    getPhotoSize: () => contentSize || { width: 1200, height: 1600 },
+    onGestureStart: () => { gestureFast = true; },
+    onGestureEnd: async () => {
+      gestureFast = false;
+      await render({ fastPreview: false });
+      persistDraft(true);
+    }
   });
 
   try {
@@ -231,7 +261,7 @@ export async function renderFramePage(root, navigate){
 
   root.querySelector("#homeBtn")?.addEventListener("click", event => {
     event.preventDefault();
-    persistDraft();
+    persistDraft(true);
     navigate("home");
   });
 

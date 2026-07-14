@@ -3,7 +3,7 @@
 // Professional Gallery: scene wall (3:4 / 4:3) + framed Layer-2 placement + lights.
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.3.1";
+export const FRAME_FEATURE_VERSION = "0.3.3";
 export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v5";
 
 export const FRAME_CATEGORIES = [
@@ -381,8 +381,14 @@ export function pickDefaultGallerySceneId(photoWidth, photoHeight, preferredId){
 
 export function saveFrameDraft(state){
   try {
+    // Never put photo dataURLs in localStorage — multi‑MB drafts stall the whole app.
+    const {
+      sourceImageDataUrl: _omitImage,
+      ...params
+    } = state || {};
     localStorage.setItem(FRAME_DRAFT_KEY, JSON.stringify({
-      ...state,
+      ...params,
+      sourceImageDataUrl: null,
       featureId: FRAME_FEATURE_ID,
       featureVersion: FRAME_FEATURE_VERSION,
       updatedAt: Date.now()

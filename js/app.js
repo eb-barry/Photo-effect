@@ -1,35 +1,57 @@
 import { renderHomeScreen } from "./home/homeScreen.js";
-import { renderSettingsPage } from "./settings/settingsPage.js";
-import { renderMirrorPage } from "./features/F1_mirror/mirrorPage.js";
-import { initCrystalBallPage } from "./features/F2_crystalBall/crystalPage.js";
-import { initMagicSkyPage } from "./features/F3_magicSky/magicSkyPage.js";
-import { initStarburstPage } from "./features/F4_starburst/starburstPage.js";
-import { initFramePage } from "./features/F5_frame/framePage.js";
 import { applySettings } from "./config/settingsStore.js";
+import { pruneOversizedLocalDrafts } from "./core/draftStorage.js";
 
 const app = document.getElementById("app");
 
-const routes = {
-  home: () => renderHomeScreen(app, navigate),
-  settings: () => renderSettingsPage(app, navigate),
-  F1_mirror: () => renderMirrorPage(app, navigate),
-  F2_crystalBall: () => initCrystalBallPage(app, { goHome: () => navigate("home") }),
-  F3_magicSky: () => initMagicSkyPage(app, { goHome: () => navigate("home") }),
-  F4_starburst: () => initStarburstPage(app, { goHome: () => navigate("home") }),
-  F5_frame: () => initFramePage(app, { goHome: () => navigate("home") })
+/** Lazy feature loaders — keep home boot off the F1–F5 module graphs. */
+const routeLoaders = {
+  home: () => Promise.resolve({ run: (root, navigate) => renderHomeScreen(root, navigate) }),
+  settings: () => import("./settings/settingsPage.js").then(mod => ({
+    run: (root, navigate) => mod.renderSettingsPage(root, navigate)
+  })),
+  F1_mirror: () => import("./features/F1_mirror/mirrorPage.js").then(mod => ({
+    run: (root, navigate) => mod.renderMirrorPage(root, navigate)
+  })),
+  F2_crystalBall: () => import("./features/F2_crystalBall/crystalPage.js").then(mod => ({
+    run: (root, navigate) => mod.initCrystalBallPage(root, { goHome: () => navigate("home") })
+  })),
+  F3_magicSky: () => import("./features/F3_magicSky/magicSkyPage.js").then(mod => ({
+    run: (root, navigate) => mod.initMagicSkyPage(root, { goHome: () => navigate("home") })
+  })),
+  F4_starburst: () => import("./features/F4_starburst/starburstPage.js").then(mod => ({
+    run: (root, navigate) => mod.initStarburstPage(root, { goHome: () => navigate("home") })
+  })),
+  F5_frame: () => import("./features/F5_frame/framePage.js").then(mod => ({
+    run: (root, navigate) => mod.initFramePage(root, { goHome: () => navigate("home") })
+  }))
 };
 
-function navigate(routeName){
-  const route = routes[routeName] || routes.home;
-  route();
-  window.scrollTo({ top: 0, behavior: "instant" });
+let navSerial = 0;
+
+async function navigate(routeName){
+  const serial = ++navSerial;
+  const key = routeLoaders[routeName] ? routeName : "home";
+  try {
+    const { run } = await routeLoaders[key]();
+    if (serial !== navSerial) return;
+    run(app, navigate);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  } catch (error) {
+    console.error(`[app] failed to open route: ${key}`, error);
+    if (key !== "home" && serial === navSerial) {
+      navigate("home");
+    }
+  }
 }
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./service-worker.js?v=0.4.5.1").catch(console.warn);
+    navigator.serviceWorker.register("./service-worker.js?v=0.4.5.3").catch(console.warn);
   });
 }
 
+// Drop multi‑MB photo drafts from localStorage so the whole origin stays responsive.
+pruneOversizedLocalDrafts();
 applySettings();
 navigate("home");

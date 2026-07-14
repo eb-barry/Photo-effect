@@ -288,27 +288,34 @@ export function renderGalleryPresentation(ctx, framedLayer, options = {}){
   const drawX = baseX + offsetX * mountPx.w * 0.45;
   const drawY = baseY + offsetY * mountPx.h * 0.45;
 
-  // Soft contact shadow under Layer 2
+  const fastPreview = Boolean(options.fastPreview);
+
+  // Soft contact shadow under Layer 2 (cheaper during gestures).
   ctx.save();
   ctx.shadowColor = "rgba(0,0,0,0.38)";
-  ctx.shadowBlur = Math.max(12, Math.min(drawW, drawH) * 0.05);
-  ctx.shadowOffsetY = Math.max(6, drawH * 0.02);
+  ctx.shadowBlur = fastPreview
+    ? Math.max(4, Math.min(drawW, drawH) * 0.02)
+    : Math.max(12, Math.min(drawW, drawH) * 0.05);
+  ctx.shadowOffsetY = fastPreview ? 3 : Math.max(6, drawH * 0.02);
   ctx.fillStyle = "#000";
   ctx.fillRect(drawX, drawY, drawW, drawH);
   ctx.restore();
 
   ctx.drawImage(framedLayer, drawX, drawY, drawW, drawH);
 
-  drawGallerySpotlights(ctx, width, height, {
-    count: Math.max(1, Math.min(4, Number(options.galleryLightCount) || 1)),
-    posX: Number(options.galleryLightPosX) || 50,
-    posY: Number(options.galleryLightPosY) || 12,
-    intensity: Number(options.galleryLightIntensity) || 58,
-    direction: Number(options.galleryLightDirection) || 270,
-    distance: Number(options.galleryLightDistance) || 55,
-    targetX: drawX + drawW / 2,
-    targetY: drawY + drawH / 2
-  });
+  // Spotlights are full-canvas screen composites — skip while dragging/pinching.
+  if (!fastPreview) {
+    drawGallerySpotlights(ctx, width, height, {
+      count: Math.max(1, Math.min(4, Number(options.galleryLightCount) || 1)),
+      posX: Number(options.galleryLightPosX) || 50,
+      posY: Number(options.galleryLightPosY) || 12,
+      intensity: Number(options.galleryLightIntensity) || 58,
+      direction: Number(options.galleryLightDirection) || 270,
+      distance: Number(options.galleryLightDistance) || 55,
+      targetX: drawX + drawW / 2,
+      targetY: drawY + drawH / 2
+    });
+  }
 
   return {
     mount: mountPx,
@@ -319,7 +326,7 @@ export function renderGalleryPresentation(ctx, framedLayer, options = {}){
 /** Output canvas matches scene aspect (3:4 or 4:3), not the photo. */
 export function resolveGalleryOutputSize(photoWidth, photoHeight, params = {}){
   const aspectKey = params.aspect || (photoWidth >= photoHeight ? "4x3" : "3x4");
-  const maxEdge = Math.max(960, Number(params.maxEdge) || 1600);
+  const maxEdge = Math.max(640, Number(params.maxEdge) || 1080);
   if (aspectKey === "4x3") {
     const width = maxEdge;
     const height = Math.round(width * 3 / 4);

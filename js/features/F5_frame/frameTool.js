@@ -1,4 +1,5 @@
-// F5 框住美好 - Canvas 影像處理 v0.3.0
+// F5 框住美好 - Canvas 影像處理 v0.3.2
+// Preview path is optimized: Layer-2 cache, lower max edge, fast gesture mode.
 
 import {
   mapStyleToMaterial,
@@ -18,9 +19,31 @@ import {
   resolvePhotoAspectKey
 } from "./frameState.js";
 
-export const FRAME_MAX_EDGE = 1600;
+/** Preview/editor max edge — keep well below native wall textures (1536–2048). */
+export const FRAME_PREVIEW_MAX_EDGE = 1080;
+export const FRAME_EXPORT_MAX_EDGE = 1600;
+export const FRAME_MAX_EDGE = FRAME_PREVIEW_MAX_EDGE;
 export const FRAME_OUTPUT_WIDTH = 1200;
 export const FRAME_OUTPUT_HEIGHT = 1600;
+
+/** @type {{ key: string|null, layer: HTMLCanvasElement|null, contentKey: string|null, contentCanvas: HTMLCanvasElement|null }} */
+const layerCache = {
+  key: null,
+  layer: null,
+  contentKey: null,
+  contentCanvas: null
+};
+
+/** Downscaled scene bitmaps keyed by sceneId + target size. */
+const scenePreviewCache = new Map();
+
+export function invalidateFrameLayerCache(){
+  layerCache.key = null;
+  layerCache.layer = null;
+  layerCache.contentKey = null;
+  layerCache.contentCanvas = null;
+  scenePreviewCache.clear();
+}
 
 export function fileToDataUrl(file){
   return new Promise((resolve, reject) => {
@@ -59,13 +82,13 @@ export function resolveContentSize(image, maxEdge = FRAME_MAX_EDGE){
   return { width, height };
 }
 
-export function resolveFrameCanvasSize(contentSize, state){
+export function resolveFrameCanvasSize(contentSize, state, maxEdge = FRAME_MAX_EDGE){
   if (isGalleryMode(state)) {
     const scene = getGallerySceneById(state.gallerySceneId);
     const aspect = scene?.aspect || resolvePhotoAspectKey(contentSize.width, contentSize.height);
     return resolveGalleryOutputSize(contentSize.width, contentSize.height, {
       aspect,
-      maxEdge: FRAME_MAX_EDGE
+      maxEdge
     });
   }
 
@@ -77,6 +100,33 @@ export function resolveFrameCanvasSize(contentSize, state){
     shadow: 32,
     frameStyle: type?.id || state.frameTypeId
   });
+}
+
+function classicLayerCacheKey(state, contentSize){
+  return [
+    resolveClassicMaterialId(state),
+    contentSize.width,
+    contentSize.height,
+    Math.round(Number(state.frameWidth) || 0),
+    Math.round(Number(state.cornerRadius) || 0),
+    Math.round(Number(state.innerPadding) || 0),
+    Math.round(Number(state.outerPadding) || 0),
+    Math.round(Number(state.opacity) || 100)
+  ].join("|");
+}
+
+function getOrBuildContentCanvas(sourceImage, contentSize){
+  const contentKey = `${contentSize.width}x${contentSize.height}|${sourceImage.width}x${sourceImage.height}`;
+  if (layerCache.contentKey === contentKey && layerCache.contentCanvas) {
+    return layerCache.contentCanvas;
+  }
+  const contentCanvas = document.createElement("canvas");
+  contentCanvas.width = contentSize.width;
+  contentCanvas.height = contentSize.height;
+  contentCanvas.getContext("2d").drawImage(sourceImage, 0, 0, contentSize.width, contentSize.height);
+  layerCache.contentKey = contentKey;
+  layerCache.contentCanvas = contentCanvas;
+  return contentCanvas;
 }
 
 async function buildClassicFramedLayer(sourceImage, state, contentSize){
@@ -94,11 +144,7 @@ async function buildClassicFramedLayer(sourceImage, state, contentSize){
   layer.width = framedSize.width;
   layer.height = framedSize.height;
   const layerCtx = layer.getContext("2d");
-
-  const contentCanvas = document.createElement("canvas");
-  contentCanvas.width = contentSize.width;
-  contentCanvas.height = contentSize.height;
-  contentCanvas.getContext("2d").drawImage(sourceImage, 0, 0, contentSize.width, contentSize.height);
+  const contentCanvas = getOrBuildContentCanvas(sourceImage, contentSize);
 
   renderFramedPhoto(layerCtx, contentCanvas, {
     frameStyle: materialId,
@@ -117,9 +163,66 @@ async function buildClassicFramedLayer(sourceImage, state, contentSize){
   return layer;
 }
 
-export async function renderFrameStudio(ctx, sourceImage, state){
+async function getOrBuildClassicFramedLayer(sourceImage, state, contentSize){
+  const key = classicLayerCacheKey(state, contentSize);
+  if (layerCache.key === key && layerCache.layer) {
+    return layerCache.layer;
+  }
+  const layer = await buildClassicFramedLayer(sourceImage, state, contentSize);
+  layerCache.key = key;
+  layerCache.layer = layer;
+  return layer;
+}
+
+/**
+ * Downscale a full-res wall image once so gallery redraws sample a smaller bitmap.
+ */
+function getScenePreviewImage(sceneImage, targetWidth, targetHeight){
+  if (!sceneImage) return null;
+  const tw = Math.max(1, Math.round(targetWidth));
+  const th = Math.max(1, Math.round(targetHeight));
+  // Only downscale when source is meaningfully larger than the canvas.
+  if (sceneImage.width <= tw * 1.15 && sceneImage.height <= th * 1.15) {
+    return sceneImage;
+  }
+
+  const cacheKey = `${sceneImage.src || sceneImage.width}|${tw}x${th}`;
+  if (scenePreviewCache.has(cacheKey)) {
+    return scenePreviewCache.get(cacheKey);
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = tw;
+  canvas.height = th;
+  const ctx = canvas.getContext("2d");
+  // cover-fit into preview size
+  const scale = Math.max(tw / sceneImage.width, th / sceneImage.height);
+  const dw = sceneImage.width * scale;
+  const dh = sceneImage.height * scale;
+  const dx = (tw - dw) / 2;
+  const dy = (th - dh) / 2;
+  ctx.drawImage(sceneImage, dx, dy, dw, dh);
+  scenePreviewCache.set(cacheKey, canvas);
+  // Bound memory: keep a handful of scene previews.
+  while (scenePreviewCache.size > 8) {
+    const oldest = scenePreviewCache.keys().next().value;
+    scenePreviewCache.delete(oldest);
+  }
+  return canvas;
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {HTMLImageElement} sourceImage
+ * @param {object} state
+ * @param {{ fastPreview?: boolean, maxEdge?: number }} [options]
+ */
+export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
+  const fastPreview = Boolean(options.fastPreview);
+  const maxEdge = Number(options.maxEdge) || FRAME_MAX_EDGE;
+
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
@@ -128,14 +231,15 @@ export async function renderFrameStudio(ctx, sourceImage, state){
     return;
   }
 
-  const contentSize = resolveContentSize(sourceImage);
+  const contentSize = resolveContentSize(sourceImage, maxEdge);
 
   if (isGalleryMode(state)) {
     const aspect = resolvePhotoAspectKey(contentSize.width, contentSize.height);
     const sceneId = pickDefaultGallerySceneId(contentSize.width, contentSize.height, state.gallerySceneId);
     const scene = getGallerySceneById(sceneId);
-    const sceneImage = await resolveGallerySceneImage(sceneId);
-    const framedLayer = await buildClassicFramedLayer(sourceImage, state, contentSize);
+    const sceneImageFull = await resolveGallerySceneImage(sceneId);
+    const sceneImage = getScenePreviewImage(sceneImageFull, width, height);
+    const framedLayer = await getOrBuildClassicFramedLayer(sourceImage, state, contentSize);
 
     renderGalleryPresentation(ctx, framedLayer, {
       sceneImage,
@@ -149,7 +253,8 @@ export async function renderFrameStudio(ctx, sourceImage, state){
       galleryLightPosY: state.galleryLightPosY,
       galleryLightIntensity: state.galleryLightIntensity,
       galleryLightDirection: state.galleryLightDirection,
-      galleryLightDistance: state.galleryLightDistance
+      galleryLightDistance: state.galleryLightDistance,
+      fastPreview
     });
     return;
   }
@@ -158,11 +263,7 @@ export async function renderFrameStudio(ctx, sourceImage, state){
   const frameStyle = type?.id || state.frameTypeId;
   const materialId = type?.materialId || mapStyleToMaterial(frameStyle);
   const textureImage = await loadTextureForMaterial(materialId);
-
-  const contentCanvas = document.createElement("canvas");
-  contentCanvas.width = contentSize.width;
-  contentCanvas.height = contentSize.height;
-  contentCanvas.getContext("2d").drawImage(sourceImage, 0, 0, contentSize.width, contentSize.height);
+  const contentCanvas = getOrBuildContentCanvas(sourceImage, contentSize);
 
   renderFramedPhoto(ctx, contentCanvas, {
     frameStyle,
