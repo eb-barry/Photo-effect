@@ -1,25 +1,29 @@
 // Shared frame renderer for F5 Frame Studio.
-// Draws photo + frame + shadow/highlight. Supports procedural materials and optional textures.
+// Draws photo + outer/inner frame rings. Supports procedural materials and textures.
 
 import { createMaterialFillStyle, getMaterialPreset } from "./materialEngine.js";
 
 /**
- * Compute output canvas size including frame chrome.
- * @returns {{ width: number, height: number, content: DOMRect-like, frameWidthPx: number }}
+ * Compute output canvas size including dual-frame chrome.
+ * Outer and inner rings sit flush (no gap). outerPadding may be 0.
  */
 export function resolveFramedOutputSize(imageWidth, imageHeight, params = {}){
-  const frameWidthPx = Math.max(2, Math.round(Number(params.frameWidth) || 36));
-  const innerPadding = Math.max(0, Math.round(Number(params.innerPadding) || 0));
-  const outerPadding = Math.max(0, Math.round(Number(params.outerPadding) || 8));
+  const outerFrameWidthPx = Math.max(0, Math.round(Number(
+    params.outerFrameWidth ?? params.frameWidth
+  ) || 0));
+  const innerFrameWidthPx = Math.max(0, Math.round(Number(params.innerFrameWidth) || 0));
+  const outerPadding = Math.max(0, Math.round(Number(params.outerPadding) || 0));
   const shadow = Math.max(0, Number(params.shadow) || 0);
-  const shadowPad = Math.ceil(shadow * 0.55);
+  const shadowPad = params.transparentBackground
+    ? Math.ceil(shadow * 0.35)
+    : Math.ceil(shadow * 0.55);
 
+  const totalFrame = Math.max(2, outerFrameWidthPx + innerFrameWidthPx);
   const contentWidth = imageWidth;
   const contentHeight = imageHeight;
-  const width = contentWidth + (frameWidthPx + innerPadding + outerPadding) * 2 + shadowPad * 2;
-  const height = contentHeight + (frameWidthPx + innerPadding + outerPadding) * 2 + shadowPad * 2;
+  const width = contentWidth + (totalFrame + outerPadding) * 2 + shadowPad * 2;
+  const height = contentHeight + (totalFrame + outerPadding) * 2 + shadowPad * 2;
 
-  // Polaroid adds extra bottom mat.
   const polaroidExtra = params.frameStyle === "polaroid"
     ? Math.round(Math.min(contentWidth, contentHeight) * 0.14)
     : 0;
@@ -28,13 +32,14 @@ export function resolveFramedOutputSize(imageWidth, imageHeight, params = {}){
     width,
     height: height + polaroidExtra,
     content: {
-      x: outerPadding + frameWidthPx + innerPadding + shadowPad,
-      y: outerPadding + frameWidthPx + innerPadding + shadowPad,
+      x: outerPadding + totalFrame + shadowPad,
+      y: outerPadding + totalFrame + shadowPad,
       width: contentWidth,
       height: contentHeight
     },
-    frameWidthPx,
-    innerPadding,
+    frameWidthPx: totalFrame,
+    outerFrameWidthPx,
+    innerFrameWidthPx,
     outerPadding,
     shadowPad,
     polaroidExtra
@@ -43,19 +48,28 @@ export function resolveFramedOutputSize(imageWidth, imageHeight, params = {}){
 
 /**
  * Render a framed photo onto ctx. Canvas must already match resolveFramedOutputSize().
+ * Supports dual materials: outerMaterialId / innerMaterialId (+ matching textures).
  */
 export function renderFramedPhoto(ctx, sourceImage, options = {}){
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
   const frameStyle = options.frameStyle || "whiteBorder";
-  const materialId = options.materialId || mapStyleToMaterial(frameStyle);
-  const frameWidth = Math.max(2, Number(options.frameWidth) || 36);
+  const outerMaterialId = options.outerMaterialId
+    || options.materialId
+    || mapStyleToMaterial(frameStyle);
+  const innerMaterialId = options.innerMaterialId || null;
+  const outerFrameWidth = Math.max(0, Number(options.outerFrameWidth ?? options.frameWidth) || 0);
+  const innerFrameWidth = Math.max(0, Number(options.innerFrameWidth) || 0);
   const cornerRadius = Math.max(0, Number(options.cornerRadius) || 0);
-  const innerPadding = Math.max(0, Number(options.innerPadding) || 0);
-  const outerPadding = Math.max(0, Number(options.outerPadding) || 8);
+  const outerPadding = Math.max(0, Number(options.outerPadding) || 0);
   const shadow = Math.max(0, Math.min(100, Number(options.shadow) || 28));
   const opacity = Math.max(0.15, Math.min(1, Number(options.opacity) ?? 1));
-  const textureImage = options.textureImage || null;
+  const outerTexture = options.outerTextureImage || options.textureImage || null;
+  const innerTexture = options.innerTextureImage || null;
+  const transparentBackground = Boolean(options.transparentBackground);
+
+  const effectiveOuter = outerFrameWidth > 0 ? outerFrameWidth : (innerFrameWidth > 0 ? 0 : 36);
+  const effectiveInner = innerMaterialId && innerFrameWidth > 0 ? innerFrameWidth : 0;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, width, height);
@@ -64,82 +78,108 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
     options.contentWidth || sourceImage.width,
     options.contentHeight || sourceImage.height,
     {
-      frameWidth,
-      innerPadding,
+      outerFrameWidth: effectiveOuter,
+      innerFrameWidth: effectiveInner,
       outerPadding,
       shadow,
-      frameStyle
+      frameStyle,
+      transparentBackground
     }
   );
 
-  // Background behind frame (transparent-looking mat).
-  ctx.fillStyle = frameStyle === "filmBorder" ? "#0b0b0c" : "rgba(245, 248, 247, 1)";
-  ctx.fillRect(0, 0, width, height);
+  if (!transparentBackground) {
+    ctx.fillStyle = frameStyle === "filmBorder" ? "#0b0b0c" : "rgba(245, 248, 247, 1)";
+    ctx.fillRect(0, 0, width, height);
+  }
 
   const outerX = layout.shadowPad + outerPadding;
   const outerY = layout.shadowPad + outerPadding;
   const outerW = width - layout.shadowPad * 2 - outerPadding * 2;
-  const outerH = height - layout.shadowPad * 2 - outerPadding * 2 - (frameStyle === "filmBorder" ? 0 : 0);
+  const outerH = height - layout.shadowPad * 2 - outerPadding * 2;
   const photoX = layout.content.x;
   const photoY = layout.content.y;
   const photoW = layout.content.width;
   const photoH = layout.content.height;
+  const outerRadius = Math.max(0, cornerRadius + (effectiveOuter + effectiveInner) * 0.12);
 
-  // Drop shadow under the whole frame.
   if (shadow > 0) {
     ctx.save();
     ctx.shadowColor = `rgba(0, 0, 0, ${0.18 + shadow / 180})`;
     ctx.shadowBlur = 8 + shadow * 0.45;
     ctx.shadowOffsetY = 4 + shadow * 0.12;
     ctx.fillStyle = "#000";
-    roundRect(ctx, outerX, outerY, outerW, outerH, cornerRadius + frameWidth * 0.15);
+    roundRect(ctx, outerX, outerY, outerW, outerH, outerRadius);
     ctx.fill();
     ctx.restore();
   }
 
-  // Frame body
-  ctx.save();
-  ctx.globalAlpha = opacity;
-  const fill = createMaterialFillStyle(ctx, materialId, { textureImage, size: 256, opacity: 1 });
-  ctx.fillStyle = fill || rgbCss(getMaterialPreset(materialId).base);
-  roundRect(ctx, outerX, outerY, outerW, outerH, Math.max(0, cornerRadius + frameWidth * 0.12));
-  ctx.fill();
-  ctx.restore();
+  if (effectiveOuter > 0) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    const fill = createMaterialFillStyle(ctx, outerMaterialId, {
+      textureImage: outerTexture,
+      size: 256,
+      opacity: 1
+    });
+    ctx.fillStyle = fill || rgbCss(getMaterialPreset(outerMaterialId).base);
+    roundRect(ctx, outerX, outerY, outerW, outerH, outerRadius);
+    ctx.fill();
+    ctx.restore();
+  }
 
-  // Inner mat / padding area
-  const matX = outerX + frameWidth;
-  const matY = outerY + frameWidth;
-  const matW = outerW - frameWidth * 2;
-  const matH = outerH - frameWidth * 2;
-  ctx.fillStyle = pickMatColor(frameStyle);
-  roundRect(ctx, matX, matY, matW, matH, Math.max(0, cornerRadius));
-  ctx.fill();
+  const innerX = outerX + effectiveOuter;
+  const innerY = outerY + effectiveOuter;
+  const innerW = outerW - effectiveOuter * 2;
+  const innerH = outerH - effectiveOuter * 2;
+  const innerRadius = Math.max(0, cornerRadius + effectiveInner * 0.08);
 
-  // Photo
+  if (effectiveInner > 0 && innerMaterialId) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    const fill = createMaterialFillStyle(ctx, innerMaterialId, {
+      textureImage: innerTexture,
+      size: 256,
+      opacity: 1
+    });
+    ctx.fillStyle = fill || rgbCss(getMaterialPreset(innerMaterialId).base);
+    roundRect(ctx, innerX, innerY, innerW, innerH, innerRadius);
+    ctx.fill();
+    ctx.restore();
+  }
+
   ctx.save();
   roundRect(ctx, photoX, photoY, photoW, photoH, Math.max(0, cornerRadius * 0.5));
   ctx.clip();
   ctx.drawImage(sourceImage, photoX, photoY, photoW, photoH);
   ctx.restore();
 
-  // Inner bevel / highlight on frame edge
-  drawFrameBevel(ctx, {
-    outerX, outerY, outerW, outerH,
-    frameWidth,
-    cornerRadius: Math.max(0, cornerRadius + frameWidth * 0.12),
-    materialId,
-    frameStyle
-  });
+  if (effectiveOuter > 0) {
+    drawFrameBevel(ctx, {
+      outerX, outerY, outerW, outerH,
+      frameWidth: effectiveOuter,
+      cornerRadius: outerRadius,
+      materialId: outerMaterialId,
+      frameStyle
+    });
+  }
+  if (effectiveInner > 0 && innerMaterialId) {
+    drawFrameBevel(ctx, {
+      outerX: innerX,
+      outerY: innerY,
+      outerW: innerW,
+      outerH: innerH,
+      frameWidth: effectiveInner,
+      cornerRadius: innerRadius,
+      materialId: innerMaterialId,
+      frameStyle
+    });
+  }
 
-  // Style-specific decorations
   if (frameStyle === "filmBorder") {
-    drawFilmSprockets(ctx, outerX, outerY, outerW, outerH, frameWidth);
+    drawFilmSprockets(ctx, outerX, outerY, outerW, outerH, Math.max(effectiveOuter, 12));
   }
   if (frameStyle === "polaroid") {
     drawPolaroidDetails(ctx, layout, outerX, outerY, outerW, outerH);
-  }
-  if (frameStyle === "gallery") {
-    drawGalleryLiner(ctx, matX, matY, matW, matH, photoX, photoY, photoW, photoH);
   }
 }
 
@@ -172,15 +212,9 @@ export function mapStyleToMaterial(frameStyle){
   }
 }
 
-function pickMatColor(frameStyle){
-  if (frameStyle === "polaroid") return "#f7f5ef";
-  if (frameStyle === "filmBorder") return "#111113";
-  if (frameStyle === "gallery") return "#f3f1ea";
-  return "#ffffff";
-}
-
 function drawFrameBevel(ctx, geo){
   const { outerX, outerY, outerW, outerH, frameWidth, cornerRadius, materialId } = geo;
+  if (frameWidth <= 0) return;
   const preset = getMaterialPreset(materialId);
   const gloss = preset.gloss || 0.2;
 
@@ -215,22 +249,11 @@ function drawFilmSprockets(ctx, x, y, w, h, frameWidth){
 }
 
 function drawPolaroidDetails(ctx, layout, outerX, outerY, outerW, outerH){
-  // Soft bottom caption area already created by polaroidExtra; add subtle edge.
   ctx.save();
   ctx.strokeStyle = "rgba(0,0,0,0.06)";
   ctx.lineWidth = 1;
   roundRect(ctx, outerX + 0.5, outerY + 0.5, outerW - 1, outerH - 1, 4);
   ctx.stroke();
-  ctx.restore();
-}
-
-function drawGalleryLiner(ctx, matX, matY, matW, matH, photoX, photoY, photoW, photoH){
-  ctx.save();
-  ctx.strokeStyle = "rgba(0,0,0,0.12)";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(photoX - 1, photoY - 1, photoW + 2, photoH + 2);
-  ctx.strokeStyle = "rgba(255,255,255,0.55)";
-  ctx.strokeRect(matX + 2, matY + 2, matW - 4, matH - 4);
   ctx.restore();
 }
 
