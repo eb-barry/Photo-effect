@@ -3,7 +3,7 @@
 // Professional Gallery: scene wall (3:4 / 4:3) + framed Layer-2 placement + lights.
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.3.1";
+export const FRAME_FEATURE_VERSION = "0.3.2";
 export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v5";
 
 export const FRAME_CATEGORIES = [

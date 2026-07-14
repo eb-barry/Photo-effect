@@ -178,16 +178,13 @@ export function createMaterialPattern(materialId, options = {}){
 }
 
 export function createMaterialFillStyle(ctx, materialId, options = {}){
-  // When a full texture image is available, tile it directly for sharper detail.
-  if (options.textureImage) {
-    try {
-      const direct = ctx.createPattern(options.textureImage, "repeat");
-      if (direct) return direct;
-    } catch {
-      // fall through to pattern canvas
-    }
-  }
-  const patternCanvas = createMaterialPattern(materialId, options);
+  // Always tile via a downscaled pattern canvas (default 256).
+  // createPattern(full WebP) was a major preview cost on large texture assets.
+  const patternCanvas = createMaterialPattern(materialId, {
+    size: options.size || 256,
+    textureImage: options.textureImage || null,
+    opacity: options.opacity
+  });
   return ctx.createPattern(patternCanvas, "repeat");
 }
 

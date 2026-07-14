@@ -1,4 +1,4 @@
-// F5 框住美好 - UI v0.3.0
+// F5 框住美好 - UI v0.3.2
 // 分類開關 + 經典材質 / 專業類型 + Gallery 展場（依比例篩選）+ 燈光參數 + Layer2 手勢。
 
 import {
@@ -20,6 +20,8 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
   const getPhotoSize = typeof options.getPhotoSize === "function"
     ? options.getPhotoSize
     : () => ({ width: 1200, height: 1600 });
+  const onGestureStart = typeof options.onGestureStart === "function" ? options.onGestureStart : () => {};
+  const onGestureEnd = typeof options.onGestureEnd === "function" ? options.onGestureEnd : () => persistDraft();
 
   const categoryButtons = () => root.querySelectorAll("[data-frame-category]");
   const materialHost = root.querySelector("#frameMaterialHost");
@@ -37,10 +39,18 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
   const resetPlacementButton = root.querySelector("#resetGalleryPlacementBtn");
   const canvas = root.querySelector("#editorCanvas");
 
-  let renderTimer = null;
-  const scheduleRender = (delay = 16) => {
-    clearTimeout(renderTimer);
-    renderTimer = setTimeout(() => render(), delay);
+  let rafId = null;
+  let pendingRenderOpts = null;
+
+  const scheduleRender = (opts = {}) => {
+    pendingRenderOpts = { ...(pendingRenderOpts || {}), ...opts };
+    if (rafId != null) return;
+    rafId = requestAnimationFrame(() => {
+      rafId = null;
+      const next = pendingRenderOpts || {};
+      pendingRenderOpts = null;
+      render(next);
+    });
   };
 
   function refreshCategoryButtons(){
@@ -223,7 +233,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     }
 
     refreshAllControls();
-    scheduleRender();
+    scheduleRender({ fastPreview: false });
     persistDraft();
   });
 
@@ -247,7 +257,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     event.preventDefault();
     Object.assign(state, updateFrameState(state, { gallerySceneId: button.dataset.galleryScene }));
     refreshSceneButtons();
-    scheduleRender();
+    scheduleRender({ fastPreview: false });
     persistDraft();
   });
 
@@ -262,16 +272,21 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     const config = getParameterConfig();
     Object.assign(state, updateFrameState(state, { [config.id]: Number(slider.value) }));
     if (sliderValue) sliderValue.textContent = formatParameterValue(state[config.id], config);
-    scheduleRender();
+    // Placement/light sliders can use fast path; frame chrome needs full Layer-2 rebuild.
+    const fast = isGalleryMode(state) && String(config.id).startsWith("gallery");
+    scheduleRender({ fastPreview: fast });
   });
 
-  slider?.addEventListener("change", () => persistDraft());
+  slider?.addEventListener("change", () => {
+    scheduleRender({ fastPreview: false });
+    persistDraft();
+  });
 
   resetButton?.addEventListener("click", event => {
     event.preventDefault();
     Object.assign(state, resetFrameAdjustments(state));
     refreshAllControls();
-    scheduleRender();
+    scheduleRender({ fastPreview: false });
     persistDraft();
   });
 
@@ -279,7 +294,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     event.preventDefault();
     Object.assign(state, resetGalleryPlacement(state));
     refreshSlider();
-    scheduleRender();
+    scheduleRender({ fastPreview: false });
     persistDraft();
   });
 
@@ -287,8 +302,11 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     enableGalleryPlacementGesture(canvas, state, patch => {
       if (!isGalleryMode(state)) return;
       Object.assign(state, updateFrameState(state, patch));
-      scheduleRender(20);
-    }, () => persistDraft());
+      scheduleRender({ fastPreview: true });
+    }, {
+      onStart: onGestureStart,
+      onEnd: onGestureEnd
+    });
   }
 
   refreshAllControls();
@@ -344,7 +362,7 @@ export function renderMaterialCarousel(types, categoryId){
       title="${item.label}"
     >
       <span class="crystal-scene-thumb frame-material-thumb">
-        <img src="${item.thumb}" alt="" loading="lazy" />
+        <img data-src="${item.thumb}" alt="" loading="lazy" decoding="async" />
       </span>
     </button>
   `).join("");
@@ -392,7 +410,7 @@ export function renderSceneCarousel(scenes){
       title="${item.label}"
     >
       <span class="crystal-scene-thumb frame-material-thumb frame-wall-thumb" style="background:#d8d4cc">
-        <img src="${item.thumb}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'frame-scene-fallback',textContent:'${item.aspect}'}))" />
+        <img data-src="${item.thumb}" alt="" loading="lazy" decoding="async" data-fallback="${item.aspect}" />
       </span>
     </button>
   `).join("");
@@ -418,7 +436,48 @@ function setupMaterialCarousel(carousel){
     observer.observe(track);
     carousel._resizeObserver = observer;
   }
+  hydrateLazyThumbs(track);
   requestAnimationFrame(update);
+}
+
+/** Only decode thumbs that enter (or are near) the horizontal track viewport. */
+function hydrateLazyThumbs(track){
+  const images = [...track.querySelectorAll("img[data-src]")];
+  if (!images.length) return;
+
+  const activate = (img) => {
+    if (!img.dataset.src) return;
+    img.src = img.dataset.src;
+    delete img.dataset.src;
+    if (img.dataset.fallback) {
+      img.onerror = () => {
+        const span = document.createElement("span");
+        span.className = "frame-scene-fallback";
+        span.textContent = img.dataset.fallback;
+        img.replaceWith(span);
+      };
+    }
+  };
+
+  if (typeof IntersectionObserver === "undefined") {
+    images.forEach(activate);
+    return;
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      activate(entry.target);
+      observer.unobserve(entry.target);
+    });
+  }, {
+    root: track,
+    rootMargin: "120px 160px",
+    threshold: 0.01
+  });
+
+  images.forEach(img => observer.observe(img));
+  track._thumbObserver = observer;
 }
 
 function updateCarouselHints(track, leftHint, rightHint){
@@ -429,11 +488,12 @@ function updateCarouselHints(track, leftHint, rightHint){
   rightHint?.classList.toggle("hidden", maxScroll - offset <= 4);
 }
 
-function enableGalleryPlacementGesture(canvas, state, setPartialState, onGestureEnd){
+function enableGalleryPlacementGesture(canvas, state, setPartialState, hooks = {}){
   const pointers = new Map();
   let lastDrag = null;
   let lastPinchDistance = 0;
   let startScale = 100;
+  let gesturing = false;
 
   canvas.style.touchAction = "none";
 
@@ -449,6 +509,10 @@ function enableGalleryPlacementGesture(canvas, state, setPartialState, onGesture
     canvas.setPointerCapture?.(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     canvas.style.cursor = "grabbing";
+    if (!gesturing) {
+      gesturing = true;
+      hooks.onStart?.();
+    }
     if (pointers.size === 1) {
       lastDrag = { x: event.clientX, y: event.clientY };
     } else if (pointers.size === 2) {
@@ -496,7 +560,10 @@ function enableGalleryPlacementGesture(canvas, state, setPartialState, onGesture
       lastDrag = null;
       lastPinchDistance = 0;
       canvas.style.cursor = isGalleryMode(state) ? "grab" : "";
-      onGestureEnd?.();
+      if (gesturing) {
+        gesturing = false;
+        hooks.onEnd?.();
+      }
     } else if (pointers.size === 1) {
       const remaining = [...pointers.values()][0];
       lastDrag = { x: remaining.x, y: remaining.y };
