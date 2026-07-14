@@ -90,11 +90,8 @@ function normalizeScene(item){
 
 function inferAspectFromFile(file){
   const name = String(file).toLowerCase();
-  // Prefer explicit wall-3x4 / wall-4x3 tokens (avoid "wall-3x4-3" matching "4-3").
-  if (/(^|[^0-9])3x4([^0-9]|$)/.test(name) || /(^|[^0-9])3-4([^0-9]|$)/.test(name)) return "3x4";
-  if (/(^|[^0-9])4x3([^0-9]|$)/.test(name) || /(^|[^0-9])4-3([^0-9]|$)/.test(name)) return "4x3";
-  if (name.includes("3x4")) return "3x4";
-  if (name.includes("4x3")) return "4x3";
+  if (/wall[-_]?3x4/.test(name) || /(?:^|[^0-9])3x4(?:[^0-9]|$)/.test(name)) return "3x4";
+  if (/wall[-_]?4x3/.test(name) || /(?:^|[^0-9])4x3(?:[^0-9]|$)/.test(name)) return "4x3";
   return "3x4";
 }
 
