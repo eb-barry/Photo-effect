@@ -3,7 +3,7 @@
 // Professional Gallery: scene wall (3:4 / 4:3) + framed Layer-2 placement + lights.
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.3.0";
+export const FRAME_FEATURE_VERSION = "0.3.1";
 export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v5";
 
 export const FRAME_CATEGORIES = [
@@ -37,16 +37,16 @@ export const DEFAULT_MOUNT_RECT = { x: 0.20, y: 0.05, w: 0.60, h: 0.90 };
  */
 export const DEFAULT_GALLERY_SCENES = [
   {
-    id: "wall-3x4-01",
-    label: "展場 01",
-    file: "wall-3x4-01.webp",
+    id: "wall-3x4-1",
+    label: "直式展場 1",
+    file: "wall-3x4-1.webp",
     aspect: "3x4",
     mount: { ...DEFAULT_MOUNT_RECT }
   },
   {
-    id: "wall-4x3-01",
-    label: "展場 01",
-    file: "wall-4x3-01.webp",
+    id: "wall-4x3-1",
+    label: "橫式展場 1",
+    file: "wall-4x3-1.webp",
     aspect: "4x3",
     mount: { ...DEFAULT_MOUNT_RECT }
   }
@@ -223,7 +223,7 @@ export function createDefaultFrameState(){
     opacity: 100,
 
     activeProfessionalSubTab: "scene",
-    gallerySceneId: "wall-3x4-01",
+    gallerySceneId: "wall-3x4-1",
     galleryPhotoScale: 100,
     galleryOffsetX: 0,
     galleryOffsetY: 0,
@@ -376,7 +376,7 @@ export function applyFrameTypeDefaults(currentState, categoryId, frameTypeId){
 export function pickDefaultGallerySceneId(photoWidth, photoHeight, preferredId){
   const matched = getGalleryScenesForPhoto(photoWidth, photoHeight);
   if (preferredId && matched.some(item => item.id === preferredId)) return preferredId;
-  return matched[0]?.id || getGallerySceneCatalog()[0]?.id || "wall-3x4-01";
+  return matched[0]?.id || getGallerySceneCatalog()[0]?.id || "wall-3x4-1";
 }
 
 export function saveFrameDraft(state){
@@ -430,7 +430,11 @@ function normalizeSceneDefaults(item){
 
 function inferAspectFromFile(file){
   const name = String(file).toLowerCase();
-  if (name.includes("4x3") || name.includes("4-3")) return "4x3";
+  // Prefer explicit wall-3x4 / wall-4x3 tokens (avoid "wall-3x4-3" matching "4-3").
+  if (/(^|[^0-9])3x4([^0-9]|$)/.test(name) || /(^|[^0-9])3-4([^0-9]|$)/.test(name)) return "3x4";
+  if (/(^|[^0-9])4x3([^0-9]|$)/.test(name) || /(^|[^0-9])4-3([^0-9]|$)/.test(name)) return "4x3";
+  if (name.includes("3x4")) return "3x4";
+  if (name.includes("4x3")) return "4x3";
   return "3x4";
 }
 
