@@ -941,6 +941,42 @@ body.magic-sky-scroll-locked {
   background-position: center;
 }
 
+.frame-material-button {
+  position: relative;
+}
+
+.frame-material-button.is-outer-frame,
+.frame-material-button.is-inner-frame {
+  outline: 2px solid var(--base-dark, #078f8b);
+  outline-offset: 1px;
+}
+
+.frame-material-button.is-inner-frame:not(.is-outer-frame) {
+  outline-color: #8a6a3a;
+}
+
+.frame-material-role {
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(7, 53, 51, 0.88);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.frame-material-button.is-inner-frame:not(.is-outer-frame) .frame-material-role {
+  background: rgba(90, 60, 28, 0.9);
+}
+
 .frame-scene-fallback {
   display: flex;
   align-items: center;

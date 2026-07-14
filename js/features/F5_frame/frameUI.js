@@ -13,6 +13,7 @@ import {
   pickDefaultGallerySceneId,
   resetFrameAdjustments,
   resetGalleryPlacement,
+  toggleClassicMaterialSelection,
   updateFrameState
 } from "./frameState.js";
 
@@ -97,10 +98,37 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
 
   function refreshMaterialButtons(){
     root.querySelectorAll("[data-frame-type]").forEach(button => {
-      const sameCategory = button.dataset.frameCategory === state.selectedCategoryId;
-      const active = sameCategory && button.dataset.frameType === state.frameTypeId;
+      const categoryId = button.dataset.frameCategory;
+      const typeId = button.dataset.frameType;
+
+      if (categoryId === "classic") {
+        const isOuter = state.outerFrameTypeId === typeId;
+        const isInner = state.innerFrameTypeId === typeId;
+        button.classList.toggle("active", isOuter || isInner);
+        button.classList.toggle("is-outer-frame", isOuter);
+        button.classList.toggle("is-inner-frame", isInner);
+        button.setAttribute("aria-pressed", String(isOuter || isInner));
+
+        let badge = button.querySelector(".frame-material-role");
+        if (isOuter || isInner) {
+          if (!badge) {
+            badge = document.createElement("span");
+            badge.className = "frame-material-role";
+            button.appendChild(badge);
+          }
+          badge.textContent = isOuter && isInner ? "外+內" : isOuter ? "外框" : "內框";
+        } else if (badge) {
+          badge.remove();
+        }
+        return;
+      }
+
+      const sameCategory = categoryId === state.selectedCategoryId;
+      const active = sameCategory && typeId === state.frameTypeId;
       button.classList.toggle("active", active);
+      button.classList.remove("is-outer-frame", "is-inner-frame");
       button.setAttribute("aria-pressed", String(active));
+      button.querySelector(".frame-material-role")?.remove();
     });
   }
 
@@ -221,6 +249,17 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     event.preventDefault();
     const categoryId = button.dataset.frameCategory;
     const frameTypeId = button.dataset.frameType;
+
+    if (categoryId === "classic") {
+      Object.assign(state, toggleClassicMaterialSelection(state, frameTypeId));
+      refreshMaterialButtons();
+      refreshParamSelect();
+      refreshSlider();
+      scheduleRender({ fastPreview: false });
+      persistDraft();
+      return;
+    }
+
     Object.assign(state, applyFrameTypeDefaults(state, categoryId, frameTypeId));
 
     if (categoryId === "professional" && frameTypeId === "gallery") {
@@ -245,7 +284,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     const next = state.activeProfessionalSubTab === tabId ? null : tabId;
     const patch = { activeProfessionalSubTab: next };
     if (next === "light") patch.selectedParameter = "galleryLightCount";
-    if (next === "scene") patch.selectedParameter = "frameWidth";
+    if (next === "scene") patch.selectedParameter = "outerFrameWidth";
     Object.assign(state, updateFrameState(state, patch));
     refreshAllControls();
     persistDraft();
@@ -343,7 +382,7 @@ export function renderAdjustControlsPanel(){
     </div>
     <div class="slider-row" id="frameSliderRow">
       <div class="slider-head">
-        <span id="frameSliderLabel">框寬</span>
+        <span id="frameSliderLabel">外框寬</span>
         <span id="frameSliderValue">40</span>
       </div>
       <input id="frameSlider" type="range" />
@@ -359,7 +398,7 @@ export function renderMaterialCarousel(types, categoryId){
       data-frame-category="${categoryId}"
       data-frame-type="${item.id}"
       aria-label="${item.label}"
-      title="${item.label}"
+      title="${categoryId === "classic" ? `${item.label}（點選設為外框／內框）` : item.label}"
     >
       <span class="crystal-scene-thumb frame-material-thumb">
         <img data-src="${item.thumb}" alt="" loading="lazy" decoding="async" />
@@ -370,7 +409,7 @@ export function renderMaterialCarousel(types, categoryId){
   return `
     <div class="crystal-asset-carousel" data-frame-material-carousel="${categoryId}">
       <span class="crystal-carousel-hint crystal-carousel-hint-left hidden" aria-hidden="true"></span>
-      <div class="crystal-asset-track" role="group" aria-label="畫框材質">${buttons}</div>
+      <div class="crystal-asset-track" role="group" aria-label="${categoryId === "classic" ? "外框與內框材質" : "畫框材質"}">${buttons}</div>
       <span class="crystal-carousel-hint crystal-carousel-hint-right hidden" aria-hidden="true"></span>
     </div>
   `;

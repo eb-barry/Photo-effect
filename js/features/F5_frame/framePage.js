@@ -282,7 +282,9 @@ export async function renderFramePage(root, navigate){
         activeCategory: "classic",
         selectedCategoryId: "classic",
         frameTypeId: first?.id || state.classicFrameTypeId || "wood",
-        classicFrameTypeId: first?.id || state.classicFrameTypeId || "wood"
+        classicFrameTypeId: first?.id || state.classicFrameTypeId || "wood",
+        outerFrameTypeId: first?.id || state.outerFrameTypeId || "wood",
+        innerFrameTypeId: state.innerFrameTypeId || null
       });
       if (!applied) return;
       showEditor();
