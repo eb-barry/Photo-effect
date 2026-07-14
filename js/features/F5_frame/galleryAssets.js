@@ -1,50 +1,51 @@
-// F5 Gallery wall textures - assets/features/F5_frame/gallery/walls/
+// F5 Gallery scene walls - wall-3x4-*.webp / wall-4x3-*.webp
 
 import {
-  DEFAULT_GALLERY_WALLS,
-  getGalleryWallById,
-  setGalleryWallCatalog
+  DEFAULT_GALLERY_SCENES,
+  DEFAULT_MOUNT_RECT,
+  getGallerySceneById,
+  setGallerySceneCatalog
 } from "./frameState.js";
 
 const WALL_BASE = "./assets/features/F5_frame/gallery/walls/";
 const WALL_MANIFEST_URL = `${WALL_BASE}manifest.json`;
 
-const wallImageCache = new Map();
-let wallCatalogPromise = null;
+const sceneImageCache = new Map();
+let catalogPromise = null;
 
 export function loadGalleryWallCatalog(){
-  if (!wallCatalogPromise) {
-    wallCatalogPromise = loadWallManifest().then(items => {
-      setGalleryWallCatalog(items);
+  if (!catalogPromise) {
+    catalogPromise = loadSceneManifest().then(items => {
+      setGallerySceneCatalog(items);
       return items;
     });
   }
-  return wallCatalogPromise;
+  return catalogPromise;
 }
 
-export async function resolveGalleryWallImage(wallId){
-  if (!wallId) return null;
-  if (wallImageCache.has(wallId)) return wallImageCache.get(wallId);
+export async function resolveGallerySceneImage(sceneId){
+  if (!sceneId) return null;
+  if (sceneImageCache.has(sceneId)) return sceneImageCache.get(sceneId);
 
   await loadGalleryWallCatalog();
-  const entry = getGalleryWallById(wallId);
+  const entry = getGallerySceneById(sceneId);
   if (!entry?.asset) {
-    wallImageCache.set(wallId, null);
+    sceneImageCache.set(sceneId, null);
     return null;
   }
 
   try {
     const image = await loadImage(entry.asset);
-    wallImageCache.set(wallId, image);
+    sceneImageCache.set(sceneId, image);
     return image;
   } catch {
-    wallImageCache.set(wallId, null);
+    sceneImageCache.set(sceneId, null);
     return null;
   }
 }
 
-async function loadWallManifest(){
-  const fallback = DEFAULT_GALLERY_WALLS.map(normalizeWall);
+async function loadSceneManifest(){
+  const fallback = DEFAULT_GALLERY_SCENES.map(normalizeScene);
   try {
     const response = await fetch(WALL_MANIFEST_URL, { cache: "no-store" });
     if (!response.ok) return fallback;
@@ -52,45 +53,56 @@ async function loadWallManifest(){
     const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : null;
     if (!items?.length) return fallback;
 
-    const byId = new Map(fallback.map(item => [item.id, item]));
-    for (const raw of items) {
-      const normalized = normalizeWall(raw);
-      if (normalized) byId.set(normalized.id, normalized);
-    }
-    return [...byId.values()];
+    const normalized = items.map(normalizeScene).filter(Boolean);
+    return normalized.length ? normalized : fallback;
   } catch (error) {
-    console.warn("[F5 Gallery] 牆面清單載入失敗，使用程序化牆面：", error);
+    console.warn("[F5 Gallery] 展場清單載入失敗：", error);
     return fallback;
   }
 }
 
-function normalizeWall(item){
+function normalizeScene(item){
   if (!item) return null;
   if (typeof item === "string") item = { file: item };
-  const file = item.file || `${item.id || "wall"}.webp`;
-  const baseName = String(file).replace(/\.webp$/i, "");
-  const id = item.id || slugify(baseName);
-  const known = DEFAULT_GALLERY_WALLS.find(wall => wall.id === id);
-  const label = item.label || known?.label || titleLabel(baseName);
-  const color = item.color || known?.color || "#e8e6e1";
+  const file = item.file || `${item.id || "wall-3x4-01"}.webp`;
+  if (!/\.webp$/i.test(file)) return null;
+  if (!/wall[-_]?(3x4|4x3)[-_]?\d+/i.test(file) && !item.aspect) {
+    // Still accept explicit aspect from manifest
+  }
+  const id = item.id || file.replace(/\.webp$/i, "");
+  const aspect = item.aspect || inferAspectFromFile(file);
   const encoded = String(file).split("/").map(encodeURIComponent).join("/");
   const asset = `${WALL_BASE}${encoded}`;
-  return { id, label, file, color, asset, thumb: asset };
+  return {
+    id,
+    label: item.label || prettify(id),
+    file,
+    aspect,
+    mount: { ...DEFAULT_MOUNT_RECT, ...(item.mount || {}) },
+    asset,
+    thumb: asset
+  };
 }
 
-function slugify(name){
-  return String(name).trim().toLowerCase().replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]+/g, "");
+function inferAspectFromFile(file){
+  const name = String(file).toLowerCase();
+  if (name.includes("4x3") || name.includes("4-3")) return "4x3";
+  return "3x4";
 }
 
-function titleLabel(name){
-  return String(name).replace(/[-_]+/g, " ").replace(/\b([a-z])/g, (_, c) => c.toUpperCase());
+function prettify(id){
+  const match = String(id).match(/(\d+)\s*$/);
+  const num = match ? match[1] : "";
+  if (/3x4/i.test(id)) return `直式展場 ${num}`.trim();
+  if (/4x3/i.test(id)) return `橫式展場 ${num}`.trim();
+  return String(id).replace(/[-_]+/g, " ");
 }
 
 function loadImage(url){
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error(`Wall image load failed: ${url}`));
+    image.onerror = () => reject(new Error(`Scene image load failed: ${url}`));
     image.src = url;
   });
 }

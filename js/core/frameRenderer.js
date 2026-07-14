@@ -250,166 +250,130 @@ function rgbCss(rgb){
 }
 
 /**
- * Gallery presentation: wall + framed artwork + lighting + directional shadow.
- * Canvas should already match resolveGalleryOutputSize().
+ * Scene-based Gallery: full wall image (Layer 1) + classic-framed photo (Layer 2)
+ * placed inside a mount rect with pan/scale + multi spotlight overlays.
  */
-export function renderGalleryPresentation(ctx, sourceImage, options = {}){
+export function renderGalleryPresentation(ctx, framedLayer, options = {}){
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
-  const frameWidth = Math.max(2, Number(options.frameWidth) || 36);
-  const cornerRadius = Math.max(0, Number(options.cornerRadius) || 4);
-  const innerPadding = Math.max(0, Number(options.innerPadding) || 10);
-  const opacity = Math.max(0.2, Math.min(1, Number(options.opacity) ?? 1));
-  const wallColor = options.wallColor || "#f4f3ef";
-  const wallImage = options.wallImage || null;
-  const contentWidth = options.contentWidth || sourceImage.width;
-  const contentHeight = options.contentHeight || sourceImage.height;
-
-  const layout = resolveGalleryOutputSize(contentWidth, contentHeight, {
-    frameWidth,
-    innerPadding,
-    wallMarginRatio: options.wallMarginRatio
-  });
+  const sceneImage = options.sceneImage || null;
+  const mount = options.mount || { x: 0.20, y: 0.05, w: 0.60, h: 0.90 };
+  const scale = Math.max(0.4, Math.min(1.8, (Number(options.galleryPhotoScale) || 100) / 100));
+  const offsetX = (Number(options.galleryOffsetX) || 0) / 100;
+  const offsetY = (Number(options.galleryOffsetY) || 0) / 100;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  // Wall background
-  if (wallImage) {
-    coverImage(ctx, wallImage, 0, 0, width, height);
+  if (sceneImage) {
+    coverImage(ctx, sceneImage, 0, 0, width, height);
   } else {
-    fillProceduralWall(ctx, width, height, wallColor);
+    fillProceduralGalleryScene(ctx, width, height, options.aspect || "3x4");
   }
 
-  const art = layout.artwork;
-  const frameOuter = {
-    x: art.x - innerPadding - frameWidth,
-    y: art.y - innerPadding - frameWidth,
-    w: art.width + (innerPadding + frameWidth) * 2,
-    h: art.height + (innerPadding + frameWidth) * 2
+  const mountPx = {
+    x: mount.x * width,
+    y: mount.y * height,
+    w: mount.w * width,
+    h: mount.h * height
   };
 
-  // Artwork drop shadow (directional)
-  drawGalleryShadow(ctx, frameOuter, {
-    distance: Number(options.galleryShadowDistance) || 28,
-    blur: Number(options.galleryShadowBlur) || 48,
-    opacity: Number(options.galleryShadowOpacity) || 46,
-    direction: Number(options.galleryShadowDirection) || 220
+  const layerW = framedLayer.width;
+  const layerH = framedLayer.height;
+  const fit = Math.min(mountPx.w / layerW, mountPx.h / layerH) * scale;
+  const drawW = layerW * fit;
+  const drawH = layerH * fit;
+  const baseX = mountPx.x + (mountPx.w - drawW) / 2;
+  const baseY = mountPx.y + (mountPx.h - drawH) / 2;
+  const drawX = baseX + offsetX * mountPx.w * 0.45;
+  const drawY = baseY + offsetY * mountPx.h * 0.45;
+
+  // Soft contact shadow under Layer 2
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.38)";
+  ctx.shadowBlur = Math.max(12, Math.min(drawW, drawH) * 0.05);
+  ctx.shadowOffsetY = Math.max(6, drawH * 0.02);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(drawX, drawY, drawW, drawH);
+  ctx.restore();
+
+  ctx.drawImage(framedLayer, drawX, drawY, drawW, drawH);
+
+  drawGallerySpotlights(ctx, width, height, {
+    count: Math.max(1, Math.min(4, Number(options.galleryLightCount) || 1)),
+    posX: Number(options.galleryLightPosX) || 50,
+    posY: Number(options.galleryLightPosY) || 12,
+    intensity: Number(options.galleryLightIntensity) || 58,
+    direction: Number(options.galleryLightDirection) || 270,
+    distance: Number(options.galleryLightDistance) || 55,
+    targetX: drawX + drawW / 2,
+    targetY: drawY + drawH / 2
   });
-
-  // Frame body (procedural gallery black/graphite)
-  ctx.save();
-  ctx.globalAlpha = opacity;
-  const frameGrad = ctx.createLinearGradient(frameOuter.x, frameOuter.y, frameOuter.x + frameOuter.w, frameOuter.y + frameOuter.h);
-  frameGrad.addColorStop(0, "#3a3a3e");
-  frameGrad.addColorStop(0.5, "#1f1f23");
-  frameGrad.addColorStop(1, "#2c2c30");
-  ctx.fillStyle = frameGrad;
-  roundRect(ctx, frameOuter.x, frameOuter.y, frameOuter.w, frameOuter.h, cornerRadius + 2);
-  ctx.fill();
-  ctx.restore();
-
-  // Mat
-  ctx.fillStyle = "#f7f4ec";
-  roundRect(
-    ctx,
-    frameOuter.x + frameWidth,
-    frameOuter.y + frameWidth,
-    frameOuter.w - frameWidth * 2,
-    frameOuter.h - frameWidth * 2,
-    Math.max(0, cornerRadius)
-  );
-  ctx.fill();
-
-  // Photo
-  ctx.save();
-  roundRect(ctx, art.x, art.y, art.width, art.height, Math.max(0, cornerRadius * 0.4));
-  ctx.clip();
-  ctx.drawImage(sourceImage, art.x, art.y, art.width, art.height);
-  ctx.restore();
-
-  // Frame bevel
-  ctx.save();
-  ctx.strokeStyle = "rgba(255,255,255,0.18)";
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, frameOuter.x + 1, frameOuter.y + 1, frameOuter.w - 2, frameOuter.h - 2, cornerRadius + 2);
-  ctx.stroke();
-  ctx.strokeStyle = "rgba(0,0,0,0.35)";
-  roundRect(
-    ctx,
-    frameOuter.x + frameWidth,
-    frameOuter.y + frameWidth,
-    frameOuter.w - frameWidth * 2,
-    frameOuter.h - frameWidth * 2,
-    Math.max(0, cornerRadius)
-  );
-  ctx.stroke();
-  ctx.restore();
-
-  // Lighting overlay
-  drawGalleryLighting(ctx, width, height, frameOuter, {
-    mode: options.galleryLightMode || "museum",
-    intensity: Number(options.galleryLightIntensity) || 62,
-    radius: Number(options.galleryLightRadius) || 58,
-    warmth: Number(options.galleryLightWarmth) || 58,
-    angle: Number(options.galleryLightAngle) || 210,
-    shadowStrength: Number(options.galleryLightShadow) || 42
-  });
-
-  // Optional default caption (typography ready; handwriting fonts prepared in CSS)
-  if (options.showCaption && (options.galleryTitle || options.galleryAuthor)) {
-    drawGalleryCaption(ctx, frameOuter, options);
-  }
-}
-
-export function resolveGalleryOutputSize(imageWidth, imageHeight, params = {}){
-  const frameWidthPx = Math.max(2, Math.round(Number(params.frameWidth) || 36));
-  const innerPadding = Math.max(0, Math.round(Number(params.innerPadding) || 10));
-  const wallMarginRatio = Math.max(0.12, Math.min(0.4, Number(params.wallMarginRatio) || 0.22));
-  const minSide = Math.min(imageWidth, imageHeight);
-  const wallPad = Math.round(minSide * wallMarginRatio);
-
-  const artworkW = imageWidth;
-  const artworkH = imageHeight;
-  const width = artworkW + (frameWidthPx + innerPadding) * 2 + wallPad * 2;
-  const height = artworkH + (frameWidthPx + innerPadding) * 2 + wallPad * 2;
 
   return {
-    width,
-    height,
-    wallPad,
-    frameWidthPx,
-    innerPadding,
-    artwork: {
-      x: wallPad + frameWidthPx + innerPadding,
-      y: wallPad + frameWidthPx + innerPadding,
-      width: artworkW,
-      height: artworkH
-    }
+    mount: mountPx,
+    layer: { x: drawX, y: drawY, w: drawW, h: drawH }
   };
 }
 
-function fillProceduralWall(ctx, width, height, color){
-  ctx.fillStyle = color;
+/** Output canvas matches scene aspect (3:4 or 4:3), not the photo. */
+export function resolveGalleryOutputSize(photoWidth, photoHeight, params = {}){
+  const aspectKey = params.aspect || (photoWidth >= photoHeight ? "4x3" : "3x4");
+  const maxEdge = Math.max(960, Number(params.maxEdge) || 1600);
+  if (aspectKey === "4x3") {
+    const width = maxEdge;
+    const height = Math.round(width * 3 / 4);
+    return { width, height, aspect: "4x3" };
+  }
+  const height = maxEdge;
+  const width = Math.round(height * 3 / 4);
+  return { width, height, aspect: "3x4" };
+}
+
+function fillProceduralGalleryScene(ctx, width, height, aspect){
+  // Placeholder marble hall until wall-3x4 / wall-4x3 assets arrive.
+  const sky = ctx.createLinearGradient(0, 0, 0, height);
+  sky.addColorStop(0, "#dfe3e8");
+  sky.addColorStop(1, "#b8bdc6");
+  ctx.fillStyle = sky;
   ctx.fillRect(0, 0, width, height);
-  const image = ctx.getImageData(0, 0, Math.min(width, 512), Math.min(height, 512));
-  // Lightweight noise on a sample region then leave solid fill — keep simple for perf.
+
+  const slabW = width * 0.6;
+  const slabH = height * 0.9;
+  const slabX = (width - slabW) / 2;
+  const slabY = (height - slabH) / 2;
+  const marble = ctx.createLinearGradient(slabX, slabY, slabX + slabW, slabY + slabH);
+  marble.addColorStop(0, "#f7f5f1");
+  marble.addColorStop(0.45, "#ebe6df");
+  marble.addColorStop(1, "#d9d2c8");
+  ctx.fillStyle = marble;
+  ctx.fillRect(slabX, slabY, slabW, slabH);
+
   ctx.save();
-  ctx.globalAlpha = 0.04;
-  for (let i = 0; i < 1200; i++) {
-    const x = Math.random() * width;
-    const y = Math.random() * height;
-    ctx.fillStyle = Math.random() > 0.5 ? "#000" : "#fff";
-    ctx.fillRect(x, y, 1.2, 1.2);
+  ctx.strokeStyle = "rgba(120,110,100,0.18)";
+  for (let i = 0; i < 8; i++) {
+    ctx.beginPath();
+    ctx.moveTo(slabX + slabW * (0.1 + i * 0.1), slabY);
+    ctx.bezierCurveTo(
+      slabX + slabW * (0.2 + i * 0.08), slabY + slabH * 0.35,
+      slabX + slabW * (0.05 + i * 0.09), slabY + slabH * 0.7,
+      slabX + slabW * (0.15 + i * 0.08), slabY + slabH
+    );
+    ctx.stroke();
   }
   ctx.restore();
-  // Soft vignette
-  const vignette = ctx.createRadialGradient(width / 2, height / 2, Math.min(width, height) * 0.2, width / 2, height / 2, Math.max(width, height) * 0.72);
-  vignette.addColorStop(0, "rgba(0,0,0,0)");
-  vignette.addColorStop(1, "rgba(0,0,0,0.16)");
-  ctx.fillStyle = vignette;
+
+  // Floor band
+  ctx.fillStyle = "rgba(160,165,170,0.55)";
+  ctx.fillRect(0, height * 0.86, width, height * 0.14);
+
+  // Soft ceiling spotlight cue
+  const light = ctx.createRadialGradient(width / 2, height * 0.08, 10, width / 2, height * 0.08, width * 0.35);
+  light.addColorStop(0, "rgba(255,250,235,0.35)");
+  light.addColorStop(1, "rgba(255,250,235,0)");
+  ctx.fillStyle = light;
   ctx.fillRect(0, 0, width, height);
-  void image;
+  void aspect;
 }
 
 function coverImage(ctx, image, x, y, w, h){
@@ -421,97 +385,32 @@ function coverImage(ctx, image, x, y, w, h){
   ctx.drawImage(image, dx, dy, dw, dh);
 }
 
-function drawGalleryShadow(ctx, rect, shadow){
-  const distance = shadow.distance;
-  const blur = 6 + shadow.blur * 0.7;
-  const alpha = Math.max(0, Math.min(1, shadow.opacity / 100)) * 0.7;
-  const rad = (shadow.direction * Math.PI) / 180;
-  const ox = Math.cos(rad) * distance;
-  const oy = Math.sin(rad) * distance;
-
-  ctx.save();
-  ctx.shadowColor = `rgba(0,0,0,${alpha})`;
-  ctx.shadowBlur = blur;
-  ctx.shadowOffsetX = ox;
-  ctx.shadowOffsetY = oy;
-  ctx.fillStyle = "#000";
-  roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 4);
-  ctx.fill();
-  ctx.restore();
-}
-
-function drawGalleryLighting(ctx, width, height, frameOuter, light){
+function drawGallerySpotlights(ctx, width, height, light){
   const intensity = light.intensity / 100;
   if (intensity <= 0.01) return;
 
-  const warmth = light.warmth / 100;
-  const cool = 1 - warmth;
-  const r = Math.round(255 * warmth + 210 * cool);
-  const g = Math.round(236 * warmth + 230 * cool);
-  const b = Math.round(196 * warmth + 255 * cool);
-  const radius = (Math.min(width, height) * (0.25 + light.radius / 200));
-
-  let cx = width / 2;
-  let cy = height * 0.18;
-  if (light.mode === "left") {
-    cx = width * 0.18;
-    cy = height * 0.35;
-  } else if (light.mode === "right") {
-    cx = width * 0.82;
-    cy = height * 0.35;
-  } else if (light.mode === "soft") {
-    cx = width / 2;
-    cy = height / 2;
-  } else if (light.mode === "museum") {
-    cx = frameOuter.x + frameOuter.w / 2;
-    cy = Math.max(0, frameOuter.y - height * 0.08);
-  }
-
-  // Angle nudges spotlight center slightly
-  const rad = (light.angle * Math.PI) / 180;
-  cx += Math.cos(rad) * width * 0.04;
-  cy += Math.sin(rad) * height * 0.03;
+  const count = light.count;
+  const baseX = (light.posX / 100) * width;
+  const baseY = (light.posY / 100) * height;
+  const distance = (light.distance / 100) * Math.min(width, height);
+  const dirRad = (light.direction * Math.PI) / 180;
+  const radius = distance * 0.85;
 
   ctx.save();
   ctx.globalCompositeOperation = "screen";
-  const gradient = ctx.createRadialGradient(cx, cy, radius * 0.05, cx, cy, radius);
-  gradient.addColorStop(0, `rgba(${r},${g},${b},${0.42 * intensity})`);
-  gradient.addColorStop(0.45, `rgba(${r},${g},${b},${0.16 * intensity})`);
-  gradient.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, width, height);
-  ctx.restore();
-
-  // Ambient occlusion around artwork
-  const ao = light.shadowStrength / 100;
-  if (ao > 0.02) {
-    ctx.save();
-    const edge = ctx.createRadialGradient(
-      frameOuter.x + frameOuter.w / 2,
-      frameOuter.y + frameOuter.h / 2,
-      Math.min(frameOuter.w, frameOuter.h) * 0.35,
-      frameOuter.x + frameOuter.w / 2,
-      frameOuter.y + frameOuter.h / 2,
-      Math.max(frameOuter.w, frameOuter.h) * 0.95
-    );
-    edge.addColorStop(0, "rgba(0,0,0,0)");
-    edge.addColorStop(1, `rgba(0,0,0,${0.22 * ao})`);
-    ctx.fillStyle = edge;
+  for (let i = 0; i < count; i++) {
+    const spread = (i - (count - 1) / 2) * (width * 0.06);
+    const cx = baseX + spread + Math.cos(dirRad) * distance * 0.15;
+    const cy = baseY + Math.sin(dirRad) * distance * 0.15;
+    // Pull glow toward artwork target slightly
+    const tx = cx * 0.35 + light.targetX * 0.65;
+    const ty = cy * 0.35 + light.targetY * 0.65;
+    const gradient = ctx.createRadialGradient(tx, ty, radius * 0.05, tx, ty, radius);
+    gradient.addColorStop(0, `rgba(255,244,220,${0.4 * intensity})`);
+    gradient.addColorStop(0.4, `rgba(255,236,200,${0.16 * intensity})`);
+    gradient.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
-    ctx.restore();
   }
-}
-
-function drawGalleryCaption(ctx, frameOuter, options){
-  const title = options.galleryTitle || "";
-  const author = options.galleryAuthor || "";
-  const y = frameOuter.y + frameOuter.h + 28;
-  ctx.save();
-  ctx.fillStyle = "rgba(30,30,30,0.82)";
-  ctx.textAlign = "center";
-  ctx.font = "600 18px \"Segoe UI\", \"Noto Sans TC\", sans-serif";
-  if (title) ctx.fillText(title, frameOuter.x + frameOuter.w / 2, y);
-  ctx.font = "400 14px \"Segoe UI\", \"Noto Sans TC\", sans-serif";
-  if (author) ctx.fillText(author, frameOuter.x + frameOuter.w / 2, y + 22);
   ctx.restore();
 }

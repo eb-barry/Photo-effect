@@ -941,6 +941,22 @@ body.magic-sky-scroll-locked {
   background-position: center;
 }
 
+.frame-scene-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #5a5650;
+}
+
+#galleryGestureHint {
+  margin: 6px 0 0;
+  text-align: center;
+}
+
 /* Handwriting fonts reserved for Polaroid caption / future signature text */
 :root {
   --frame-font-hand-latin: "Caveat", cursive;

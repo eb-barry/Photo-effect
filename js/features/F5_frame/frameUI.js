@@ -1,34 +1,41 @@
-// F5 框住美好 - UI v0.2.0
-// 分類開關 + 經典材質縮圖 / 專業類型縮圖 + Gallery 第二層分頁 + 參數下拉／滑桿。
+// F5 框住美好 - UI v0.3.0
+// 分類開關 + 經典材質 / 專業類型 + Gallery 展場（依比例篩選）+ 燈光參數 + Layer2 手勢。
 
 import {
   FRAME_CATEGORIES,
-  GALLERY_LIGHT_MODES,
   GALLERY_SUB_TABS,
   PROFESSIONAL_TYPES,
   applyFrameTypeDefaults,
   getFrameTypesForCategory,
-  getGalleryWallCatalog,
+  getGalleryScenesForPhoto,
   getParametersForContext,
+  isGalleryMode,
+  pickDefaultGallerySceneId,
   resetFrameAdjustments,
+  resetGalleryPlacement,
   updateFrameState
 } from "./frameState.js";
 
-export function setupFrameUI(root, state, render, persistDraft = () => {}){
+export function setupFrameUI(root, state, render, persistDraft = () => {}, options = {}){
+  const getPhotoSize = typeof options.getPhotoSize === "function"
+    ? options.getPhotoSize
+    : () => ({ width: 1200, height: 1600 });
+
   const categoryButtons = () => root.querySelectorAll("[data-frame-category]");
   const materialHost = root.querySelector("#frameMaterialHost");
   const materialPanel = root.querySelector("#frameMaterialPanel");
   const categoryNote = root.querySelector("#frameCategoryNote");
   const professionalSubBar = root.querySelector("#professionalSubBar");
-  const wallHost = root.querySelector("#galleryWallHost");
-  const wallPanel = root.querySelector("#galleryWallPanel");
-  const lightModeRow = root.querySelector("#galleryLightModeRow");
-  const lightModeSelect = root.querySelector("#galleryLightModeSelect");
+  const sceneHost = root.querySelector("#galleryWallHost");
+  const scenePanel = root.querySelector("#galleryWallPanel");
+  const galleryHint = root.querySelector("#galleryGestureHint");
   const paramSelect = root.querySelector("#frameParamSelect");
   const slider = root.querySelector("#frameSlider");
   const sliderLabel = root.querySelector("#frameSliderLabel");
   const sliderValue = root.querySelector("#frameSliderValue");
   const resetButton = root.querySelector("#resetFrameSettingsBtn");
+  const resetPlacementButton = root.querySelector("#resetGalleryPlacementBtn");
+  const canvas = root.querySelector("#editorCanvas");
 
   let renderTimer = null;
   const scheduleRender = (delay = 16) => {
@@ -88,12 +95,15 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}){
   }
 
   function refreshProfessionalSubBar(){
-    const show = state.activeCategory === "professional" && state.frameTypeId === "gallery"
-      && state.selectedCategoryId === "professional";
+    const show = state.activeCategory === "professional"
+      && state.selectedCategoryId === "professional"
+      && state.frameTypeId === "gallery";
     professionalSubBar?.classList.toggle("hidden", !show);
+    galleryHint?.classList.toggle("hidden", !show);
+    resetPlacementButton?.classList.toggle("hidden", !show);
+
     if (!show) {
-      wallPanel?.classList.add("hidden");
-      lightModeRow?.classList.add("hidden");
+      scenePanel?.classList.add("hidden");
       return;
     }
 
@@ -104,28 +114,30 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}){
     });
 
     const sub = state.activeProfessionalSubTab;
-    const showWalls = sub === "wall";
-    wallPanel?.classList.toggle("hidden", !showWalls);
-    lightModeRow?.classList.toggle("hidden", sub !== "light");
+    const showScenes = sub === "scene";
+    scenePanel?.classList.toggle("hidden", !showScenes);
 
-    if (showWalls && wallHost) {
-      wallHost.innerHTML = renderWallCarousel(getGalleryWallCatalog());
-      const carousel = wallHost.querySelector("[data-gallery-wall-carousel]");
-      if (carousel) setupMaterialCarousel(carousel);
-      refreshWallButtons();
-    }
-
-    if (sub === "light" && lightModeSelect) {
-      lightModeSelect.innerHTML = GALLERY_LIGHT_MODES
-        .map(item => `<option value="${item.id}" ${item.id === state.galleryLightMode ? "selected" : ""}>${item.label}</option>`)
-        .join("");
-      lightModeSelect.classList.add("selected");
+    if (showScenes && sceneHost) {
+      const photo = getPhotoSize();
+      const scenes = getGalleryScenesForPhoto(photo.width, photo.height);
+      if (!scenes.length) {
+        sceneHost.innerHTML = "";
+        if (categoryNote) {
+          categoryNote.classList.remove("hidden");
+          categoryNote.textContent = "尚無對應比例的展場圖（請放入 wall-3x4-*.webp 或 wall-4x3-*.webp）";
+        }
+      } else {
+        sceneHost.innerHTML = renderSceneCarousel(scenes);
+        const carousel = sceneHost.querySelector("[data-gallery-scene-carousel]");
+        if (carousel) setupMaterialCarousel(carousel);
+        refreshSceneButtons();
+      }
     }
   }
 
-  function refreshWallButtons(){
-    root.querySelectorAll("[data-gallery-wall]").forEach(button => {
-      const active = button.dataset.galleryWall === state.galleryWallId;
+  function refreshSceneButtons(){
+    root.querySelectorAll("[data-gallery-scene]").forEach(button => {
+      const active = button.dataset.galleryScene === state.gallerySceneId;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
@@ -167,8 +179,8 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}){
         categoryNote.textContent = `${type.label}即將推出`;
       }
       professionalSubBar?.classList.add("hidden");
-      wallPanel?.classList.add("hidden");
-      lightModeRow?.classList.add("hidden");
+      scenePanel?.classList.add("hidden");
+      galleryHint?.classList.add("hidden");
     }
   }
 
@@ -200,9 +212,16 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}){
     const categoryId = button.dataset.frameCategory;
     const frameTypeId = button.dataset.frameType;
     Object.assign(state, applyFrameTypeDefaults(state, categoryId, frameTypeId));
+
     if (categoryId === "professional" && frameTypeId === "gallery") {
-      Object.assign(state, updateFrameState(state, { activeProfessionalSubTab: state.activeProfessionalSubTab || "wall" }));
+      const photo = getPhotoSize();
+      const sceneId = pickDefaultGallerySceneId(photo.width, photo.height, state.gallerySceneId);
+      Object.assign(state, updateFrameState(state, {
+        activeProfessionalSubTab: state.activeProfessionalSubTab || "scene",
+        gallerySceneId: sceneId
+      }));
     }
+
     refreshAllControls();
     scheduleRender();
     persistDraft();
@@ -215,27 +234,19 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}){
     const tabId = button.dataset.gallerySubtab;
     const next = state.activeProfessionalSubTab === tabId ? null : tabId;
     const patch = { activeProfessionalSubTab: next };
-    if (next === "light") patch.selectedParameter = "galleryLightIntensity";
-    if (next === "shadow") patch.selectedParameter = "galleryShadowDistance";
-    if (next === "frame") patch.selectedParameter = "frameWidth";
+    if (next === "light") patch.selectedParameter = "galleryLightCount";
+    if (next === "scene") patch.selectedParameter = "frameWidth";
     Object.assign(state, updateFrameState(state, patch));
     refreshAllControls();
     persistDraft();
   });
 
-  wallHost?.addEventListener("click", event => {
-    const button = event.target.closest("[data-gallery-wall]");
+  sceneHost?.addEventListener("click", event => {
+    const button = event.target.closest("[data-gallery-scene]");
     if (!button) return;
     event.preventDefault();
-    Object.assign(state, updateFrameState(state, { galleryWallId: button.dataset.galleryWall }));
-    refreshWallButtons();
-    scheduleRender();
-    persistDraft();
-  });
-
-  lightModeSelect?.addEventListener("change", () => {
-    Object.assign(state, updateFrameState(state, { galleryLightMode: lightModeSelect.value }));
-    lightModeSelect.classList.add("selected");
+    Object.assign(state, updateFrameState(state, { gallerySceneId: button.dataset.galleryScene }));
+    refreshSceneButtons();
     scheduleRender();
     persistDraft();
   });
@@ -263,6 +274,22 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}){
     scheduleRender();
     persistDraft();
   });
+
+  resetPlacementButton?.addEventListener("click", event => {
+    event.preventDefault();
+    Object.assign(state, resetGalleryPlacement(state));
+    refreshSlider();
+    scheduleRender();
+    persistDraft();
+  });
+
+  if (canvas) {
+    enableGalleryPlacementGesture(canvas, state, patch => {
+      if (!isGalleryMode(state)) return;
+      Object.assign(state, updateFrameState(state, patch));
+      scheduleRender(20);
+    }, () => persistDraft());
+  }
 
   refreshAllControls();
   return { refreshAllControls };
@@ -292,10 +319,6 @@ export function renderProfessionalSubTabs(){
 
 export function renderAdjustControlsPanel(){
   return `
-    <div class="selection-row crystal-adjust-row hidden" id="galleryLightModeRow">
-      <label for="galleryLightModeSelect" class="selection-label">燈光模式</label>
-      <select id="galleryLightModeSelect" class="select-control" aria-label="燈光模式"></select>
-    </div>
     <div class="selection-row crystal-adjust-row">
       <label for="frameParamSelect" class="selection-label">調整項目</label>
       <select id="frameParamSelect" class="select-control" aria-label="調整項目"></select>
@@ -359,25 +382,25 @@ export function renderProfessionalTypeCarousel(types){
   `;
 }
 
-export function renderWallCarousel(walls){
-  const buttons = walls.map(item => `
+export function renderSceneCarousel(scenes){
+  const buttons = scenes.map(item => `
     <button
       type="button"
       class="crystal-scene-button frame-material-button"
-      data-gallery-wall="${item.id}"
+      data-gallery-scene="${item.id}"
       aria-label="${item.label}"
       title="${item.label}"
     >
-      <span class="crystal-scene-thumb frame-material-thumb frame-wall-thumb" style="background:${item.color || "#ddd"}">
-        ${item.thumb ? `<img src="${item.thumb}" alt="" loading="lazy" onerror="this.remove()" />` : ""}
+      <span class="crystal-scene-thumb frame-material-thumb frame-wall-thumb" style="background:#d8d4cc">
+        <img src="${item.thumb}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'frame-scene-fallback',textContent:'${item.aspect}'}))" />
       </span>
     </button>
   `).join("");
 
   return `
-    <div class="crystal-asset-carousel" data-gallery-wall-carousel="walls">
+    <div class="crystal-asset-carousel" data-gallery-scene-carousel="scenes">
       <span class="crystal-carousel-hint crystal-carousel-hint-left hidden" aria-hidden="true"></span>
-      <div class="crystal-asset-track" role="group" aria-label="展牆">${buttons}</div>
+      <div class="crystal-asset-track" role="group" aria-label="展場場景">${buttons}</div>
       <span class="crystal-carousel-hint crystal-carousel-hint-right hidden" aria-hidden="true"></span>
     </div>
   `;
@@ -388,7 +411,6 @@ function setupMaterialCarousel(carousel){
   const left = carousel.querySelector(".crystal-carousel-hint-left");
   const right = carousel.querySelector(".crystal-carousel-hint-right");
   if (!track) return;
-
   const update = () => updateCarouselHints(track, left, right);
   track.addEventListener("scroll", update, { passive: true });
   if (typeof ResizeObserver !== "undefined") {
@@ -407,10 +429,94 @@ function updateCarouselHints(track, leftHint, rightHint){
   rightHint?.classList.toggle("hidden", maxScroll - offset <= 4);
 }
 
+function enableGalleryPlacementGesture(canvas, state, setPartialState, onGestureEnd){
+  const pointers = new Map();
+  let lastDrag = null;
+  let lastPinchDistance = 0;
+  let startScale = 100;
+
+  canvas.style.touchAction = "none";
+
+  const getTwoPointerDistance = () => {
+    const values = [...pointers.values()];
+    if (values.length < 2) return 0;
+    return Math.hypot(values[0].x - values[1].x, values[0].y - values[1].y);
+  };
+
+  canvas.addEventListener("pointerdown", event => {
+    if (!isGalleryMode(state) || !state.sourceImageDataUrl) return;
+    event.preventDefault();
+    canvas.setPointerCapture?.(event.pointerId);
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    canvas.style.cursor = "grabbing";
+    if (pointers.size === 1) {
+      lastDrag = { x: event.clientX, y: event.clientY };
+    } else if (pointers.size === 2) {
+      lastPinchDistance = getTwoPointerDistance();
+      startScale = Number(state.galleryPhotoScale || 100);
+      lastDrag = null;
+    }
+  });
+
+  canvas.addEventListener("pointermove", event => {
+    if (!pointers.has(event.pointerId) || !isGalleryMode(state)) return;
+    event.preventDefault();
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+    if (pointers.size >= 2) {
+      const distance = getTwoPointerDistance();
+      if (lastPinchDistance > 0 && distance > 0) {
+        setPartialState({
+          galleryPhotoScale: clamp(startScale * (distance / lastPinchDistance), 40, 180)
+        });
+      }
+      return;
+    }
+
+    if (!lastDrag) {
+      lastDrag = { x: event.clientX, y: event.clientY };
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const dx = (event.clientX - lastDrag.x) / Math.max(1, rect.width);
+    const dy = (event.clientY - lastDrag.y) / Math.max(1, rect.height);
+    lastDrag = { x: event.clientX, y: event.clientY };
+    setPartialState({
+      galleryOffsetX: clamp(Number(state.galleryOffsetX || 0) + dx * 165, -100, 100),
+      galleryOffsetY: clamp(Number(state.galleryOffsetY || 0) + dy * 165, -100, 100)
+    });
+  });
+
+  const endPointer = event => {
+    if (!pointers.has(event.pointerId)) return;
+    pointers.delete(event.pointerId);
+    canvas.releasePointerCapture?.(event.pointerId);
+    if (pointers.size === 0) {
+      lastDrag = null;
+      lastPinchDistance = 0;
+      canvas.style.cursor = isGalleryMode(state) ? "grab" : "";
+      onGestureEnd?.();
+    } else if (pointers.size === 1) {
+      const remaining = [...pointers.values()][0];
+      lastDrag = { x: remaining.x, y: remaining.y };
+      lastPinchDistance = 0;
+    }
+  };
+
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
+}
+
 function formatParameterValue(value, config){
   const number = Number(value ?? 0);
   if (config.unit === "percent") return `${Math.round(number)}%`;
   if (config.unit === "degree") return `${Math.round(number)}°`;
+  if (config.unit === "count") return `${Math.round(number)}`;
   if (config.unit === "px") return `${Math.round(number)}`;
   return `${Math.round(number)}`;
+}
+
+function clamp(value, min, max){
+  return Math.max(min, Math.min(max, Number(value)));
 }

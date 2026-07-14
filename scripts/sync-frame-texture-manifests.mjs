@@ -52,7 +52,8 @@ const LABEL_OVERRIDES = {
 
 const PREFERRED_ORDER = [
   "wood", "walnut", "oak", "pine",
-  "gold", "silver", "bronze", "aluminum", "acrylic"
+  "gold", "silver", "bronze", "aluminum", "acrylic",
+  "wall-3x4-01", "wall-4x3-01"
 ];
 
 function slugify(name){

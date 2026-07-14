@@ -31,8 +31,9 @@ application.
                                                          effects
 
   F5         框住美好 (Frame)       🚧                   Classic + Gallery
-                                                         P1 (walls/light/
-                                                         shadow)
+                                                         scene compositing
+                                                         (aspect-matched
+                                                         walls)
 
   F6         照片牆 (Photo Wall)    📋                   Multi-photo
                                                          collage

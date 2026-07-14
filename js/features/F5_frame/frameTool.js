@@ -1,4 +1,4 @@
-// F5 框住美好 - Canvas 影像處理 v0.2.0
+// F5 框住美好 - Canvas 影像處理 v0.3.0
 
 import {
   mapStyleToMaterial,
@@ -7,12 +7,15 @@ import {
   resolveFramedOutputSize,
   resolveGalleryOutputSize
 } from "../../core/frameRenderer.js";
-import { resolveGalleryWallImage } from "./galleryAssets.js";
+import { resolveGallerySceneImage } from "./galleryAssets.js";
 import { loadTextureForMaterial } from "./frameAssets.js";
 import {
-  getGalleryWallById,
+  getGallerySceneById,
   isGalleryMode,
-  resolveAppliedFrameType
+  pickDefaultGallerySceneId,
+  resolveAppliedFrameType,
+  resolveClassicMaterialId,
+  resolvePhotoAspectKey
 } from "./frameState.js";
 
 export const FRAME_MAX_EDGE = 1600;
@@ -41,7 +44,6 @@ export function loadImageFromDataUrl(dataUrl){
   });
 }
 
-/** 依原圖比例決定內容區尺寸（不含畫框外圍）。 */
 export function resolveContentSize(image, maxEdge = FRAME_MAX_EDGE){
   if (!image?.width || !image?.height) {
     return { width: FRAME_OUTPUT_WIDTH, height: FRAME_OUTPUT_HEIGHT };
@@ -59,10 +61,11 @@ export function resolveContentSize(image, maxEdge = FRAME_MAX_EDGE){
 
 export function resolveFrameCanvasSize(contentSize, state){
   if (isGalleryMode(state)) {
+    const scene = getGallerySceneById(state.gallerySceneId);
+    const aspect = scene?.aspect || resolvePhotoAspectKey(contentSize.width, contentSize.height);
     return resolveGalleryOutputSize(contentSize.width, contentSize.height, {
-      frameWidth: state.frameWidth,
-      innerPadding: state.innerPadding,
-      wallMarginRatio: 0.22
+      aspect,
+      maxEdge: FRAME_MAX_EDGE
     });
   }
 
@@ -71,9 +74,47 @@ export function resolveFrameCanvasSize(contentSize, state){
     frameWidth: state.frameWidth,
     innerPadding: state.innerPadding,
     outerPadding: state.outerPadding,
-    shadow: state.galleryShadowOpacity ?? 32,
+    shadow: 32,
     frameStyle: type?.id || state.frameTypeId
   });
+}
+
+async function buildClassicFramedLayer(sourceImage, state, contentSize){
+  const materialId = resolveClassicMaterialId(state);
+  const textureImage = await loadTextureForMaterial(materialId);
+  const framedSize = resolveFramedOutputSize(contentSize.width, contentSize.height, {
+    frameWidth: state.frameWidth,
+    innerPadding: state.innerPadding,
+    outerPadding: Math.max(4, state.outerPadding || 8),
+    shadow: 28,
+    frameStyle: materialId
+  });
+
+  const layer = document.createElement("canvas");
+  layer.width = framedSize.width;
+  layer.height = framedSize.height;
+  const layerCtx = layer.getContext("2d");
+
+  const contentCanvas = document.createElement("canvas");
+  contentCanvas.width = contentSize.width;
+  contentCanvas.height = contentSize.height;
+  contentCanvas.getContext("2d").drawImage(sourceImage, 0, 0, contentSize.width, contentSize.height);
+
+  renderFramedPhoto(layerCtx, contentCanvas, {
+    frameStyle: materialId,
+    materialId,
+    frameWidth: state.frameWidth,
+    cornerRadius: state.cornerRadius,
+    innerPadding: state.innerPadding,
+    outerPadding: Math.max(4, state.outerPadding || 8),
+    shadow: 28,
+    opacity: (Number(state.opacity) || 100) / 100,
+    textureImage,
+    contentWidth: contentSize.width,
+    contentHeight: contentSize.height
+  });
+
+  return layer;
 }
 
 export async function renderFrameStudio(ctx, sourceImage, state){
@@ -88,36 +129,27 @@ export async function renderFrameStudio(ctx, sourceImage, state){
   }
 
   const contentSize = resolveContentSize(sourceImage);
-  const contentCanvas = document.createElement("canvas");
-  contentCanvas.width = contentSize.width;
-  contentCanvas.height = contentSize.height;
-  contentCanvas.getContext("2d").drawImage(sourceImage, 0, 0, contentSize.width, contentSize.height);
 
   if (isGalleryMode(state)) {
-    const wall = getGalleryWallById(state.galleryWallId);
-    const wallImage = await resolveGalleryWallImage(state.galleryWallId);
-    renderGalleryPresentation(ctx, contentCanvas, {
-      frameWidth: state.frameWidth,
-      cornerRadius: state.cornerRadius,
-      innerPadding: state.innerPadding,
-      opacity: (Number(state.opacity) || 100) / 100,
-      contentWidth: contentSize.width,
-      contentHeight: contentSize.height,
-      wallColor: wall?.color || "#f4f3ef",
-      wallImage,
-      galleryLightMode: state.galleryLightMode,
+    const aspect = resolvePhotoAspectKey(contentSize.width, contentSize.height);
+    const sceneId = pickDefaultGallerySceneId(contentSize.width, contentSize.height, state.gallerySceneId);
+    const scene = getGallerySceneById(sceneId);
+    const sceneImage = await resolveGallerySceneImage(sceneId);
+    const framedLayer = await buildClassicFramedLayer(sourceImage, state, contentSize);
+
+    renderGalleryPresentation(ctx, framedLayer, {
+      sceneImage,
+      aspect: scene?.aspect || aspect,
+      mount: scene?.mount,
+      galleryPhotoScale: state.galleryPhotoScale,
+      galleryOffsetX: state.galleryOffsetX,
+      galleryOffsetY: state.galleryOffsetY,
+      galleryLightCount: state.galleryLightCount,
+      galleryLightPosX: state.galleryLightPosX,
+      galleryLightPosY: state.galleryLightPosY,
       galleryLightIntensity: state.galleryLightIntensity,
-      galleryLightRadius: state.galleryLightRadius,
-      galleryLightWarmth: state.galleryLightWarmth,
-      galleryLightAngle: state.galleryLightAngle,
-      galleryLightShadow: state.galleryLightShadow,
-      galleryShadowDistance: state.galleryShadowDistance,
-      galleryShadowBlur: state.galleryShadowBlur,
-      galleryShadowOpacity: state.galleryShadowOpacity,
-      galleryShadowDirection: state.galleryShadowDirection,
-      galleryTitle: state.galleryTitle,
-      galleryAuthor: state.galleryAuthor,
-      showCaption: false
+      galleryLightDirection: state.galleryLightDirection,
+      galleryLightDistance: state.galleryLightDistance
     });
     return;
   }
@@ -126,6 +158,11 @@ export async function renderFrameStudio(ctx, sourceImage, state){
   const frameStyle = type?.id || state.frameTypeId;
   const materialId = type?.materialId || mapStyleToMaterial(frameStyle);
   const textureImage = await loadTextureForMaterial(materialId);
+
+  const contentCanvas = document.createElement("canvas");
+  contentCanvas.width = contentSize.width;
+  contentCanvas.height = contentSize.height;
+  contentCanvas.getContext("2d").drawImage(sourceImage, 0, 0, contentSize.width, contentSize.height);
 
   renderFramedPhoto(ctx, contentCanvas, {
     frameStyle,
