@@ -957,10 +957,11 @@ body.magic-sky-scroll-locked {
   text-align: center;
 }
 
-/* Handwriting fonts reserved for Polaroid caption / future signature text */
+/* Handwriting fonts reserved for Polaroid caption / future signature text.
+   Loaded on demand later — not on the global critical path. */
 :root {
-  --frame-font-hand-latin: "Caveat", cursive;
-  --frame-font-hand-cjk: "Liu Jian Mao Cao", cursive;
+  --frame-font-hand-latin: "Caveat", "Segoe Script", "Snell Roundhand", cursive;
+  --frame-font-hand-cjk: "Liu Jian Mao Cao", "KaiTi", "STKaiti", cursive;
 }
 
 .frame-handwriting-latin {

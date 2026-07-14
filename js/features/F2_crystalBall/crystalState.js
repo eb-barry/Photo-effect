@@ -130,6 +130,7 @@ export function saveCrystalDraft(state){
   try {
     const saved = {
       ...state,
+      sourceImageDataUrl: null,
       featureId: CRYSTAL_FEATURE_ID,
       featureVersion: CRYSTAL_FEATURE_VERSION,
       updatedAt: Date.now()

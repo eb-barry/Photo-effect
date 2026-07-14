@@ -189,6 +189,7 @@ export function saveMagicSkyDraft(state){
   try {
     const saved = {
       ...state,
+      sourceImageDataUrl: null,
       featureId: MAGIC_SKY_FEATURE_ID,
       featureVersion: MAGIC_SKY_FEATURE_VERSION,
       updatedAt: Date.now()
