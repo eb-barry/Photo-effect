@@ -54,7 +54,11 @@ async function loadSceneManifest(){
     if (!items?.length) return fallback;
 
     const normalized = items.map(normalizeScene).filter(Boolean);
-    return normalized.length ? normalized : fallback;
+    if (!normalized.length) return fallback;
+    return normalized.sort((a, b) => {
+      if (a.aspect !== b.aspect) return String(a.aspect).localeCompare(String(b.aspect));
+      return String(a.id).localeCompare(String(b.id), "en", { numeric: true });
+    });
   } catch (error) {
     console.warn("[F5 Gallery] 展場清單載入失敗：", error);
     return fallback;
@@ -64,7 +68,7 @@ async function loadSceneManifest(){
 function normalizeScene(item){
   if (!item) return null;
   if (typeof item === "string") item = { file: item };
-  const file = item.file || `${item.id || "wall-3x4-01"}.webp`;
+  const file = item.file || `${item.id || "wall-3x4-1"}.webp`;
   if (!/\.webp$/i.test(file)) return null;
   if (!/wall[-_]?(3x4|4x3)[-_]?\d+/i.test(file) && !item.aspect) {
     // Still accept explicit aspect from manifest
@@ -86,7 +90,8 @@ function normalizeScene(item){
 
 function inferAspectFromFile(file){
   const name = String(file).toLowerCase();
-  if (name.includes("4x3") || name.includes("4-3")) return "4x3";
+  if (/wall[-_]?3x4/.test(name) || /(?:^|[^0-9])3x4(?:[^0-9]|$)/.test(name)) return "3x4";
+  if (/wall[-_]?4x3/.test(name) || /(?:^|[^0-9])4x3(?:[^0-9]|$)/.test(name)) return "4x3";
   return "3x4";
 }
 

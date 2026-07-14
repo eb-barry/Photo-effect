@@ -52,8 +52,7 @@ const LABEL_OVERRIDES = {
 
 const PREFERRED_ORDER = [
   "wood", "walnut", "oak", "pine",
-  "gold", "silver", "bronze", "aluminum", "acrylic",
-  "wall-3x4-01", "wall-4x3-01"
+  "gold", "silver", "bronze", "aluminum", "acrylic"
 ];
 
 function slugify(name){
@@ -68,6 +67,12 @@ function slugify(name){
 }
 
 function titleLabel(name){
+  const wall = String(name).match(/^wall[-_]?(3x4|4x3)[-_]?(\d+)$/i);
+  if (wall) {
+    const aspect = wall[1].toLowerCase();
+    const num = String(Number(wall[2]));
+    return aspect === "4x3" ? `橫式展場 ${num}` : `直式展場 ${num}`;
+  }
   return String(name)
     .replace(/[-_]+/g, " ")
     .replace(/\s+/g, " ")
@@ -86,6 +91,18 @@ function uniqueId(baseId, used){
   return id;
 }
 
+function naturalCompare(a, b){
+  return String(a).localeCompare(String(b), "en", { numeric: true, sensitivity: "base" });
+}
+
+function inferAspectFromFile(file){
+  const name = String(file).toLowerCase();
+  // Match wall-3x4 / wall-4x3 prefixes first (avoids wall-3x4-3 ↔ "4-3", wall-4x3-4 ↔ "3-4").
+  if (/wall[-_]?3x4/.test(name) || /(?:^|[^0-9])3x4(?:[^0-9]|$)/.test(name)) return "3x4";
+  if (/wall[-_]?4x3/.test(name) || /(?:^|[^0-9])4x3(?:[^0-9]|$)/.test(name)) return "4x3";
+  return null;
+}
+
 function syncCategory(category){
   const absDir = path.join(root, category.dir);
   if (!fs.existsSync(absDir)) {
@@ -94,7 +111,7 @@ function syncCategory(category){
 
   const files = fs.readdirSync(absDir)
     .filter(name => /\.webp$/i.test(name) && fs.statSync(path.join(absDir, name)).isFile())
-    .sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
+    .sort(naturalCompare);
 
   const used = new Set();
   const items = files.map(file => {
@@ -102,7 +119,10 @@ function syncCategory(category){
     const rawId = slugify(baseName);
     const id = uniqueId(rawId, used);
     const label = LABEL_OVERRIDES[rawId] || LABEL_OVERRIDES[id] || titleLabel(baseName);
-    return { id, label, file };
+    const aspect = inferAspectFromFile(file);
+    const entry = { id, label, file };
+    if (aspect) entry.aspect = aspect;
+    return entry;
   });
 
   items.sort((a, b) => {
@@ -111,7 +131,10 @@ function syncCategory(category){
     if (ai !== -1 || bi !== -1) {
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     }
-    return a.label.localeCompare(b.label, "zh-Hant");
+    if (a.aspect && b.aspect && a.aspect !== b.aspect) {
+      return a.aspect.localeCompare(b.aspect);
+    }
+    return naturalCompare(a.id, b.id);
   });
 
   const manifestPath = path.join(absDir, "manifest.json");
