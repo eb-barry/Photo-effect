@@ -1,10 +1,10 @@
-// F5 框住美好 - 狀態管理 v0.2.0
+// F5 框住美好 - 狀態管理 v0.3.0
 // Classic: dynamic texture manifests.
-// Professional P1: Gallery (wall / light / shadow / shared frame params).
+// Professional Gallery: scene wall (3:4 / 4:3) + framed Layer-2 placement + lights.
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.2.0";
-export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v4";
+export const FRAME_FEATURE_VERSION = "0.3.0";
+export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v5";
 
 export const FRAME_CATEGORIES = [
   { id: "classic", label: "經典畫框" },
@@ -15,7 +15,6 @@ export const FRAME_CATEGORIES = [
   { id: "light", label: "光影氛圍" }
 ];
 
-/** Professional presentation templates (not texture-folder driven). */
 export const PROFESSIONAL_TYPES = [
   { id: "gallery", label: "Gallery", enabled: true, swatch: "#eceae4" },
   { id: "museum", label: "Museum", enabled: false, swatch: "#d9e2ec" },
@@ -23,39 +22,37 @@ export const PROFESSIONAL_TYPES = [
   { id: "film", label: "Film", enabled: false, swatch: "#1a1a1c" }
 ];
 
-/** Second-level tabs inside Gallery (toggle open/closed). */
+/** Gallery second-level: scene picker vs light controls (toggle). */
 export const GALLERY_SUB_TABS = [
-  { id: "wall", label: "牆面" },
-  { id: "light", label: "燈光" },
-  { id: "shadow", label: "陰影" },
-  { id: "frame", label: "邊框" }
+  { id: "scene", label: "展場" },
+  { id: "light", label: "燈光" }
 ];
 
-export const GALLERY_LIGHT_MODES = [
-  { id: "top", label: "頂部聚光" },
-  { id: "left", label: "左側聚光" },
-  { id: "right", label: "右側聚光" },
-  { id: "soft", label: "柔光漫射" },
-  { id: "museum", label: "博物館聚光" }
+/** Default mount rect: centered ~60% × 90% of the scene. */
+export const DEFAULT_MOUNT_RECT = { x: 0.20, y: 0.05, w: 0.60, h: 0.90 };
+
+/**
+ * Placeholder catalog until wall-3x4-*.webp / wall-4x3-*.webp are provided.
+ * Aspect is derived from filename pattern.
+ */
+export const DEFAULT_GALLERY_SCENES = [
+  {
+    id: "wall-3x4-01",
+    label: "展場 01",
+    file: "wall-3x4-01.webp",
+    aspect: "3x4",
+    mount: { ...DEFAULT_MOUNT_RECT }
+  },
+  {
+    id: "wall-4x3-01",
+    label: "展場 01",
+    file: "wall-4x3-01.webp",
+    aspect: "4x3",
+    mount: { ...DEFAULT_MOUNT_RECT }
+  }
 ];
 
-/** Default wall catalog (procedural fallback until WebP assets arrive). */
-export const DEFAULT_GALLERY_WALLS = [
-  { id: "wall_white", label: "Modern White", file: "wall_white.webp", color: "#f4f3ef" },
-  { id: "wall_concrete", label: "Concrete", file: "wall_concrete.webp", color: "#b7b3ab" },
-  { id: "wall_black", label: "Black Gallery", file: "wall_black.webp", color: "#1d1e22" },
-  { id: "wall_white_wood", label: "White Wood", file: "wall_white_wood.webp", color: "#ebe6da" },
-  { id: "wall_stone", label: "Luxury Stone", file: "wall_stone.webp", color: "#cfc7bb" },
-  { id: "wall_washi", label: "Japanese Washi", file: "wall_washi.webp", color: "#f2eadc" },
-  { id: "wall_nordic", label: "Nordic", file: "wall_nordic.webp", color: "#e7eef2" },
-  { id: "wall_industrial", label: "Industrial", file: "wall_industrial.webp", color: "#8f8a84" }
-];
-
-let galleryWallCatalog = DEFAULT_GALLERY_WALLS.map(wall => ({
-  ...wall,
-  asset: `./assets/features/F5_frame/gallery/walls/${encodeURIComponent(wall.file)}`,
-  thumb: null
-}));
+let gallerySceneCatalog = DEFAULT_GALLERY_SCENES.map(normalizeSceneDefaults);
 
 const dynamicFrameTypes = Object.fromEntries(FRAME_CATEGORIES.map(item => [item.id, []]));
 
@@ -68,44 +65,44 @@ export const FRAME_PARAMETERS = [
 ];
 
 export const GALLERY_LIGHT_PARAMETERS = [
-  { id: "galleryLightIntensity", label: "燈光強度", min: 0, max: 100, step: 1, unit: "percent" },
-  { id: "galleryLightRadius", label: "燈光範圍", min: 10, max: 100, step: 1, unit: "percent" },
-  { id: "galleryLightWarmth", label: "色溫", min: 0, max: 100, step: 1, unit: "percent" },
-  { id: "galleryLightAngle", label: "燈光角度", min: 0, max: 360, step: 1, unit: "degree" },
-  { id: "galleryLightShadow", label: "光影強度", min: 0, max: 100, step: 1, unit: "percent" }
+  { id: "galleryLightCount", label: "光源數量", min: 1, max: 4, step: 1, unit: "count" },
+  { id: "galleryLightPosX", label: "光源位置 X", min: 0, max: 100, step: 1, unit: "percent" },
+  { id: "galleryLightPosY", label: "光源位置 Y", min: 0, max: 100, step: 1, unit: "percent" },
+  { id: "galleryLightIntensity", label: "光源強度", min: 0, max: 100, step: 1, unit: "percent" },
+  { id: "galleryLightDirection", label: "投射方向", min: 0, max: 360, step: 1, unit: "degree" },
+  { id: "galleryLightDistance", label: "投射距離", min: 10, max: 100, step: 1, unit: "percent" }
 ];
 
-export const GALLERY_SHADOW_PARAMETERS = [
-  { id: "galleryShadowDistance", label: "陰影距離", min: 0, max: 80, step: 1, unit: "px" },
-  { id: "galleryShadowBlur", label: "陰影模糊", min: 0, max: 100, step: 1, unit: "percent" },
-  { id: "galleryShadowOpacity", label: "陰影不透明", min: 0, max: 100, step: 1, unit: "percent" },
-  { id: "galleryShadowDirection", label: "陰影方向", min: 0, max: 360, step: 1, unit: "degree" }
-];
-
-export function setGalleryWallCatalog(items = []){
-  if (!items.length) {
-    galleryWallCatalog = DEFAULT_GALLERY_WALLS.map(wall => ({
-      ...wall,
-      asset: `./assets/features/F5_frame/gallery/walls/${encodeURIComponent(wall.file)}`,
-      thumb: null
-    }));
-    return;
-  }
-  galleryWallCatalog = items;
+export function setGallerySceneCatalog(items = []){
+  gallerySceneCatalog = (items.length ? items : DEFAULT_GALLERY_SCENES).map(normalizeSceneDefaults);
 }
 
-export function getGalleryWallCatalog(){
-  return galleryWallCatalog;
+export function getGallerySceneCatalog(){
+  return gallerySceneCatalog;
 }
 
-export function getGalleryWallById(wallId){
-  return galleryWallCatalog.find(item => item.id === wallId) || galleryWallCatalog[0] || DEFAULT_GALLERY_WALLS[0];
+/** Only scenes matching photo orientation: portrait→3x4, landscape→4x3, square→both. */
+export function getGalleryScenesForPhoto(photoWidth, photoHeight){
+  const aspect = resolvePhotoAspectKey(photoWidth, photoHeight);
+  const all = getGallerySceneCatalog();
+  if (aspect === "square") return all;
+  return all.filter(item => item.aspect === aspect);
+}
+
+export function resolvePhotoAspectKey(width, height){
+  if (!width || !height) return "3x4";
+  const ratio = width / height;
+  if (Math.abs(ratio - 1) < 0.08) return "square";
+  return ratio >= 1 ? "4x3" : "3x4";
+}
+
+export function getGallerySceneById(sceneId){
+  return gallerySceneCatalog.find(item => item.id === sceneId) || gallerySceneCatalog[0] || null;
 }
 
 export function setFrameTypesFromCatalog(categoryId, catalogItems = []){
   if (!Object.prototype.hasOwnProperty.call(dynamicFrameTypes, categoryId)) return;
   if (categoryId === "professional") {
-    // Professional types are template-driven, not texture-folder driven.
     dynamicFrameTypes.professional = PROFESSIONAL_TYPES.map(item => ({
       id: item.id,
       label: item.label,
@@ -144,8 +141,7 @@ export function getFrameTypesForCategory(categoryId){
 }
 
 export function findFrameType(categoryId, frameTypeId){
-  const list = getFrameTypesForCategory(categoryId);
-  return list.find(item => item.id === frameTypeId) || null;
+  return getFrameTypesForCategory(categoryId).find(item => item.id === frameTypeId) || null;
 }
 
 export function findFrameTypeAnywhere(frameTypeId){
@@ -157,8 +153,7 @@ export function findFrameTypeAnywhere(frameTypeId){
 }
 
 export function resolveAppliedFrameType(state){
-  if (state.selectedCategoryId === "professional" || state.frameTypeId === "gallery"
-    || state.frameTypeId === "museum" || state.frameTypeId === "polaroid" || state.frameTypeId === "film") {
+  if (isProfessionalMode(state)) {
     return findFrameType("professional", state.frameTypeId)
       || findFrameType("professional", "gallery");
   }
@@ -168,6 +163,21 @@ export function resolveAppliedFrameType(state){
     || getFrameTypesForCategory("classic")[0]
     || getFirstAvailableFrameType()
     || null;
+}
+
+/** Classic material still applied when presenting in Gallery (Layer 2 always carries classic frame). */
+export function resolveClassicMaterialId(state){
+  if (state.classicFrameTypeId) {
+    const classic = findFrameType("classic", state.classicFrameTypeId);
+    if (classic?.materialId) return classic.materialId;
+    return state.classicFrameTypeId;
+  }
+  if (state.selectedCategoryId === "classic") {
+    const type = findFrameType("classic", state.frameTypeId);
+    return type?.materialId || state.frameTypeId || "wood";
+  }
+  const first = getFrameTypesForCategory("classic")[0];
+  return first?.materialId || "wood";
 }
 
 export function getFirstAvailableFrameType(){
@@ -191,9 +201,6 @@ export function getParametersForContext(state){
   if (isGalleryMode(state) && state.activeProfessionalSubTab === "light") {
     return GALLERY_LIGHT_PARAMETERS;
   }
-  if (isGalleryMode(state) && state.activeProfessionalSubTab === "shadow") {
-    return GALLERY_SHADOW_PARAMETERS;
-  }
   return FRAME_PARAMETERS;
 }
 
@@ -205,33 +212,31 @@ export function createDefaultFrameState(){
     activeCategory: "classic",
     selectedCategoryId: "classic",
     frameTypeId: firstClassic?.id || "wood",
+    classicFrameTypeId: firstClassic?.id || "wood",
     selectedParameter: "frameWidth",
     sourceImageDataUrl: null,
 
-    // Shared frame chrome
     frameWidth: 40,
     cornerRadius: 6,
     innerPadding: 8,
     outerPadding: 12,
     opacity: 100,
 
-    // Professional / Gallery
-    activeProfessionalSubTab: "wall",
-    galleryWallId: "wall_white",
-    galleryLightMode: "museum",
-    galleryLightIntensity: 62,
-    galleryLightRadius: 58,
-    galleryLightWarmth: 58,
-    galleryLightAngle: 210,
-    galleryLightShadow: 42,
-    galleryShadowDistance: 28,
-    galleryShadowBlur: 48,
-    galleryShadowOpacity: 46,
-    galleryShadowDirection: 220,
+    activeProfessionalSubTab: "scene",
+    gallerySceneId: "wall-3x4-01",
+    galleryPhotoScale: 100,
+    galleryOffsetX: 0,
+    galleryOffsetY: 0,
+
+    galleryLightCount: 1,
+    galleryLightPosX: 50,
+    galleryLightPosY: 12,
+    galleryLightIntensity: 58,
+    galleryLightDirection: 270,
+    galleryLightDistance: 55,
+
     galleryTitle: "Untitled",
     galleryAuthor: "",
-    galleryDate: "",
-    galleryEdition: "",
 
     updatedAt: Date.now()
   };
@@ -245,18 +250,24 @@ export function resetFrameAdjustments(currentState){
     innerPadding: defaults.innerPadding,
     outerPadding: defaults.outerPadding,
     opacity: defaults.opacity,
-    selectedParameter: "frameWidth",
-    galleryWallId: defaults.galleryWallId,
-    galleryLightMode: defaults.galleryLightMode,
+    selectedParameter: defaults.selectedParameter,
+    galleryPhotoScale: defaults.galleryPhotoScale,
+    galleryOffsetX: defaults.galleryOffsetX,
+    galleryOffsetY: defaults.galleryOffsetY,
+    galleryLightCount: defaults.galleryLightCount,
+    galleryLightPosX: defaults.galleryLightPosX,
+    galleryLightPosY: defaults.galleryLightPosY,
     galleryLightIntensity: defaults.galleryLightIntensity,
-    galleryLightRadius: defaults.galleryLightRadius,
-    galleryLightWarmth: defaults.galleryLightWarmth,
-    galleryLightAngle: defaults.galleryLightAngle,
-    galleryLightShadow: defaults.galleryLightShadow,
-    galleryShadowDistance: defaults.galleryShadowDistance,
-    galleryShadowBlur: defaults.galleryShadowBlur,
-    galleryShadowOpacity: defaults.galleryShadowOpacity,
-    galleryShadowDirection: defaults.galleryShadowDirection
+    galleryLightDirection: defaults.galleryLightDirection,
+    galleryLightDistance: defaults.galleryLightDistance
+  });
+}
+
+export function resetGalleryPlacement(currentState){
+  return updateFrameState(currentState, {
+    galleryPhotoScale: 100,
+    galleryOffsetX: 0,
+    galleryOffsetY: 0
   });
 }
 
@@ -274,7 +285,7 @@ export function normalizeSelectedCategoryId(categoryId){
 export function normalizeProfessionalSubTab(tabId){
   if (tabId === null || tabId === "" || tabId === "none") return null;
   if (GALLERY_SUB_TABS.some(item => item.id === tabId)) return tabId;
-  return "wall";
+  return "scene";
 }
 
 export function updateFrameState(currentState, partial){
@@ -292,6 +303,13 @@ export function updateFrameState(currentState, partial){
     if (!PROFESSIONAL_TYPES.some(item => item.id === next.frameTypeId)) {
       next.frameTypeId = "gallery";
     }
+  } else if (next.selectedCategoryId === "classic") {
+    next.classicFrameTypeId = next.frameTypeId;
+    const types = getFrameTypesForCategory("classic");
+    if (types.length && !types.some(item => item.id === next.frameTypeId)) {
+      next.frameTypeId = types[0]?.id || "wood";
+      next.classicFrameTypeId = next.frameTypeId;
+    }
   } else {
     const types = getFrameTypesForCategory(next.selectedCategoryId);
     if (types.length && !types.some(item => item.id === next.frameTypeId)) {
@@ -304,22 +322,24 @@ export function updateFrameState(currentState, partial){
     }
   }
 
-  if (!getGalleryWallCatalog().some(item => item.id === next.galleryWallId)) {
-    next.galleryWallId = getGalleryWallCatalog()[0]?.id || "wall_white";
-  }
-  if (!GALLERY_LIGHT_MODES.some(item => item.id === next.galleryLightMode)) {
-    next.galleryLightMode = "museum";
+  if (!next.classicFrameTypeId) {
+    next.classicFrameTypeId = getFrameTypesForCategory("classic")[0]?.id || "wood";
   }
 
-  const params = [
-    ...FRAME_PARAMETERS,
-    ...GALLERY_LIGHT_PARAMETERS,
-    ...GALLERY_SHADOW_PARAMETERS
-  ];
+  const scenes = getGallerySceneCatalog();
+  if (scenes.length && !scenes.some(item => item.id === next.gallerySceneId)) {
+    next.gallerySceneId = scenes[0].id;
+  }
+
+  const params = [...FRAME_PARAMETERS, ...GALLERY_LIGHT_PARAMETERS];
   const defaults = createDefaultFrameState();
   for (const parameter of params) {
     next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, defaults[parameter.id]);
   }
+
+  next.galleryPhotoScale = clampNumber(next.galleryPhotoScale, 40, 180, 100);
+  next.galleryOffsetX = clampNumber(next.galleryOffsetX, -100, 100, 0);
+  next.galleryOffsetY = clampNumber(next.galleryOffsetY, -100, 100, 0);
 
   const available = getParametersForContext(next);
   if (!available.some(item => item.id === next.selectedParameter)) {
@@ -328,8 +348,6 @@ export function updateFrameState(currentState, partial){
 
   next.galleryTitle = String(next.galleryTitle ?? "Untitled").slice(0, 80);
   next.galleryAuthor = String(next.galleryAuthor ?? "").slice(0, 80);
-  next.galleryDate = String(next.galleryDate ?? "").slice(0, 40);
-  next.galleryEdition = String(next.galleryEdition ?? "").slice(0, 40);
 
   return next;
 }
@@ -340,8 +358,13 @@ export function applyFrameTypeDefaults(currentState, categoryId, frameTypeId){
     selectedCategoryId: categoryId,
     frameTypeId: type?.id || frameTypeId
   };
+  if (categoryId === "classic") {
+    patch.classicFrameTypeId = type?.id || frameTypeId;
+  }
   if (categoryId === "professional") {
-    patch.activeProfessionalSubTab = frameTypeId === "gallery" ? (currentState.activeProfessionalSubTab || "wall") : null;
+    patch.activeProfessionalSubTab = frameTypeId === "gallery"
+      ? (currentState.activeProfessionalSubTab || "scene")
+      : null;
   }
   if (!type) return updateFrameState(currentState, patch);
   return updateFrameState(currentState, {
@@ -350,15 +373,20 @@ export function applyFrameTypeDefaults(currentState, categoryId, frameTypeId){
   });
 }
 
+export function pickDefaultGallerySceneId(photoWidth, photoHeight, preferredId){
+  const matched = getGalleryScenesForPhoto(photoWidth, photoHeight);
+  if (preferredId && matched.some(item => item.id === preferredId)) return preferredId;
+  return matched[0]?.id || getGallerySceneCatalog()[0]?.id || "wall-3x4-01";
+}
+
 export function saveFrameDraft(state){
   try {
-    const saved = {
+    localStorage.setItem(FRAME_DRAFT_KEY, JSON.stringify({
       ...state,
       featureId: FRAME_FEATURE_ID,
       featureVersion: FRAME_FEATURE_VERSION,
       updatedAt: Date.now()
-    };
-    localStorage.setItem(FRAME_DRAFT_KEY, JSON.stringify(saved));
+    }));
   } catch (error) {
     console.warn("[F5 框住美好] 無法儲存草稿：", error);
   }
@@ -383,6 +411,31 @@ export function clearFrameDraft(){
   } catch (error) {
     console.warn("[F5 框住美好] 無法清除草稿：", error);
   }
+}
+
+function normalizeSceneDefaults(item){
+  const file = item.file || `${item.id}.webp`;
+  const aspect = item.aspect || inferAspectFromFile(file);
+  const asset = item.asset || `./assets/features/F5_frame/gallery/walls/${encodeURIComponent(file)}`;
+  return {
+    id: item.id || file.replace(/\.webp$/i, ""),
+    label: item.label || titleFromId(item.id || file),
+    file,
+    aspect,
+    mount: { ...DEFAULT_MOUNT_RECT, ...(item.mount || {}) },
+    asset,
+    thumb: item.thumb || asset
+  };
+}
+
+function inferAspectFromFile(file){
+  const name = String(file).toLowerCase();
+  if (name.includes("4x3") || name.includes("4-3")) return "4x3";
+  return "3x4";
+}
+
+function titleFromId(id){
+  return String(id).replace(/[-_]+/g, " ").replace(/\b([a-z])/g, (_, c) => c.toUpperCase());
 }
 
 function clampNumber(value, min, max, fallback){

@@ -1,5 +1,5 @@
-// F5 框住美好 - Page Controller v0.2.0
-// Topbar + canvas + 分類開關 + 經典材質／專業 Gallery + 參數下拉／滑桿。
+// F5 框住美好 - Page Controller v0.3.0
+// Classic frames + Professional Gallery scene compositing (Layer2 pan/pinch).
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -8,11 +8,14 @@ import {
   clearFrameDraft,
   createDefaultFrameState,
   getFirstAvailableFrameType,
+  isGalleryMode,
   loadFrameDraft,
+  pickDefaultGallerySceneId,
   saveFrameDraft,
   updateFrameState
 } from "./frameState.js";
 import { loadFrameAssetCatalog } from "./frameAssets.js";
+import { loadGalleryWallCatalog } from "./galleryAssets.js";
 import {
   fileToDataUrl,
   loadImageFromDataUrl,
@@ -26,7 +29,6 @@ import {
   renderProfessionalSubTabs,
   setupFrameUI
 } from "./frameUI.js";
-import { loadGalleryWallCatalog } from "./galleryAssets.js";
 
 export function initFramePage(root, shared = {}){
   return renderFramePage(root, shared.goHome || shared.navigate || (() => {}));
@@ -63,9 +65,20 @@ export async function renderFramePage(root, navigate){
           >
             <span class="crystal-reset-marker-icon" aria-hidden="true"></span>
           </button>
+          <button
+            type="button"
+            id="resetGalleryPlacementBtn"
+            class="crystal-canvas-tool crystal-center-marker crystal-canvas-tool-right hidden"
+            aria-label="重設作品位置"
+            title="重設作品位置"
+          >
+            <span class="crystal-center-marker-dot" aria-hidden="true"></span>
+          </button>
           <div class="empty-canvas" id="emptyCanvas">請點右上方開啟照片</div>
           <canvas id="editorCanvas" class="hidden crystal-canvas frame-canvas"></canvas>
         </div>
+
+        <p class="note hidden" id="galleryGestureHint">拖曳移動作品，雙指縮放大小</p>
 
         <div class="frame-category-scroller hidden" id="frameCategoryBar" role="tablist" aria-label="畫框分類">
           <div class="frame-category-track" id="frameCategoryTrack">
@@ -83,7 +96,7 @@ export async function renderFramePage(root, navigate){
             ${renderProfessionalSubTabs()}
           </div>
         </div>
-        <div id="galleryWallPanel" class="frame-material-panel hidden" aria-label="展牆">
+        <div id="galleryWallPanel" class="frame-material-panel hidden" aria-label="展場">
           <div id="galleryWallHost"></div>
         </div>
 
@@ -134,6 +147,7 @@ export async function renderFramePage(root, navigate){
     try {
       await renderFrameStudio(ctx, sourceImage, state);
       if (serial !== renderSerial) return;
+      canvas.style.cursor = isGalleryMode(state) ? "grab" : "";
     } catch (error) {
       console.error("[F5 框住美好] 繪製失敗：", error);
     }
@@ -169,7 +183,9 @@ export async function renderFramePage(root, navigate){
     root.querySelector("#galleryWallPanel")?.classList.add("hidden");
     root.querySelector("#frameControlsPanel")?.classList.add("hidden");
     root.querySelector("#frameCategoryNote")?.classList.add("hidden");
+    root.querySelector("#galleryGestureHint")?.classList.add("hidden");
     root.querySelector("#resetFrameSettingsBtn")?.classList.add("hidden");
+    root.querySelector("#resetGalleryPlacementBtn")?.classList.add("hidden");
     frameUi?.refreshAllControls?.();
   };
 
@@ -184,22 +200,30 @@ export async function renderFramePage(root, navigate){
     if (serial !== openSerial) return false;
     sourceImage = image;
     contentSize = resolveContentSize(image);
+    const sceneId = pickDefaultGallerySceneId(contentSize.width, contentSize.height, statePartial?.gallerySceneId || state.gallerySceneId);
+    const patch = {
+      ...(statePartial || {}),
+      gallerySceneId: sceneId
+    };
+    Object.assign(state, updateFrameState(state, patch));
     syncCanvasToState();
-    if (statePartial) {
-      Object.assign(state, updateFrameState(state, statePartial));
-    }
     return true;
   };
 
-  frameUi = setupFrameUI(root, state, renderAndPersist, persistDraft);
+  frameUi = setupFrameUI(root, state, renderAndPersist, persistDraft, {
+    getPhotoSize: () => contentSize || { width: 1200, height: 1600 }
+  });
 
-  // Load classic texture manifests + gallery walls, then refresh thumbs.
   try {
     await Promise.all([
       loadFrameAssetCatalog(),
       loadGalleryWallCatalog()
     ]);
-    Object.assign(state, updateFrameState(state, {}));
+    if (contentSize) {
+      Object.assign(state, updateFrameState(state, {
+        gallerySceneId: pickDefaultGallerySceneId(contentSize.width, contentSize.height, state.gallerySceneId)
+      }));
+    }
     frameUi.refreshAllControls();
   } catch (error) {
     console.warn("[F5 框住美好] 素材清單載入失敗：", error);
@@ -227,7 +251,8 @@ export async function renderFramePage(root, navigate){
         sourceImageDataUrl: dataUrl,
         activeCategory: "classic",
         selectedCategoryId: "classic",
-        frameTypeId: first?.id || state.frameTypeId || "wood"
+        frameTypeId: first?.id || state.classicFrameTypeId || "wood",
+        classicFrameTypeId: first?.id || state.classicFrameTypeId || "wood"
       });
       if (!applied) return;
       showEditor();
