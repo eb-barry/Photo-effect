@@ -891,3 +891,66 @@ body.magic-sky-scroll-locked {
     padding: 8px 10px;
   }
 }
+
+/* F5 Professional / Gallery v0.2.0 */
+.frame-subtab-scroller {
+  margin-top: 6px;
+}
+
+.frame-subtab-button {
+  min-width: 72px;
+  font-size: 0.78rem;
+}
+
+.frame-professional-button {
+  flex: 0 0 108px;
+  min-height: 88px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.frame-professional-swatch {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 9px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+.frame-professional-label {
+  display: block;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #073f3d;
+}
+
+.frame-professional-button.is-soon {
+  opacity: 0.72;
+}
+
+.frame-professional-button.active .frame-professional-label {
+  color: #fff;
+}
+
+.frame-wall-thumb {
+  background-size: cover;
+  background-position: center;
+}
+
+/* Handwriting fonts reserved for Polaroid caption / future signature text */
+:root {
+  --frame-font-hand-latin: "Caveat", cursive;
+  --frame-font-hand-cjk: "Liu Jian Mao Cao", cursive;
+}
+
+.frame-handwriting-latin {
+  font-family: var(--frame-font-hand-latin);
+}
+
+.frame-handwriting-cjk {
+  font-family: var(--frame-font-hand-cjk);
+}

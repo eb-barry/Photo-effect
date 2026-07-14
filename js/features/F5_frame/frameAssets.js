@@ -38,12 +38,14 @@ export function loadFrameAssetCatalog(){
   if (!catalogPromise) {
     catalogPromise = Promise.all(
       FRAME_TEXTURE_CATEGORIES.map(async categoryId => {
-        const items = await loadCategoryManifest(categoryId);
+        const items = categoryId === "professional" ? [] : await loadCategoryManifest(categoryId);
         catalogs[categoryId] = items;
         setFrameTypesFromCatalog(categoryId, items);
         return { categoryId, items };
       })
     ).then(results => {
+      // Ensure professional templates are registered even if loop order changes.
+      setFrameTypesFromCatalog("professional", []);
       const byCategory = Object.fromEntries(results.map(item => [item.categoryId, item.items]));
       return byCategory;
     });
