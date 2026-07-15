@@ -192,7 +192,7 @@ export function isGalleryMode(state){
 
 export function isArtisticMode(state){
   return state.framePresentation === "artistic"
-    || (state.selectedCategoryId === "artistic" && Boolean(state.artisticFrameId));
+    || state.selectedCategoryId === "artistic";
 }
 
 /** @deprecated */
@@ -454,9 +454,9 @@ export function updateFrameState(currentState, partial){
     if (next.artisticFrameId && types.length && !types.some(item => item.id === next.artisticFrameId)) {
       next.artisticFrameId = types[0]?.id || null;
     }
+    next.framePresentation = "artistic";
     if (next.artisticFrameId) {
       next.frameTypeId = next.artisticFrameId;
-      next.framePresentation = "artistic";
     }
   }
 

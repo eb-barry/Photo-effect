@@ -42,6 +42,13 @@ assets/
     ui/
   styles/
     main.css
+  features/
+    F5_frame/
+      textures/
+        classic/          # tiled classic materials (*.webp + manifest.json)
+        artistic/         # transparent overlay frames: art-3x4-*.webp / art-4x3-*.webp
+      gallery/
+        walls/            # wall-3x4-*.webp / wall-4x3-*.webp
 js/
   app.js
   config/
@@ -52,10 +59,16 @@ js/
     F1_mirror/
     F2_crystalBall/
     ...
+scripts/
+  sync-frame-texture-manifests.mjs   # regenerate F5 manifest.json from *.webp
 manifest.json
 service-worker.js
 index.html
 ```
+
+After adding or renaming F5 `.webp` textures / walls / artistic overlays, run:
+
+`node scripts/sync-frame-texture-manifests.mjs`
 
 ## 5. CSS Standard
 
