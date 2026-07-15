@@ -30,7 +30,7 @@ application.
                                                          source & starburst
                                                          effects
 
-  F5         框住美好 (Frame)       🚧                   Classic + Gallery
+  F5         畫框 (Frame)       🚧                   Classic + Gallery
                                                          scene compositing
                                                          (aspect-matched
                                                          walls)

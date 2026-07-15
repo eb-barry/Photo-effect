@@ -55,15 +55,6 @@ export async function renderCrystalBallPage(root, navigate){
           >
             <span class="crystal-reset-marker-icon" aria-hidden="true"></span>
           </button>
-          <button
-            type="button"
-            id="centerPhotoBtn"
-            class="crystal-canvas-tool crystal-center-marker crystal-canvas-tool-right hidden"
-            aria-label="照片置中"
-            title="照片置中"
-          >
-            <span class="crystal-center-marker-dot" aria-hidden="true"></span>
-          </button>
           <div class="empty-canvas" id="emptyCanvas">請點右上方開啟照片</div>
           <canvas id="editorCanvas" class="hidden crystal-canvas" width="${CRYSTAL_OUTPUT_WIDTH}" height="${CRYSTAL_OUTPUT_HEIGHT}"></canvas>
         </div>
@@ -130,7 +121,6 @@ export async function renderCrystalBallPage(root, navigate){
     root.querySelector("#emptyCanvas")?.classList.add("hidden");
     canvas.classList.remove("hidden");
     root.querySelector("#crystalTabBar")?.classList.remove("hidden");
-    root.querySelector("#centerPhotoBtn")?.classList.remove("hidden");
     root.querySelector("#resetAdjustmentsBtn")?.classList.remove("hidden");
     if (!state.activeControlTab) {
       Object.assign(state, updateCrystalState(state, { activeControlTab: "scene" }));
@@ -149,7 +139,6 @@ export async function renderCrystalBallPage(root, navigate){
     canvas.classList.add("hidden");
     root.querySelector("#crystalTabBar")?.classList.add("hidden");
     root.querySelector("#crystalTabPanels")?.classList.add("hidden");
-    root.querySelector("#centerPhotoBtn")?.classList.add("hidden");
     root.querySelector("#resetAdjustmentsBtn")?.classList.add("hidden");
     crystalUi?.refreshAllControls?.();
   };

@@ -1,4 +1,4 @@
-// F5 框住美好 - 素材清單載入 v0.1.3
+// F5 畫框 - 素材清單載入 v0.1.3
 // Driven by per-category manifest.json (auto-synced from all *.webp in the folder).
 
 import { setFrameTypesFromCatalog } from "./frameState.js";
@@ -76,7 +76,7 @@ export async function loadTextureForMaterial(materialId){
     }
   }
 
-  console.warn(`[F5 框住美好] 找不到材質圖，改用程序化：${materialId}`);
+  console.warn(`[F5 畫框] 找不到材質圖，改用程序化：${materialId}`);
   textureCache.set(materialId, null);
   return null;
 }
@@ -108,7 +108,7 @@ async function loadCategoryManifest(categoryId){
       .map((item, index) => normalizeManifestItem(item, basePath, categoryId, index))
       .filter(Boolean);
   } catch (error) {
-    console.warn(`[F5 框住美好] 無法載入素材清單：${url}`, error);
+    console.warn(`[F5 畫框] 無法載入素材清單：${url}`, error);
     return [];
   }
 }

@@ -1,35 +1,24 @@
-// F5 框住美好 - 狀態管理 v0.4.0
-// Classic: dual materials (outer + inner frame) with independent widths.
-// Professional Gallery: scene wall + classic Layer-2 + lights.
+// F5 畫框 - 狀態管理 v0.4.1
+// Classic / Artistic dual materials + Photo Gallery (wall scenes).
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.4.0";
-export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v6";
+export const FRAME_FEATURE_VERSION = "0.4.1";
+export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v7";
 
 export const FRAME_CATEGORIES = [
   { id: "classic", label: "經典畫框" },
-  { id: "professional", label: "專業畫框" },
   { id: "artistic", label: "藝術畫框" },
-  { id: "dimensional", label: "立體畫框" },
-  { id: "smart", label: "智慧畫框" },
-  { id: "light", label: "光影氛圍" }
+  { id: "gallery", label: "照片畫廊" }
 ];
 
+/** @deprecated kept for draft migration only */
 export const PROFESSIONAL_TYPES = [
-  { id: "gallery", label: "Gallery", enabled: true, swatch: "#eceae4" },
-  { id: "museum", label: "Museum", enabled: false, swatch: "#d9e2ec" },
-  { id: "polaroid", label: "Polaroid", enabled: false, swatch: "#f4f0e6" },
-  { id: "film", label: "Film", enabled: false, swatch: "#1a1a1c" }
-];
-
-/** Gallery second-level: scene picker vs light controls (toggle). */
-export const GALLERY_SUB_TABS = [
-  { id: "scene", label: "展場" },
-  { id: "light", label: "燈光" }
+  { id: "gallery", label: "Gallery", enabled: true, swatch: "#eceae4" }
 ];
 
 /** Default mount rect: centered ~60% × 90% of the scene. */
 export const DEFAULT_MOUNT_RECT = { x: 0.20, y: 0.05, w: 0.60, h: 0.90 };
+
 
 export const DEFAULT_GALLERY_SCENES = [
   {
@@ -97,19 +86,11 @@ export function getGallerySceneById(sceneId){
 }
 
 export function setFrameTypesFromCatalog(categoryId, catalogItems = []){
-  if (!Object.prototype.hasOwnProperty.call(dynamicFrameTypes, categoryId)) return;
-  if (categoryId === "professional") {
-    dynamicFrameTypes.professional = PROFESSIONAL_TYPES.map(item => ({
-      id: item.id,
-      label: item.label,
-      materialId: item.id === "film" ? "film" : item.id === "polaroid" ? "polaroid" : "gallery",
-      thumb: null,
-      swatch: item.swatch,
-      enabled: item.enabled,
-      isProfessional: true
-    }));
+  if (categoryId === "gallery" || categoryId === "professional") {
+    dynamicFrameTypes.gallery = [];
     return;
   }
+  if (!Object.prototype.hasOwnProperty.call(dynamicFrameTypes, categoryId)) return;
   dynamicFrameTypes[categoryId] = (catalogItems || []).map(item => ({
     id: item.id,
     label: item.label,
@@ -122,17 +103,7 @@ export function setFrameTypesFromCatalog(categoryId, catalogItems = []){
 }
 
 export function getFrameTypesForCategory(categoryId){
-  if (categoryId === "professional") {
-    return PROFESSIONAL_TYPES.map(item => ({
-      id: item.id,
-      label: item.label,
-      materialId: item.id === "film" ? "film" : item.id === "polaroid" ? "polaroid" : "gallery",
-      thumb: null,
-      swatch: item.swatch,
-      enabled: item.enabled,
-      isProfessional: true
-    }));
-  }
+  if (categoryId === "gallery" || categoryId === "professional") return [];
   return dynamicFrameTypes[categoryId] || [];
 }
 
@@ -142,6 +113,7 @@ export function findFrameType(categoryId, frameTypeId){
 
 export function findFrameTypeAnywhere(frameTypeId){
   for (const category of FRAME_CATEGORIES) {
+    if (category.id === "gallery") continue;
     const hit = findFrameType(category.id, frameTypeId);
     if (hit) return { categoryId: category.id, type: hit };
   }
@@ -149,11 +121,13 @@ export function findFrameTypeAnywhere(frameTypeId){
 }
 
 export function resolveAppliedFrameType(state){
-  if (isProfessionalMode(state)) {
-    return findFrameType("professional", state.frameTypeId)
-      || findFrameType("professional", "gallery");
+  if (isGalleryMode(state)) {
+    return { id: "gallery", label: "照片畫廊", materialId: "gallery" };
   }
   const categoryId = state.selectedCategoryId || state.activeCategory || "classic";
+  if (categoryId === "gallery") {
+    return { id: "gallery", label: "照片畫廊", materialId: "gallery" };
+  }
   return findFrameType(categoryId, state.frameTypeId)
     || findFrameTypeAnywhere(state.frameTypeId)?.type
     || getFrameTypesForCategory("classic")[0]
@@ -161,23 +135,29 @@ export function resolveAppliedFrameType(state){
     || null;
 }
 
-/** Outer classic material (Layer 2 / classic preview). Null when deselected. */
-export function resolveClassicOuterMaterialId(state){
-  const id = state.outerFrameTypeId || null;
-  if (!id) return null;
-  const classic = findFrameType("classic", id);
-  return classic?.materialId || id;
+function resolveMaterialFromCatalogs(typeId){
+  if (!typeId) return null;
+  for (const categoryId of ["classic", "artistic"]) {
+    const hit = findFrameType(categoryId, typeId);
+    if (hit?.materialId) return hit.materialId;
+    if (hit) return typeId;
+  }
+  return typeId;
 }
 
-/** Inner classic material; null when deselected or width is 0. */
+/** Outer frame material. Null when deselected. */
+export function resolveClassicOuterMaterialId(state){
+  return resolveMaterialFromCatalogs(state.outerFrameTypeId || null);
+}
+
+/** Inner frame material; null when deselected or width is 0. */
 export function resolveClassicInnerMaterialId(state){
   if (!state.innerFrameTypeId) return null;
   if ((Number(state.innerFrameWidth) || 0) <= 0) return null;
-  const classic = findFrameType("classic", state.innerFrameTypeId);
-  return classic?.materialId || state.innerFrameTypeId;
+  return resolveMaterialFromCatalogs(state.innerFrameTypeId);
 }
 
-/** @deprecated use resolveClassicOuterMaterialId — falls back to first classic. */
+/** @deprecated */
 export function resolveClassicMaterialId(state){
   return resolveClassicOuterMaterialId(state)
     || resolveClassicInnerMaterialId(state)
@@ -187,38 +167,42 @@ export function resolveClassicMaterialId(state){
 
 export function getFirstAvailableFrameType(){
   for (const category of FRAME_CATEGORIES) {
+    if (category.id === "gallery") continue;
     const first = getFrameTypesForCategory(category.id)[0];
     if (first) return first;
   }
   return null;
 }
 
-export function isProfessionalMode(state){
-  return state.selectedCategoryId === "professional"
-    || ["gallery", "museum", "polaroid", "film"].includes(state.frameTypeId);
+export function isGalleryMode(state){
+  return state.selectedCategoryId === "gallery"
+    || state.frameTypeId === "gallery"
+    || state.selectedCategoryId === "professional";
 }
 
-export function isGalleryMode(state){
-  return isProfessionalMode(state) && state.frameTypeId === "gallery";
+/** @deprecated */
+export function isProfessionalMode(state){
+  return isGalleryMode(state);
 }
 
 export function getParametersForContext(state){
-  if (isGalleryMode(state) && state.activeProfessionalSubTab === "light") {
-    return GALLERY_LIGHT_PARAMETERS;
+  if (isGalleryMode(state)) {
+    return [...FRAME_PARAMETERS, ...GALLERY_LIGHT_PARAMETERS];
   }
   return FRAME_PARAMETERS;
 }
 
 /**
- * Classic material click:
+ * Classic / artistic material click:
  * - same as outer → clear outer
  * - same as inner → clear inner
  * - else if no outer → set outer
  * - else if no inner → set inner
  * - else (both set) → replace outer with the new material
  */
-export function toggleClassicMaterialSelection(currentState, frameTypeId){
-  const type = findFrameType("classic", frameTypeId);
+export function toggleClassicMaterialSelection(currentState, frameTypeId, categoryId = "classic"){
+  const materialCategory = categoryId === "artistic" ? "artistic" : "classic";
+  const type = findFrameType(materialCategory, frameTypeId) || findFrameTypeAnywhere(frameTypeId)?.type;
   const id = type?.id || frameTypeId;
   let outerFrameTypeId = currentState.outerFrameTypeId || null;
   let innerFrameTypeId = currentState.innerFrameTypeId || null;
@@ -235,23 +219,23 @@ export function toggleClassicMaterialSelection(currentState, frameTypeId){
     outerFrameTypeId = id;
   }
 
-  // Keep at least one material so the frame never disappears entirely.
   if (!outerFrameTypeId && !innerFrameTypeId) {
-    const fallback = getFrameTypesForCategory("classic")[0]?.id || "wood";
+    const fallback = getFrameTypesForCategory(materialCategory)[0]?.id
+      || getFrameTypesForCategory("classic")[0]?.id
+      || "wood";
     outerFrameTypeId = fallback;
   }
 
   const primaryId = outerFrameTypeId || innerFrameTypeId;
   const patch = {
-    selectedCategoryId: "classic",
-    activeCategory: "classic",
+    selectedCategoryId: materialCategory,
+    activeCategory: materialCategory,
     outerFrameTypeId,
     innerFrameTypeId,
     classicFrameTypeId: primaryId,
     frameTypeId: primaryId
   };
 
-  // When assigning inner for the first time and width is 0, give a usable default.
   if (innerFrameTypeId && (Number(currentState.innerFrameWidth) || 0) <= 0) {
     patch.innerFrameWidth = 16;
   }
@@ -335,19 +319,22 @@ export function resetGalleryPlacement(currentState){
 
 export function normalizeActiveCategory(categoryId){
   if (categoryId === null || categoryId === "" || categoryId === "none") return null;
+  if (categoryId === "professional") return "gallery";
+  if (["dimensional", "smart", "light"].includes(categoryId)) return null;
   if (FRAME_CATEGORIES.some(item => item.id === categoryId)) return categoryId;
   return "classic";
 }
 
 export function normalizeSelectedCategoryId(categoryId){
+  if (categoryId === "professional") return "gallery";
   if (FRAME_CATEGORIES.some(item => item.id === categoryId)) return categoryId;
   return "classic";
 }
 
 export function normalizeProfessionalSubTab(tabId){
-  if (tabId === null || tabId === "" || tabId === "none") return null;
-  if (GALLERY_SUB_TABS.some(item => item.id === tabId)) return tabId;
-  return "scene";
+  // Subtabs removed; keep null for drafts.
+  void tabId;
+  return null;
 }
 
 export function updateFrameState(currentState, partial){
@@ -361,36 +348,32 @@ export function updateFrameState(currentState, partial){
 
   next.activeCategory = normalizeActiveCategory(next.activeCategory);
   next.selectedCategoryId = normalizeSelectedCategoryId(next.selectedCategoryId);
-  next.activeProfessionalSubTab = normalizeProfessionalSubTab(next.activeProfessionalSubTab);
+  next.activeProfessionalSubTab = null;
 
-  if (next.selectedCategoryId === "professional") {
-    if (!PROFESSIONAL_TYPES.some(item => item.id === next.frameTypeId)) {
-      next.frameTypeId = "gallery";
-    }
-  } else if (next.selectedCategoryId === "classic") {
-    const types = getFrameTypesForCategory("classic");
+  if (next.selectedCategoryId === "gallery") {
+    next.frameTypeId = "gallery";
+  } else if (next.selectedCategoryId === "classic" || next.selectedCategoryId === "artistic") {
+    const types = [
+      ...getFrameTypesForCategory("classic"),
+      ...getFrameTypesForCategory("artistic")
+    ];
     const typeIds = new Set(types.map(item => item.id));
 
     if (next.outerFrameTypeId && typeIds.size && !typeIds.has(next.outerFrameTypeId)) {
-      next.outerFrameTypeId = types[0]?.id || "wood";
+      next.outerFrameTypeId = getFrameTypesForCategory(next.selectedCategoryId)[0]?.id
+        || getFrameTypesForCategory("classic")[0]?.id
+        || "wood";
     }
     if (next.innerFrameTypeId && typeIds.size && !typeIds.has(next.innerFrameTypeId)) {
       next.innerFrameTypeId = null;
     }
     if (!next.outerFrameTypeId && !next.innerFrameTypeId) {
-      next.outerFrameTypeId = types[0]?.id || next.classicFrameTypeId || "wood";
+      next.outerFrameTypeId = getFrameTypesForCategory(next.selectedCategoryId)[0]?.id
+        || next.classicFrameTypeId
+        || "wood";
     }
     next.classicFrameTypeId = next.outerFrameTypeId || next.innerFrameTypeId;
     next.frameTypeId = next.classicFrameTypeId;
-  } else {    const types = getFrameTypesForCategory(next.selectedCategoryId);
-    if (types.length && !types.some(item => item.id === next.frameTypeId)) {
-      const found = findFrameTypeAnywhere(next.frameTypeId);
-      if (found && found.categoryId !== "professional") {
-        next.selectedCategoryId = found.categoryId;
-      } else {
-        next.frameTypeId = types[0]?.id || getFrameTypesForCategory("classic")[0]?.id || "wood";
-      }
-    }
   }
 
   if (!next.classicFrameTypeId) {
@@ -411,7 +394,6 @@ export function updateFrameState(currentState, partial){
     next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, defaults[parameter.id]);
   }
 
-  // Keep legacy mirrors in sync for any leftover readers.
   next.frameWidth = next.outerFrameWidth;
   next.innerPadding = 0;
 
@@ -431,24 +413,19 @@ export function updateFrameState(currentState, partial){
 }
 
 export function applyFrameTypeDefaults(currentState, categoryId, frameTypeId){
-  if (categoryId === "classic") {
-    return toggleClassicMaterialSelection(currentState, frameTypeId);
+  if (categoryId === "classic" || categoryId === "artistic") {
+    return toggleClassicMaterialSelection(currentState, frameTypeId, categoryId);
   }
-
-  const type = findFrameType(categoryId, frameTypeId);
-  const patch = {
-    selectedCategoryId: categoryId,
-    frameTypeId: type?.id || frameTypeId
-  };
-  if (categoryId === "professional") {
-    patch.activeProfessionalSubTab = frameTypeId === "gallery"
-      ? (currentState.activeProfessionalSubTab || "scene")
-      : null;
+  if (categoryId === "gallery" || categoryId === "professional") {
+    return updateFrameState(currentState, {
+      selectedCategoryId: "gallery",
+      activeCategory: "gallery",
+      frameTypeId: "gallery"
+    });
   }
-  if (!type) return updateFrameState(currentState, patch);
   return updateFrameState(currentState, {
-    ...patch,
-    ...(type.defaults || {})
+    selectedCategoryId: categoryId,
+    frameTypeId
   });
 }
 
@@ -472,20 +449,21 @@ export function saveFrameDraft(state){
       updatedAt: Date.now()
     }));
   } catch (error) {
-    console.warn("[F5 框住美好] 無法儲存草稿：", error);
+    console.warn("[F5 畫框] 無法儲存草稿：", error);
   }
 }
 
 export function loadFrameDraft(){
   try {
     const raw = localStorage.getItem(FRAME_DRAFT_KEY)
+      || localStorage.getItem("photoEffects.F5_frame.draft.v6")
       || localStorage.getItem("photoEffects.F5_frame.draft.v5");
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed?.featureId !== FRAME_FEATURE_ID) return null;
     return updateFrameState(createDefaultFrameState(), migrateLegacyFields(parsed));
   } catch (error) {
-    console.warn("[F5 框住美好] 無法讀取草稿：", error);
+    console.warn("[F5 畫框] 無法讀取草稿：", error);
     return null;
   }
 }
@@ -493,14 +471,25 @@ export function loadFrameDraft(){
 export function clearFrameDraft(){
   try {
     localStorage.removeItem(FRAME_DRAFT_KEY);
+    localStorage.removeItem("photoEffects.F5_frame.draft.v6");
     localStorage.removeItem("photoEffects.F5_frame.draft.v5");
   } catch (error) {
-    console.warn("[F5 框住美好] 無法清除草稿：", error);
+    console.warn("[F5 畫框] 無法清除草稿：", error);
   }
 }
 
 function migrateLegacyFields(state){
   const next = { ...state };
+
+  if (next.selectedCategoryId === "professional") next.selectedCategoryId = "gallery";
+  if (next.activeCategory === "professional") next.activeCategory = "gallery";
+  if (["museum", "polaroid", "film"].includes(next.frameTypeId)) next.frameTypeId = "gallery";
+  if (["dimensional", "smart", "light"].includes(next.selectedCategoryId)) {
+    next.selectedCategoryId = "classic";
+  }
+  if (["dimensional", "smart", "light"].includes(next.activeCategory)) {
+    next.activeCategory = "classic";
+  }
 
   if (next.outerFrameWidth == null && next.frameWidth != null) {
     next.outerFrameWidth = next.frameWidth;
@@ -508,7 +497,6 @@ function migrateLegacyFields(state){
   if (next.innerFrameWidth == null) {
     next.innerFrameWidth = 0;
   }
-  // Legacy drafts only: backfill outer when neither dual slot exists yet.
   if (next.outerFrameTypeId == null && next.innerFrameTypeId == null) {
     next.outerFrameTypeId = next.classicFrameTypeId || next.frameTypeId || null;
   }
@@ -522,6 +510,7 @@ function migrateLegacyFields(state){
     next.selectedParameter = "innerFrameWidth";
   }
   next.innerPadding = 0;
+  next.activeProfessionalSubTab = null;
 
   return next;
 }

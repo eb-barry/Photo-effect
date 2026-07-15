@@ -1,10 +1,8 @@
-// F5 框住美好 - UI v0.3.2
-// 分類開關 + 經典材質 / 專業類型 + Gallery 展場（依比例篩選）+ 燈光參數 + Layer2 手勢。
+// F5 畫框 - UI v0.4.1
+// 經典／藝術雙材質 + 照片畫廊牆面（F2 風格開關）+ Layer2 手勢。
 
 import {
   FRAME_CATEGORIES,
-  GALLERY_SUB_TABS,
-  PROFESSIONAL_TYPES,
   applyFrameTypeDefaults,
   getFrameTypesForCategory,
   getGalleryScenesForPhoto,
@@ -12,7 +10,6 @@ import {
   isGalleryMode,
   pickDefaultGallerySceneId,
   resetFrameAdjustments,
-  resetGalleryPlacement,
   toggleClassicMaterialSelection,
   updateFrameState
 } from "./frameState.js";
@@ -28,7 +25,6 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
   const materialHost = root.querySelector("#frameMaterialHost");
   const materialPanel = root.querySelector("#frameMaterialPanel");
   const categoryNote = root.querySelector("#frameCategoryNote");
-  const professionalSubBar = root.querySelector("#professionalSubBar");
   const sceneHost = root.querySelector("#galleryWallHost");
   const scenePanel = root.querySelector("#galleryWallPanel");
   const galleryHint = root.querySelector("#galleryGestureHint");
@@ -37,7 +33,6 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
   const sliderLabel = root.querySelector("#frameSliderLabel");
   const sliderValue = root.querySelector("#frameSliderValue");
   const resetButton = root.querySelector("#resetFrameSettingsBtn");
-  const resetPlacementButton = root.querySelector("#resetGalleryPlacementBtn");
   const canvas = root.querySelector("#editorCanvas");
 
   let rafId = null;
@@ -64,11 +59,11 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
 
   function refreshMaterialPanel(){
     const categoryId = state.activeCategory;
-    const expanded = Boolean(categoryId);
+    const expanded = Boolean(categoryId) && categoryId !== "gallery";
     materialPanel?.classList.toggle("hidden", !expanded);
 
     if (!expanded) {
-      categoryNote?.classList.add("hidden");
+      if (categoryId !== "gallery") categoryNote?.classList.add("hidden");
       if (materialHost) materialHost.innerHTML = "";
       return;
     }
@@ -87,10 +82,8 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
 
     categoryNote?.classList.add("hidden");
     if (materialHost) {
-      materialHost.innerHTML = categoryId === "professional"
-        ? renderProfessionalTypeCarousel(types)
-        : renderMaterialCarousel(types, categoryId);
-      const carousel = materialHost.querySelector("[data-frame-material-carousel], [data-professional-type-carousel]");
+      materialHost.innerHTML = renderMaterialCarousel(types, categoryId);
+      const carousel = materialHost.querySelector("[data-frame-material-carousel]");
       if (carousel) setupMaterialCarousel(carousel);
     }
     refreshMaterialButtons();
@@ -101,7 +94,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
       const categoryId = button.dataset.frameCategory;
       const typeId = button.dataset.frameType;
 
-      if (categoryId === "classic") {
+      if (categoryId === "classic" || categoryId === "artistic") {
         const isOuter = state.outerFrameTypeId === typeId;
         const isInner = state.innerFrameTypeId === typeId;
         button.classList.toggle("active", isOuter || isInner);
@@ -123,54 +116,46 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
         return;
       }
 
-      const sameCategory = categoryId === state.selectedCategoryId;
-      const active = sameCategory && typeId === state.frameTypeId;
-      button.classList.toggle("active", active);
-      button.classList.remove("is-outer-frame", "is-inner-frame");
-      button.setAttribute("aria-pressed", String(active));
+      button.classList.remove("active", "is-outer-frame", "is-inner-frame");
+      button.setAttribute("aria-pressed", "false");
       button.querySelector(".frame-material-role")?.remove();
     });
   }
 
-  function refreshProfessionalSubBar(){
-    const show = state.activeCategory === "professional"
-      && state.selectedCategoryId === "professional"
-      && state.frameTypeId === "gallery";
-    professionalSubBar?.classList.toggle("hidden", !show);
+  function refreshGalleryPanel(){
+    const show = state.activeCategory === "gallery";
     galleryHint?.classList.toggle("hidden", !show);
-    resetPlacementButton?.classList.toggle("hidden", !show);
+    scenePanel?.classList.toggle("hidden", !show);
 
-    if (!show) {
-      scenePanel?.classList.add("hidden");
+    if (!show) return;
+
+    // Entering photo gallery applies gallery mode so classic/artistic frames composite onto walls.
+    if (state.selectedCategoryId !== "gallery") {
+      const photo = getPhotoSize();
+      const sceneId = pickDefaultGallerySceneId(photo.width, photo.height, state.gallerySceneId);
+      Object.assign(state, updateFrameState(state, {
+        selectedCategoryId: "gallery",
+        frameTypeId: "gallery",
+        gallerySceneId: sceneId
+      }));
+    }
+
+    if (!sceneHost) return;
+    const photo = getPhotoSize();
+    const scenes = getGalleryScenesForPhoto(photo.width, photo.height);
+    if (!scenes.length) {
+      sceneHost.innerHTML = "";
+      if (categoryNote) {
+        categoryNote.classList.remove("hidden");
+        categoryNote.textContent = "尚無對應比例的展場圖（請放入 wall-3x4-*.webp 或 wall-4x3-*.webp）";
+      }
       return;
     }
-
-    professionalSubBar.querySelectorAll("[data-gallery-subtab]").forEach(button => {
-      const active = state.activeProfessionalSubTab === button.dataset.gallerySubtab;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", String(active));
-    });
-
-    const sub = state.activeProfessionalSubTab;
-    const showScenes = sub === "scene";
-    scenePanel?.classList.toggle("hidden", !showScenes);
-
-    if (showScenes && sceneHost) {
-      const photo = getPhotoSize();
-      const scenes = getGalleryScenesForPhoto(photo.width, photo.height);
-      if (!scenes.length) {
-        sceneHost.innerHTML = "";
-        if (categoryNote) {
-          categoryNote.classList.remove("hidden");
-          categoryNote.textContent = "尚無對應比例的展場圖（請放入 wall-3x4-*.webp 或 wall-4x3-*.webp）";
-        }
-      } else {
-        sceneHost.innerHTML = renderSceneCarousel(scenes);
-        const carousel = sceneHost.querySelector("[data-gallery-scene-carousel]");
-        if (carousel) setupMaterialCarousel(carousel);
-        refreshSceneButtons();
-      }
-    }
+    categoryNote?.classList.add("hidden");
+    sceneHost.innerHTML = renderSceneCarousel(scenes);
+    const carousel = sceneHost.querySelector("[data-gallery-scene-carousel]");
+    if (carousel) setupMaterialCarousel(carousel);
+    refreshSceneButtons();
   }
 
   function refreshSceneButtons(){
@@ -208,33 +193,31 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     if (sliderValue) sliderValue.textContent = formatParameterValue(value, config);
   }
 
-  function refreshComingSoonNote(){
-    if (state.activeCategory !== "professional") return;
-    const type = PROFESSIONAL_TYPES.find(item => item.id === state.frameTypeId);
-    if (type && !type.enabled) {
-      if (categoryNote) {
-        categoryNote.classList.remove("hidden");
-        categoryNote.textContent = `${type.label}即將推出`;
-      }
-      professionalSubBar?.classList.add("hidden");
-      scenePanel?.classList.add("hidden");
-      galleryHint?.classList.add("hidden");
-    }
-  }
-
   function refreshAllControls(){
     refreshCategoryButtons();
     refreshMaterialPanel();
-    refreshProfessionalSubBar();
-    refreshComingSoonNote();
+    refreshGalleryPanel();
     refreshParamSelect();
     refreshSlider();
   }
 
   function toggleCategory(categoryId){
     const nextCategory = state.activeCategory === categoryId ? null : categoryId;
-    Object.assign(state, updateFrameState(state, { activeCategory: nextCategory }));
+    const patch = { activeCategory: nextCategory };
+    if (nextCategory === "gallery") {
+      patch.selectedCategoryId = "gallery";
+      patch.frameTypeId = "gallery";
+      const photo = getPhotoSize();
+      patch.gallerySceneId = pickDefaultGallerySceneId(photo.width, photo.height, state.gallerySceneId);
+    } else if (nextCategory === "classic" || nextCategory === "artistic") {
+      patch.selectedCategoryId = nextCategory;
+      if (state.outerFrameTypeId || state.innerFrameTypeId) {
+        patch.frameTypeId = state.outerFrameTypeId || state.innerFrameTypeId;
+      }
+    }
+    Object.assign(state, updateFrameState(state, patch));
     refreshAllControls();
+    scheduleRender({ fastPreview: false });
     persistDraft();
   }
 
@@ -250,8 +233,8 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     const categoryId = button.dataset.frameCategory;
     const frameTypeId = button.dataset.frameType;
 
-    if (categoryId === "classic") {
-      Object.assign(state, toggleClassicMaterialSelection(state, frameTypeId));
+    if (categoryId === "classic" || categoryId === "artistic") {
+      Object.assign(state, toggleClassicMaterialSelection(state, frameTypeId, categoryId));
       refreshMaterialButtons();
       refreshParamSelect();
       refreshSlider();
@@ -261,32 +244,8 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     }
 
     Object.assign(state, applyFrameTypeDefaults(state, categoryId, frameTypeId));
-
-    if (categoryId === "professional" && frameTypeId === "gallery") {
-      const photo = getPhotoSize();
-      const sceneId = pickDefaultGallerySceneId(photo.width, photo.height, state.gallerySceneId);
-      Object.assign(state, updateFrameState(state, {
-        activeProfessionalSubTab: state.activeProfessionalSubTab || "scene",
-        gallerySceneId: sceneId
-      }));
-    }
-
     refreshAllControls();
     scheduleRender({ fastPreview: false });
-    persistDraft();
-  });
-
-  professionalSubBar?.addEventListener("click", event => {
-    const button = event.target.closest("[data-gallery-subtab]");
-    if (!button) return;
-    event.preventDefault();
-    const tabId = button.dataset.gallerySubtab;
-    const next = state.activeProfessionalSubTab === tabId ? null : tabId;
-    const patch = { activeProfessionalSubTab: next };
-    if (next === "light") patch.selectedParameter = "galleryLightCount";
-    if (next === "scene") patch.selectedParameter = "outerFrameWidth";
-    Object.assign(state, updateFrameState(state, patch));
-    refreshAllControls();
     persistDraft();
   });
 
@@ -294,7 +253,11 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     const button = event.target.closest("[data-gallery-scene]");
     if (!button) return;
     event.preventDefault();
-    Object.assign(state, updateFrameState(state, { gallerySceneId: button.dataset.galleryScene }));
+    Object.assign(state, updateFrameState(state, {
+      selectedCategoryId: "gallery",
+      frameTypeId: "gallery",
+      gallerySceneId: button.dataset.galleryScene
+    }));
     refreshSceneButtons();
     scheduleRender({ fastPreview: false });
     persistDraft();
@@ -311,7 +274,6 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     const config = getParameterConfig();
     Object.assign(state, updateFrameState(state, { [config.id]: Number(slider.value) }));
     if (sliderValue) sliderValue.textContent = formatParameterValue(state[config.id], config);
-    // Placement/light sliders can use fast path; frame chrome needs full Layer-2 rebuild.
     const fast = isGalleryMode(state) && String(config.id).startsWith("gallery");
     scheduleRender({ fastPreview: fast });
   });
@@ -325,14 +287,6 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     event.preventDefault();
     Object.assign(state, resetFrameAdjustments(state));
     refreshAllControls();
-    scheduleRender({ fastPreview: false });
-    persistDraft();
-  });
-
-  resetPlacementButton?.addEventListener("click", event => {
-    event.preventDefault();
-    Object.assign(state, resetGalleryPlacement(state));
-    refreshSlider();
     scheduleRender({ fastPreview: false });
     persistDraft();
   });
@@ -363,17 +317,6 @@ export function renderCategoryScroller(){
   `).join("");
 }
 
-export function renderProfessionalSubTabs(){
-  return GALLERY_SUB_TABS.map(tab => `
-    <button
-      type="button"
-      class="crystal-tab-button frame-subtab-button"
-      data-gallery-subtab="${tab.id}"
-      aria-pressed="false"
-    >${tab.label}</button>
-  `).join("");
-}
-
 export function renderAdjustControlsPanel(){
   return `
     <div class="selection-row crystal-adjust-row">
@@ -391,6 +334,7 @@ export function renderAdjustControlsPanel(){
 }
 
 export function renderMaterialCarousel(types, categoryId){
+  const dual = categoryId === "classic" || categoryId === "artistic";
   const buttons = types.map(item => `
     <button
       type="button"
@@ -398,7 +342,7 @@ export function renderMaterialCarousel(types, categoryId){
       data-frame-category="${categoryId}"
       data-frame-type="${item.id}"
       aria-label="${item.label}"
-      title="${categoryId === "classic" ? `${item.label}（點選設為外框／內框）` : item.label}"
+      title="${dual ? `${item.label}（點選設為外框／內框）` : item.label}"
     >
       <span class="crystal-scene-thumb frame-material-thumb">
         <img data-src="${item.thumb}" alt="" loading="lazy" decoding="async" />
@@ -409,31 +353,7 @@ export function renderMaterialCarousel(types, categoryId){
   return `
     <div class="crystal-asset-carousel" data-frame-material-carousel="${categoryId}">
       <span class="crystal-carousel-hint crystal-carousel-hint-left hidden" aria-hidden="true"></span>
-      <div class="crystal-asset-track" role="group" aria-label="${categoryId === "classic" ? "外框與內框材質" : "畫框材質"}">${buttons}</div>
-      <span class="crystal-carousel-hint crystal-carousel-hint-right hidden" aria-hidden="true"></span>
-    </div>
-  `;
-}
-
-export function renderProfessionalTypeCarousel(types){
-  const buttons = types.map(item => `
-    <button
-      type="button"
-      class="crystal-scene-button frame-professional-button ${item.enabled ? "" : "is-soon"}"
-      data-frame-category="professional"
-      data-frame-type="${item.id}"
-      aria-label="${item.label}"
-      title="${item.label}"
-    >
-      <span class="frame-professional-swatch" style="background:${item.swatch || "#ddd"}"></span>
-      <span class="frame-professional-label">${item.label}</span>
-    </button>
-  `).join("");
-
-  return `
-    <div class="crystal-asset-carousel" data-professional-type-carousel="professional">
-      <span class="crystal-carousel-hint crystal-carousel-hint-left hidden" aria-hidden="true"></span>
-      <div class="crystal-asset-track" role="group" aria-label="專業畫框類型">${buttons}</div>
+      <div class="crystal-asset-track" role="group" aria-label="${dual ? "外框與內框材質" : "畫框材質"}">${buttons}</div>
       <span class="crystal-carousel-hint crystal-carousel-hint-right hidden" aria-hidden="true"></span>
     </div>
   `;

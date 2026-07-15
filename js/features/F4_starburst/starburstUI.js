@@ -9,7 +9,6 @@ import {
   STARBURST_CONTROL_TABS,
   getSpikeCount,
   resetStarburstAdjustments,
-  resetStarburstPosition,
   updateStarburstState
 } from "./starburstState.js";
 
@@ -37,7 +36,6 @@ export function setupStarburstUI(root, state, render, persistDraft = () => {}){
   const effectSliderValue = root.querySelector("#effectSliderValue");
 
   const resetSettingsButton = root.querySelector("#resetStarburstSettingsBtn");
-  const resetPositionButton = root.querySelector("#resetStarburstPositionBtn");
   const canvas = root.querySelector("#editorCanvas");
 
   let renderTimer = null;
@@ -214,12 +212,6 @@ export function setupStarburstUI(root, state, render, persistDraft = () => {}){
     persistDraft();
   });
 
-  resetPositionButton?.addEventListener("click", event => {
-    event.preventDefault();
-    Object.assign(state, resetStarburstPosition(state));
-    render();
-    persistDraft();
-  });
 
   if (canvas) {
     enableStarburstPointerGesture(canvas, state, partial => {
