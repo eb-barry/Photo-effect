@@ -219,6 +219,23 @@ export function pickDefaultArtisticFrameId(photoWidth, photoHeight, preferredId)
   return matched[0]?.id || getFrameTypesForCategory("artistic")[0]?.id || null;
 }
 
+/** Keep artistic selection only when it matches the photo aspect (or square). */
+export function reconcileArtisticFrameForPhoto(currentState, photoWidth, photoHeight){
+  if (!currentState?.artisticFrameId) return currentState;
+  const nextId = pickDefaultArtisticFrameId(photoWidth, photoHeight, currentState.artisticFrameId);
+  if (nextId === currentState.artisticFrameId) return currentState;
+  return updateFrameState(currentState, {
+    artisticFrameId: nextId,
+    framePresentation: nextId
+      ? "artistic"
+      : (currentState.outerFrameTypeId ? "classic" : currentState.framePresentation || "classic"),
+    frameTypeId: nextId
+      || currentState.outerFrameTypeId
+      || currentState.classicFrameTypeId
+      || currentState.frameTypeId
+  });
+}
+
 export function selectArtisticFrame(currentState, frameId){
   const type = getArtisticFrameById(frameId);
   const id = type?.id || frameId || null;

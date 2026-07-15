@@ -21,6 +21,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     : () => ({ width: 1200, height: 1600 });
   const onGestureStart = typeof options.onGestureStart === "function" ? options.onGestureStart : () => {};
   const onGestureEnd = typeof options.onGestureEnd === "function" ? options.onGestureEnd : () => persistDraft();
+  const onMaterialChange = typeof options.onMaterialChange === "function" ? options.onMaterialChange : () => {};
 
   const categoryButtons = () => root.querySelectorAll("[data-frame-category]");
   const materialHost = root.querySelector("#frameMaterialHost");
@@ -258,6 +259,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
 
     if (categoryId === "classic" || categoryId === "artistic") {
       Object.assign(state, toggleClassicMaterialSelection(state, frameTypeId, categoryId));
+      onMaterialChange();
       refreshMaterialButtons();
       refreshParamSelect();
       refreshSlider();
