@@ -1,4 +1,4 @@
-// F5 框住美好 - Page Controller v0.3.2
+// F5 畫框 - Page Controller v0.4.1
 // Classic frames + Professional Gallery scene compositing (Layer2 pan/pinch).
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -27,7 +27,6 @@ import {
 import {
   renderAdjustControlsPanel,
   renderCategoryScroller,
-  renderProfessionalSubTabs,
   setupFrameUI
 } from "./frameUI.js";
 
@@ -44,7 +43,7 @@ export async function renderFramePage(root, navigate){
         ${iconButton({ icon: "home", label: "首頁", id: "homeBtn", className: "feature-home" })}
 
         <div class="topbar-title">
-          <h1>框住美好</h1>
+          <h1>畫框</h1>
           <p class="crystal-version" aria-hidden="true">v${FRAME_FEATURE_VERSION}</p>
         </div>
 
@@ -66,15 +65,6 @@ export async function renderFramePage(root, navigate){
           >
             <span class="crystal-reset-marker-icon" aria-hidden="true"></span>
           </button>
-          <button
-            type="button"
-            id="resetGalleryPlacementBtn"
-            class="crystal-canvas-tool crystal-center-marker crystal-canvas-tool-right hidden"
-            aria-label="重設作品位置"
-            title="重設作品位置"
-          >
-            <span class="crystal-center-marker-dot" aria-hidden="true"></span>
-          </button>
           <div class="empty-canvas" id="emptyCanvas">請點右上方開啟照片</div>
           <canvas id="editorCanvas" class="hidden crystal-canvas frame-canvas"></canvas>
         </div>
@@ -91,13 +81,7 @@ export async function renderFramePage(root, navigate){
           <div id="frameMaterialHost"></div>
         </div>
         <p class="note hidden" id="frameCategoryNote"></p>
-
-        <div class="frame-category-scroller frame-subtab-scroller hidden" id="professionalSubBar" role="tablist" aria-label="Gallery 調整">
-          <div class="frame-category-track">
-            ${renderProfessionalSubTabs()}
-          </div>
-        </div>
-        <div id="galleryWallPanel" class="frame-material-panel hidden" aria-label="展場">
+        <div id="galleryWallPanel" class="frame-material-panel hidden" aria-label="照片畫廊">
           <div id="galleryWallHost"></div>
         </div>
 
@@ -156,7 +140,7 @@ export async function renderFramePage(root, navigate){
       if (serial !== renderSerial) return;
       canvas.style.cursor = isGalleryMode(state) ? "grab" : "";
     } catch (error) {
-      console.error("[F5 框住美好] 繪製失敗：", error);
+      console.error("[F5 畫框] 繪製失敗：", error);
     }
   };
 
@@ -198,13 +182,11 @@ export async function renderFramePage(root, navigate){
     canvas.classList.add("hidden");
     root.querySelector("#frameCategoryBar")?.classList.add("hidden");
     root.querySelector("#frameMaterialPanel")?.classList.add("hidden");
-    root.querySelector("#professionalSubBar")?.classList.add("hidden");
     root.querySelector("#galleryWallPanel")?.classList.add("hidden");
     root.querySelector("#frameControlsPanel")?.classList.add("hidden");
     root.querySelector("#frameCategoryNote")?.classList.add("hidden");
     root.querySelector("#galleryGestureHint")?.classList.add("hidden");
     root.querySelector("#resetFrameSettingsBtn")?.classList.add("hidden");
-    root.querySelector("#resetGalleryPlacementBtn")?.classList.add("hidden");
     frameUi?.refreshAllControls?.();
   };
 
@@ -256,7 +238,7 @@ export async function renderFramePage(root, navigate){
     }
     frameUi.refreshAllControls();
   } catch (error) {
-    console.warn("[F5 框住美好] 素材清單載入失敗：", error);
+    console.warn("[F5 畫框] 素材清單載入失敗：", error);
   }
 
   root.querySelector("#homeBtn")?.addEventListener("click", event => {
@@ -341,7 +323,7 @@ export async function renderFramePage(root, navigate){
         frameUi?.refreshAllControls?.();
       }
     } catch (error) {
-      console.warn("[F5 框住美好] 草稿還原失敗：", error);
+      console.warn("[F5 畫框] 草稿還原失敗：", error);
       clearFrameDraft();
       resetEditorSession();
     }

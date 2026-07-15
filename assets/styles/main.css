@@ -816,7 +816,7 @@ body.magic-sky-scroll-locked {
   object-fit: contain;
 }
 
-/* F5 框住美好 v0.1.0 - 6 個可水平滑動分類按鈕 */
+/* F5 畫框 v0.4.1 - 經典／藝術／照片畫廊 */
 .frame-category-scroller {
   margin: 8px 0 0;
   padding: 0;

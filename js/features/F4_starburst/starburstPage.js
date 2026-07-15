@@ -53,15 +53,6 @@ export async function renderStarburstPage(root, navigate){
           >
             <span class="crystal-reset-marker-icon" aria-hidden="true"></span>
           </button>
-          <button
-            type="button"
-            id="resetStarburstPositionBtn"
-            class="crystal-canvas-tool crystal-center-marker crystal-canvas-tool-right hidden"
-            aria-label="重設星芒位置"
-            title="重設星芒位置"
-          >
-            <span class="crystal-center-marker-dot" aria-hidden="true"></span>
-          </button>
           <div class="empty-canvas" id="emptyCanvas">請點右上方開啟照片</div>
           <canvas id="editorCanvas" class="hidden crystal-canvas starburst-canvas"></canvas>
         </div>
@@ -133,7 +124,6 @@ export async function renderStarburstPage(root, navigate){
     root.querySelector("#starburstTabBar")?.classList.remove("hidden");
     root.querySelector("#starburstHint")?.classList.remove("hidden");
     root.querySelector("#resetStarburstSettingsBtn")?.classList.remove("hidden");
-    root.querySelector("#resetStarburstPositionBtn")?.classList.remove("hidden");
     if (!state.activeControlTab) {
       Object.assign(state, updateStarburstState(state, { activeControlTab: "aperture" }));
     }
@@ -154,7 +144,6 @@ export async function renderStarburstPage(root, navigate){
     root.querySelector("#starburstTabPanels")?.classList.add("hidden");
     root.querySelector("#starburstHint")?.classList.add("hidden");
     root.querySelector("#resetStarburstSettingsBtn")?.classList.add("hidden");
-    root.querySelector("#resetStarburstPositionBtn")?.classList.add("hidden");
     starburstUi?.refreshAllControls?.();
   };
 

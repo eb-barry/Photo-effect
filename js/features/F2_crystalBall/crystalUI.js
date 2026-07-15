@@ -6,7 +6,6 @@ import {
   CRYSTAL_CONTROL_TABS,
   CRYSTAL_PARAMETERS,
   resetCrystalAdjustments,
-  resetPhotoPlacement,
   updateCrystalState
 } from "./crystalState.js";
 import { getCrystalLayout } from "./crystalTool.js";
@@ -34,7 +33,6 @@ export function setupCrystalUI(root, state, render, persistDraft = () => {}){
   const scenePanel = root.querySelector("#scenePanel");
   const seatPanel = root.querySelector("#seatPanel");
   const adjustPanel = root.querySelector("#adjustPanel");
-  const centerButton = root.querySelector("#centerPhotoBtn");
   const resetButton = root.querySelector("#resetAdjustmentsBtn");
   const sliderTarget = root.querySelector("#sliderTarget");
   const slider = root.querySelector("#mainSlider");
@@ -145,12 +143,6 @@ export function setupCrystalUI(root, state, render, persistDraft = () => {}){
     render();
   });
 
-  centerButton?.addEventListener("click", event => {
-    event.preventDefault();
-    Object.assign(state, resetPhotoPlacement(state));
-    refreshSlider();
-    render();
-  });
 
   resetButton?.addEventListener("click", event => {
     event.preventDefault();

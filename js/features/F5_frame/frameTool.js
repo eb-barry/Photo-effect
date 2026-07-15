@@ -1,4 +1,4 @@
-// F5 框住美好 - Canvas 影像處理 v0.4.0
+// F5 畫框 - Canvas 影像處理 v0.4.0
 // Dual outer/inner classic frames; Gallery Layer-2 uses transparent chrome.
 
 import {
@@ -338,5 +338,5 @@ function drawEmptyState(ctx, width, height){
   ctx.fillStyle = "#0a6e6a";
   ctx.font = "600 28px sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("框住美好", width / 2, height / 2);
+  ctx.fillText("畫框", width / 2, height / 2);
 }

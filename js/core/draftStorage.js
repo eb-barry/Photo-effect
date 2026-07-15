@@ -9,7 +9,8 @@ const KNOWN_DRAFT_KEYS = [
   "photoEffects.F3_magicSky.draft.v3",
   "photoEffects.F4_starburst.draft.v4",
   "photoEffects.F5_frame.draft.v5",
-  "photoEffects.F5_frame.draft.v6"
+  "photoEffects.F5_frame.draft.v6",
+  "photoEffects.F5_frame.draft.v7"
 ];
 
 /**

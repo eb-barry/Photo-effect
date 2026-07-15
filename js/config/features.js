@@ -18,7 +18,7 @@ const FEATURE_ROUTES = {
 
 /** Override display labels when filename label differs from product name. */
 const FEATURE_LABELS = {
-  F5: "框住美好"
+  F5: "畫框"
 };
 
 export function buildFeatures(){
