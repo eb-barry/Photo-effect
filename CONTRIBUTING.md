@@ -28,3 +28,16 @@ Keep changes focused.
 Modify only files required for the feature.
 
 Avoid unrelated refactoring.
+
+## F5 frame assets
+
+Drop new WebP files into the matching folder, then regenerate manifests:
+
+```bash
+node scripts/sync-frame-texture-manifests.mjs
+```
+
+- Classic tile materials: `assets/features/F5_frame/textures/classic/`
+- Artistic overlays (transparent center): `assets/features/F5_frame/textures/artistic/` (`art-3x4-*.webp` / `art-4x3-*.webp`)
+- Gallery walls: `assets/features/F5_frame/gallery/walls/` (`wall-3x4-*.webp` / `wall-4x3-*.webp`)
+

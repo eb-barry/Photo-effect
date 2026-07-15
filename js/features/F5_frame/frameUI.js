@@ -230,9 +230,9 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     } else if (nextCategory === "classic" || nextCategory === "artistic") {
       patch.selectedCategoryId = nextCategory;
       if (nextCategory === "artistic") {
+        patch.framePresentation = "artistic";
         if (state.artisticFrameId) {
           patch.frameTypeId = state.artisticFrameId;
-          patch.framePresentation = "artistic";
         }
       } else if (state.outerFrameTypeId || state.innerFrameTypeId) {
         patch.frameTypeId = state.outerFrameTypeId || state.innerFrameTypeId;

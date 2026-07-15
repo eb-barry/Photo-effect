@@ -136,6 +136,11 @@ export function resolveFrameCanvasSize(contentSize, state, maxEdge = FRAME_MAX_E
     return resolveArtisticOutputSize({ aspect, maxEdge });
   }
 
+  if (isArtisticMode(state)) {
+    const aspect = resolvePhotoAspectKey(contentSize.width, contentSize.height);
+    return resolveArtisticOutputSize({ aspect, maxEdge });
+  }
+
   const chrome = classicChromeParams(state, { forGallery: false });
   const drawOuterWidth = chrome.outerMaterialId
     ? chrome.outerFrameWidth
@@ -370,15 +375,17 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
     return;
   }
 
-  if (isArtisticMode(state) && state.artisticFrameId) {
-    const frameImage = await loadTextureForMaterial(state.artisticFrameId);
+  if (isArtisticMode(state)) {
+    const frameImage = state.artisticFrameId
+      ? await loadTextureForMaterial(state.artisticFrameId)
+      : null;
     renderArtisticFramedPhoto(ctx, sourceImage, frameImage, {
       opacity: (Number(state.opacity) || 100) / 100,
       artisticPhotoScale: state.artisticPhotoScale,
       artisticOffsetX: state.artisticOffsetX,
       artisticOffsetY: state.artisticOffsetY,
       transparentBackground: false,
-      shadow: 28
+      shadow: frameImage ? 28 : 0
     });
     return;
   }
