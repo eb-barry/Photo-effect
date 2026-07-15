@@ -1,4 +1,4 @@
-// F5 畫框 - Canvas 影像處理 v0.4.2
+// F5 畫框 - Canvas 影像處理 v0.4.3
 // Classic dual materials + artistic overlay WebP; Gallery Layer-2 transparent chrome.
 
 import {
@@ -176,6 +176,8 @@ function artisticLayerCacheKey(state, outputSize){
     state.artisticFrameId || "-",
     outputSize.width,
     outputSize.height,
+    Math.round(Number(state.artisticFrameWidth) || 100),
+    Math.round(Number(state.artisticCornerRadius) || 0),
     Math.round(Number(state.artisticPhotoScale) || 100),
     Math.round(Number(state.artisticOffsetX) || 0),
     Math.round(Number(state.artisticOffsetY) || 0),
@@ -269,6 +271,8 @@ async function buildArtisticFramedLayer(sourceImage, state, outputSize, { transp
   const layerCtx = layer.getContext("2d");
   renderArtisticFramedPhoto(layerCtx, sourceImage, frameImage, {
     opacity: (Number(state.opacity) || 100) / 100,
+    artisticFrameWidth: state.artisticFrameWidth,
+    artisticCornerRadius: state.artisticCornerRadius,
     artisticPhotoScale: state.artisticPhotoScale,
     artisticOffsetX: state.artisticOffsetX,
     artisticOffsetY: state.artisticOffsetY,
@@ -381,6 +385,8 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
       : null;
     renderArtisticFramedPhoto(ctx, sourceImage, frameImage, {
       opacity: (Number(state.opacity) || 100) / 100,
+      artisticFrameWidth: state.artisticFrameWidth,
+      artisticCornerRadius: state.artisticCornerRadius,
       artisticPhotoScale: state.artisticPhotoScale,
       artisticOffsetX: state.artisticOffsetX,
       artisticOffsetY: state.artisticOffsetY,

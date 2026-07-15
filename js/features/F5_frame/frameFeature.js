@@ -17,7 +17,7 @@ export const frameFeature = {
   enabled: true,
   disabled: false,
   isAvailable: true,
-  version: "0.4.2",
+  version: "0.4.3",
   mount: initFramePage
 };
 

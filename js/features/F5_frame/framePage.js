@@ -100,8 +100,8 @@ export async function renderFramePage(root, navigate){
   const imageInput = root.querySelector("#imageInput");
   const canvas = root.querySelector("#editorCanvas");
   const canvasWrap = root.querySelector("#canvasWrap");
-  // Preview path does not read pixels; avoid willReadFrequently (hurts GPU path).
-  const ctx = canvas.getContext("2d", { alpha: false });
+  // Alpha enabled so artistic corner-radius can leave transparent outside the round clip.
+  const ctx = canvas.getContext("2d", { alpha: true });
 
   const state = {
     ...savedState,

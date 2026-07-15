@@ -275,6 +275,10 @@ function rgbCss(rgb){
 /**
  * Artistic overlay frame: photo cover-fit under a transparent-center WebP frame.
  * Canvas should already match resolveArtisticOutputSize().
+ *
+ * artisticCornerRadius — rounds the outer silhouette of the composite.
+ * artisticFrameWidth — simulates thicker/thinner borders by cropping or
+ *   scaling the baked overlay (ornate WebP frames cannot be redrawn like classic tiles).
  */
 export function renderArtisticFramedPhoto(ctx, sourceImage, frameImage, options = {}){
   const width = ctx.canvas.width;
@@ -283,25 +287,43 @@ export function renderArtisticFramedPhoto(ctx, sourceImage, frameImage, options 
   const photoScale = Math.max(0.7, Math.min(1.6, (Number(options.artisticPhotoScale) || 100) / 100));
   const offsetX = (Number(options.artisticOffsetX) || 0) / 100;
   const offsetY = (Number(options.artisticOffsetY) || 0) / 100;
+  const frameWidthFactor = Math.max(0.5, Math.min(1.6, (Number(options.artisticFrameWidth) || 100) / 100));
+  const cornerRadius = Math.max(0, Math.min(
+    Math.min(width, height) / 2,
+    Number(options.artisticCornerRadius) || 0
+  ));
   const transparentBackground = Boolean(options.transparentBackground);
   const shadow = Math.max(0, Math.min(100, Number(options.shadow) || 0));
+  const matte = "rgba(245, 248, 247, 1)";
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  if (!transparentBackground) {
-    ctx.fillStyle = "rgba(245, 248, 247, 1)";
-    ctx.fillRect(0, 0, width, height);
-  }
-
+  // Drop shadow follows the rounded outer silhouette when radius > 0.
   if (shadow > 0) {
     ctx.save();
     ctx.shadowColor = `rgba(0, 0, 0, ${0.16 + shadow / 200})`;
     ctx.shadowBlur = 6 + shadow * 0.35;
     ctx.shadowOffsetY = 3 + shadow * 0.1;
     ctx.fillStyle = "#000";
-    ctx.fillRect(2, 2, width - 4, height - 4);
+    if (cornerRadius > 0) {
+      roundRect(ctx, 2, 2, width - 4, height - 4, Math.max(0, cornerRadius - 1));
+      ctx.fill();
+    } else {
+      ctx.fillRect(2, 2, width - 4, height - 4);
+    }
     ctx.restore();
+  }
+
+  ctx.save();
+  if (cornerRadius > 0) {
+    roundRect(ctx, 0, 0, width, height, cornerRadius);
+    ctx.clip();
+  }
+
+  if (!transparentBackground) {
+    ctx.fillStyle = matte;
+    ctx.fillRect(0, 0, width, height);
   }
 
   // Photo under the frame (cover-fit + optional pan/scale).
@@ -317,9 +339,34 @@ export function renderArtisticFramedPhoto(ctx, sourceImage, frameImage, options 
   if (frameImage) {
     ctx.save();
     ctx.globalAlpha = opacity;
-    ctx.drawImage(frameImage, 0, 0, width, height);
+    drawArtisticFrameOverlay(ctx, frameImage, width, height, frameWidthFactor);
     ctx.restore();
   }
+
+  ctx.restore();
+}
+
+/** Scale/crop baked overlay to simulate thicker (factor>1) or thinner (factor<1) borders. */
+function drawArtisticFrameOverlay(ctx, frameImage, width, height, frameWidthFactor){
+  const fw = frameImage.width || width;
+  const fh = frameImage.height || height;
+  if (frameWidthFactor >= 1) {
+    // Thicker: crop toward the center of the frame art, then stretch to canvas.
+    const inset = (1 - 1 / frameWidthFactor) / 2;
+    const sx = fw * inset;
+    const sy = fh * inset;
+    const sw = Math.max(1, fw * (1 - 2 * inset));
+    const sh = Math.max(1, fh * (1 - 2 * inset));
+    ctx.drawImage(frameImage, sx, sy, sw, sh, 0, 0, width, height);
+    return;
+  }
+  // Thinner: enlarge overlay past the canvas so the hole grows and outer border is clipped.
+  const scale = 1 / frameWidthFactor;
+  const dw = width * scale;
+  const dh = height * scale;
+  const dx = (width - dw) / 2;
+  const dy = (height - dh) / 2;
+  ctx.drawImage(frameImage, dx, dy, dw, dh);
 }
 
 /** Output size follows artistic frame aspect (3:4 / 4:3), scaled to maxEdge. */
