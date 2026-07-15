@@ -294,29 +294,22 @@ export function renderArtisticFramedPhoto(ctx, sourceImage, frameImage, options 
   ));
   const transparentBackground = Boolean(options.transparentBackground);
   const shadow = Math.max(0, Math.min(100, Number(options.shadow) || 0));
+  const matte = "rgba(245, 248, 247, 1)";
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  if (!transparentBackground) {
-    ctx.fillStyle = "rgba(245, 248, 247, 1)";
-    ctx.fillRect(0, 0, width, height);
-  }
-
+  // Drop shadow follows the rounded outer silhouette when radius > 0.
   if (shadow > 0) {
     ctx.save();
+    ctx.shadowColor = `rgba(0, 0, 0, ${0.16 + shadow / 200})`;
+    ctx.shadowBlur = 6 + shadow * 0.35;
+    ctx.shadowOffsetY = 3 + shadow * 0.1;
+    ctx.fillStyle = "#000";
     if (cornerRadius > 0) {
       roundRect(ctx, 2, 2, width - 4, height - 4, Math.max(0, cornerRadius - 1));
-      ctx.fillStyle = "#000";
-      ctx.shadowColor = `rgba(0, 0, 0, ${0.16 + shadow / 200})`;
-      ctx.shadowBlur = 6 + shadow * 0.35;
-      ctx.shadowOffsetY = 3 + shadow * 0.1;
       ctx.fill();
     } else {
-      ctx.shadowColor = `rgba(0, 0, 0, ${0.16 + shadow / 200})`;
-      ctx.shadowBlur = 6 + shadow * 0.35;
-      ctx.shadowOffsetY = 3 + shadow * 0.1;
-      ctx.fillStyle = "#000";
       ctx.fillRect(2, 2, width - 4, height - 4);
     }
     ctx.restore();
@@ -326,6 +319,11 @@ export function renderArtisticFramedPhoto(ctx, sourceImage, frameImage, options 
   if (cornerRadius > 0) {
     roundRect(ctx, 0, 0, width, height, cornerRadius);
     ctx.clip();
+  }
+
+  if (!transparentBackground) {
+    ctx.fillStyle = matte;
+    ctx.fillRect(0, 0, width, height);
   }
 
   // Photo under the frame (cover-fit + optional pan/scale).
