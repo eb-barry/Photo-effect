@@ -1,8 +1,8 @@
-// F5 畫框 - 狀態管理 v0.4.2
+// F5 畫框 - 狀態管理 v0.4.3
 // Classic dual materials + artistic overlay + Photo Gallery (wall scenes).
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.4.2";
+export const FRAME_FEATURE_VERSION = "0.4.3";
 export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v8";
 
 export const FRAME_CATEGORIES = [
@@ -52,6 +52,8 @@ export const FRAME_PARAMETERS = [
 
 /** Artistic overlay frames: photo placement under transparent frame. */
 export const ARTISTIC_PARAMETERS = [
+  { id: "artisticFrameWidth", label: "畫框寬度", min: 50, max: 160, step: 1, unit: "percent" },
+  { id: "artisticCornerRadius", label: "畫框圓角", min: 0, max: 80, step: 1, unit: "px" },
   { id: "artisticPhotoScale", label: "照片縮放", min: 80, max: 140, step: 1, unit: "percent" },
   { id: "artisticOffsetX", label: "照片左右", min: -40, max: 40, step: 1, unit: "percent" },
   { id: "artisticOffsetY", label: "照片上下", min: -40, max: 40, step: 1, unit: "percent" },
@@ -338,6 +340,8 @@ export function createDefaultFrameState(){
     cornerRadius: 6,
     outerPadding: 0,
     opacity: 100,
+    artisticFrameWidth: 100,
+    artisticCornerRadius: 0,
     artisticPhotoScale: 100,
     artisticOffsetX: 0,
     artisticOffsetY: 0,
@@ -374,6 +378,8 @@ export function resetFrameAdjustments(currentState){
     cornerRadius: defaults.cornerRadius,
     outerPadding: defaults.outerPadding,
     opacity: defaults.opacity,
+    artisticFrameWidth: defaults.artisticFrameWidth,
+    artisticCornerRadius: defaults.artisticCornerRadius,
     artisticPhotoScale: defaults.artisticPhotoScale,
     artisticOffsetX: defaults.artisticOffsetX,
     artisticOffsetY: defaults.artisticOffsetY,
@@ -605,6 +611,8 @@ function migrateLegacyFields(state){
   if (next.artisticPhotoScale == null) next.artisticPhotoScale = 100;
   if (next.artisticOffsetX == null) next.artisticOffsetX = 0;
   if (next.artisticOffsetY == null) next.artisticOffsetY = 0;
+  if (next.artisticFrameWidth == null) next.artisticFrameWidth = 100;
+  if (next.artisticCornerRadius == null) next.artisticCornerRadius = 0;
   next.innerPadding = 0;
   next.activeProfessionalSubTab = null;
 
