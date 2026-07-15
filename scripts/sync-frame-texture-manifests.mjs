@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 /**
- * Scan F5 texture folders and rewrite manifest.json from all *.webp files.
+ * Scan F5 texture / wall / artistic overlay folders and rewrite manifest.json
+ * from all *.webp files.
+ *
  * Usage: node scripts/sync-frame-texture-manifests.mjs
  *
  * Drop new .webp files into:
- *   assets/features/F5_frame/textures/classic/
- *   assets/features/F5_frame/gallery/walls/
+ *   assets/features/F5_frame/textures/classic/          (tile materials)
+ *   assets/features/F5_frame/textures/artistic/         (transparent overlay frames)
+ *       Naming: art-3x4-*.webp  /  art-4x3-*.webp
+ *       (any filename containing 3x4 or 4x3 also works)
+ *   assets/features/F5_frame/gallery/walls/             (wall-3x4 / wall-4x3)
  *   assets/features/F5_frame/polaroid/papers/
  *   assets/features/F5_frame/film/borders/
- * then run this script (or let the agent run it) so the app picks them up.
+ * then run this script so the app picks them up automatically.
  */
 
 import fs from "node:fs";
@@ -29,7 +34,7 @@ const CATEGORIES = [
   { id: "film-borders", dir: "assets/features/F5_frame/film/borders" }
 ];
 
-/** Optional display-name overrides for known classic / wall ids. */
+/** Optional display-name overrides for known classic ids. */
 const LABEL_OVERRIDES = {
   wood: "木紋",
   walnut: "胡桃木",
@@ -39,15 +44,7 @@ const LABEL_OVERRIDES = {
   silver: "銀框",
   bronze: "銅框",
   aluminum: "鋁框",
-  acrylic: "壓克力",
-  wall_white: "Modern White",
-  wall_concrete: "Concrete",
-  wall_black: "Black Gallery",
-  wall_white_wood: "White Wood",
-  wall_stone: "Luxury Stone",
-  wall_washi: "Japanese Washi",
-  wall_nordic: "Nordic",
-  wall_industrial: "Industrial"
+  acrylic: "壓克力"
 };
 
 const PREFERRED_ORDER = [
@@ -73,6 +70,16 @@ function titleLabel(name){
     const num = String(Number(wall[2]));
     return aspect === "4x3" ? `橫式展場 ${num}` : `直式展場 ${num}`;
   }
+  const art = String(name).match(/^art[-_]?(3x4|4x3)[-_]?(.+)$/i);
+  if (art) {
+    const aspect = art[1].toLowerCase();
+    const rest = String(art[2]).replace(/[-_]+/g, " ").trim();
+    const pretty = rest
+      ? rest.replace(/\b([a-z])/g, (_, ch) => ch.toUpperCase())
+      : "";
+    const orient = aspect === "4x3" ? "橫式" : "直式";
+    return pretty ? `${orient}藝術 ${pretty}` : `${orient}藝術畫框`;
+  }
   return String(name)
     .replace(/[-_]+/g, " ")
     .replace(/\s+/g, " ")
@@ -97,9 +104,12 @@ function naturalCompare(a, b){
 
 function inferAspectFromFile(file){
   const name = String(file).toLowerCase();
-  // Match wall-3x4 / wall-4x3 prefixes first (avoids wall-3x4-3 ↔ "4-3", wall-4x3-4 ↔ "3-4").
-  if (/wall[-_]?3x4/.test(name) || /(?:^|[^0-9])3x4(?:[^0-9]|$)/.test(name)) return "3x4";
-  if (/wall[-_]?4x3/.test(name) || /(?:^|[^0-9])4x3(?:[^0-9]|$)/.test(name)) return "4x3";
+  if (/wall[-_]?3x4/.test(name) || /art[-_]?3x4/.test(name) || /(?:^|[^0-9])3x4(?:[^0-9]|$)/.test(name)) {
+    return "3x4";
+  }
+  if (/wall[-_]?4x3/.test(name) || /art[-_]?4x3/.test(name) || /(?:^|[^0-9])4x3(?:[^0-9]|$)/.test(name)) {
+    return "4x3";
+  }
   return null;
 }
 
@@ -122,6 +132,7 @@ function syncCategory(category){
     const aspect = inferAspectFromFile(file);
     const entry = { id, label, file };
     if (aspect) entry.aspect = aspect;
+    if (category.id === "artistic") entry.kind = "overlay";
     return entry;
   });
 

@@ -1,5 +1,5 @@
-// F5 畫框 - Page Controller v0.4.1
-// Classic frames + Professional Gallery scene compositing (Layer2 pan/pinch).
+// F5 畫框 - Page Controller v0.4.2
+// Classic / artistic overlay + Photo Gallery scene compositing (Layer2 pan/pinch).
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -11,6 +11,7 @@ import {
   isGalleryMode,
   loadFrameDraft,
   pickDefaultGallerySceneId,
+  reconcileArtisticFrameForPhoto,
   saveFrameDraft,
   updateFrameState
 } from "./frameState.js";
@@ -209,6 +210,7 @@ export async function renderFramePage(root, navigate){
       gallerySceneId: sceneId
     };
     Object.assign(state, updateFrameState(state, patch));
+    Object.assign(state, reconcileArtisticFrameForPhoto(state, contentSize.width, contentSize.height));
     syncCanvasToState();
     return true;
   };
@@ -218,6 +220,7 @@ export async function renderFramePage(root, navigate){
     return render(opts || {});
   }, persistDraft, {
     getPhotoSize: () => contentSize || { width: 1200, height: 1600 },
+    onMaterialChange: () => invalidateFrameLayerCache(),
     onGestureStart: () => { gestureFast = true; },
     onGestureEnd: async () => {
       gestureFast = false;

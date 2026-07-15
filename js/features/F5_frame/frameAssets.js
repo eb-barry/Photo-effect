@@ -1,5 +1,6 @@
-// F5 畫框 - 素材清單載入 v0.1.3
+// F5 畫框 - 素材清單載入 v0.1.4
 // Driven by per-category manifest.json (auto-synced from all *.webp in the folder).
+// Artistic overlays: assets/features/F5_frame/textures/artistic/art-{3x4|4x3}-*.webp
 
 import { setFrameTypesFromCatalog } from "./frameState.js";
 
@@ -22,8 +23,8 @@ export function getClassicTextureCatalog(){
   return catalogs.classic;
 }
 
-export function getProfessionalTextureCatalog(){
-  return catalogs.professional;
+export function getArtisticTextureCatalog(){
+  return catalogs.artistic;
 }
 
 export function getTextureCatalog(categoryId){
@@ -145,8 +146,17 @@ function normalizeManifestItem(item, basePath, categoryId, index){
     asset,
     materialId: id,
     thumb: asset,
-    categoryId
+    categoryId,
+    aspect: item.aspect || inferAspectFromName(baseName),
+    kind: item.kind || (categoryId === "artistic" ? "overlay" : "texture")
   };
+}
+
+function inferAspectFromName(name){
+  const text = String(name).toLowerCase();
+  if (/art[-_]?3x4/.test(text) || /(?:^|[^0-9])3x4(?:[^0-9]|$)/.test(text)) return "3x4";
+  if (/art[-_]?4x3/.test(text) || /(?:^|[^0-9])4x3(?:[^0-9]|$)/.test(text)) return "4x3";
+  return null;
 }
 
 function slugify(name){

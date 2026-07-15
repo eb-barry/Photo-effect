@@ -1,9 +1,9 @@
-// F5 畫框 - 狀態管理 v0.4.1
-// Classic / Artistic dual materials + Photo Gallery (wall scenes).
+// F5 畫框 - 狀態管理 v0.4.2
+// Classic dual materials + artistic overlay + Photo Gallery (wall scenes).
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.4.1";
-export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v7";
+export const FRAME_FEATURE_VERSION = "0.4.2";
+export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v8";
 
 export const FRAME_CATEGORIES = [
   { id: "classic", label: "經典畫框" },
@@ -47,6 +47,14 @@ export const FRAME_PARAMETERS = [
   { id: "innerFrameWidth", label: "內框寬", min: 0, max: 72, step: 1, unit: "px" },
   { id: "cornerRadius", label: "圓角", min: 0, max: 48, step: 1, unit: "px" },
   { id: "outerPadding", label: "外邊距", min: 0, max: 40, step: 1, unit: "px" },
+  { id: "opacity", label: "不透明度", min: 40, max: 100, step: 1, unit: "percent" }
+];
+
+/** Artistic overlay frames: photo placement under transparent frame. */
+export const ARTISTIC_PARAMETERS = [
+  { id: "artisticPhotoScale", label: "照片縮放", min: 80, max: 140, step: 1, unit: "percent" },
+  { id: "artisticOffsetX", label: "照片左右", min: -40, max: 40, step: 1, unit: "percent" },
+  { id: "artisticOffsetY", label: "照片上下", min: -40, max: 40, step: 1, unit: "percent" },
   { id: "opacity", label: "不透明度", min: 40, max: 100, step: 1, unit: "percent" }
 ];
 
@@ -98,6 +106,8 @@ export function setFrameTypesFromCatalog(categoryId, catalogItems = []){
     thumb: item.thumb || item.asset,
     file: item.file,
     asset: item.asset,
+    aspect: item.aspect || null,
+    kind: item.kind || (categoryId === "artistic" ? "overlay" : "texture"),
     defaults: item.defaults || undefined
   }));
 }
@@ -180,14 +190,72 @@ export function isGalleryMode(state){
     || state.selectedCategoryId === "professional";
 }
 
+export function isArtisticMode(state){
+  return state.framePresentation === "artistic"
+    || (state.selectedCategoryId === "artistic" && Boolean(state.artisticFrameId));
+}
+
 /** @deprecated */
 export function isProfessionalMode(state){
   return isGalleryMode(state);
 }
 
+export function getArtisticFramesForPhoto(photoWidth, photoHeight){
+  const aspect = resolvePhotoAspectKey(photoWidth, photoHeight);
+  const all = getFrameTypesForCategory("artistic");
+  if (aspect === "square") return all;
+  const matched = all.filter(item => item.aspect === aspect);
+  // If no aspect-tagged files yet, show all so drop-in files without tags still appear.
+  return matched.length ? matched : all;
+}
+
+export function getArtisticFrameById(frameId){
+  return getFrameTypesForCategory("artistic").find(item => item.id === frameId) || null;
+}
+
+export function pickDefaultArtisticFrameId(photoWidth, photoHeight, preferredId){
+  const matched = getArtisticFramesForPhoto(photoWidth, photoHeight);
+  if (preferredId && matched.some(item => item.id === preferredId)) return preferredId;
+  return matched[0]?.id || getFrameTypesForCategory("artistic")[0]?.id || null;
+}
+
+/** Keep artistic selection only when it matches the photo aspect (or square). */
+export function reconcileArtisticFrameForPhoto(currentState, photoWidth, photoHeight){
+  if (!currentState?.artisticFrameId) return currentState;
+  const nextId = pickDefaultArtisticFrameId(photoWidth, photoHeight, currentState.artisticFrameId);
+  if (nextId === currentState.artisticFrameId) return currentState;
+  return updateFrameState(currentState, {
+    artisticFrameId: nextId,
+    framePresentation: nextId
+      ? "artistic"
+      : (currentState.outerFrameTypeId ? "classic" : currentState.framePresentation || "classic"),
+    frameTypeId: nextId
+      || currentState.outerFrameTypeId
+      || currentState.classicFrameTypeId
+      || currentState.frameTypeId
+  });
+}
+
+export function selectArtisticFrame(currentState, frameId){
+  const type = getArtisticFrameById(frameId);
+  const id = type?.id || frameId || null;
+  // Toggle off if same frame tapped again.
+  const nextId = currentState.artisticFrameId === id ? null : id;
+  return updateFrameState(currentState, {
+    selectedCategoryId: "artistic",
+    activeCategory: "artistic",
+    artisticFrameId: nextId,
+    framePresentation: nextId ? "artistic" : (currentState.outerFrameTypeId ? "classic" : "artistic"),
+    frameTypeId: nextId || currentState.outerFrameTypeId || currentState.frameTypeId
+  });
+}
+
 export function getParametersForContext(state){
   if (isGalleryMode(state)) {
     return [...FRAME_PARAMETERS, ...GALLERY_LIGHT_PARAMETERS];
+  }
+  if (isArtisticMode(state) || state.selectedCategoryId === "artistic") {
+    return ARTISTIC_PARAMETERS;
   }
   return FRAME_PARAMETERS;
 }
@@ -201,7 +269,11 @@ export function getParametersForContext(state){
  * - else (both set) → replace outer with the new material
  */
 export function toggleClassicMaterialSelection(currentState, frameTypeId, categoryId = "classic"){
-  const materialCategory = categoryId === "artistic" ? "artistic" : "classic";
+  // Artistic overlays use selectArtisticFrame (single overlay), not dual materials.
+  if (categoryId === "artistic") {
+    return selectArtisticFrame(currentState, frameTypeId);
+  }
+  const materialCategory = "classic";
   const type = findFrameType(materialCategory, frameTypeId) || findFrameTypeAnywhere(frameTypeId)?.type;
   const id = type?.id || frameTypeId;
   let outerFrameTypeId = currentState.outerFrameTypeId || null;
@@ -233,7 +305,8 @@ export function toggleClassicMaterialSelection(currentState, frameTypeId, catego
     outerFrameTypeId,
     innerFrameTypeId,
     classicFrameTypeId: primaryId,
-    frameTypeId: primaryId
+    frameTypeId: primaryId,
+    framePresentation: "classic"
   };
 
   if (innerFrameTypeId && (Number(currentState.innerFrameWidth) || 0) <= 0) {
@@ -255,6 +328,8 @@ export function createDefaultFrameState(){
     classicFrameTypeId: outerId,
     outerFrameTypeId: outerId,
     innerFrameTypeId: null,
+    artisticFrameId: null,
+    framePresentation: "classic",
     selectedParameter: "outerFrameWidth",
     sourceImageDataUrl: null,
 
@@ -263,6 +338,9 @@ export function createDefaultFrameState(){
     cornerRadius: 6,
     outerPadding: 0,
     opacity: 100,
+    artisticPhotoScale: 100,
+    artisticOffsetX: 0,
+    artisticOffsetY: 0,
 
     // Legacy aliases kept during migration reads
     frameWidth: 40,
@@ -296,6 +374,9 @@ export function resetFrameAdjustments(currentState){
     cornerRadius: defaults.cornerRadius,
     outerPadding: defaults.outerPadding,
     opacity: defaults.opacity,
+    artisticPhotoScale: defaults.artisticPhotoScale,
+    artisticOffsetX: defaults.artisticOffsetX,
+    artisticOffsetY: defaults.artisticOffsetY,
     selectedParameter: defaults.selectedParameter,
     galleryPhotoScale: defaults.galleryPhotoScale,
     galleryOffsetX: defaults.galleryOffsetX,
@@ -352,28 +433,31 @@ export function updateFrameState(currentState, partial){
 
   if (next.selectedCategoryId === "gallery") {
     next.frameTypeId = "gallery";
-  } else if (next.selectedCategoryId === "classic" || next.selectedCategoryId === "artistic") {
-    const types = [
-      ...getFrameTypesForCategory("classic"),
-      ...getFrameTypesForCategory("artistic")
-    ];
+  } else if (next.selectedCategoryId === "classic") {
+    const types = getFrameTypesForCategory("classic");
     const typeIds = new Set(types.map(item => item.id));
 
     if (next.outerFrameTypeId && typeIds.size && !typeIds.has(next.outerFrameTypeId)) {
-      next.outerFrameTypeId = getFrameTypesForCategory(next.selectedCategoryId)[0]?.id
-        || getFrameTypesForCategory("classic")[0]?.id
-        || "wood";
+      next.outerFrameTypeId = types[0]?.id || "wood";
     }
     if (next.innerFrameTypeId && typeIds.size && !typeIds.has(next.innerFrameTypeId)) {
       next.innerFrameTypeId = null;
     }
     if (!next.outerFrameTypeId && !next.innerFrameTypeId) {
-      next.outerFrameTypeId = getFrameTypesForCategory(next.selectedCategoryId)[0]?.id
-        || next.classicFrameTypeId
-        || "wood";
+      next.outerFrameTypeId = types[0]?.id || next.classicFrameTypeId || "wood";
     }
     next.classicFrameTypeId = next.outerFrameTypeId || next.innerFrameTypeId;
     next.frameTypeId = next.classicFrameTypeId;
+    next.framePresentation = "classic";
+  } else if (next.selectedCategoryId === "artistic") {
+    const types = getFrameTypesForCategory("artistic");
+    if (next.artisticFrameId && types.length && !types.some(item => item.id === next.artisticFrameId)) {
+      next.artisticFrameId = types[0]?.id || null;
+    }
+    if (next.artisticFrameId) {
+      next.frameTypeId = next.artisticFrameId;
+      next.framePresentation = "artistic";
+    }
   }
 
   if (!next.classicFrameTypeId) {
@@ -388,7 +472,7 @@ export function updateFrameState(currentState, partial){
     next.gallerySceneId = scenes[0].id;
   }
 
-  const params = [...FRAME_PARAMETERS, ...GALLERY_LIGHT_PARAMETERS];
+  const params = [...FRAME_PARAMETERS, ...ARTISTIC_PARAMETERS, ...GALLERY_LIGHT_PARAMETERS];
   const defaults = createDefaultFrameState();
   for (const parameter of params) {
     next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, defaults[parameter.id]);
@@ -413,8 +497,11 @@ export function updateFrameState(currentState, partial){
 }
 
 export function applyFrameTypeDefaults(currentState, categoryId, frameTypeId){
-  if (categoryId === "classic" || categoryId === "artistic") {
-    return toggleClassicMaterialSelection(currentState, frameTypeId, categoryId);
+  if (categoryId === "classic") {
+    return toggleClassicMaterialSelection(currentState, frameTypeId, "classic");
+  }
+  if (categoryId === "artistic") {
+    return selectArtisticFrame(currentState, frameTypeId);
   }
   if (categoryId === "gallery" || categoryId === "professional") {
     return updateFrameState(currentState, {
@@ -456,6 +543,7 @@ export function saveFrameDraft(state){
 export function loadFrameDraft(){
   try {
     const raw = localStorage.getItem(FRAME_DRAFT_KEY)
+      || localStorage.getItem("photoEffects.F5_frame.draft.v7")
       || localStorage.getItem("photoEffects.F5_frame.draft.v6")
       || localStorage.getItem("photoEffects.F5_frame.draft.v5");
     if (!raw) return null;
@@ -471,6 +559,7 @@ export function loadFrameDraft(){
 export function clearFrameDraft(){
   try {
     localStorage.removeItem(FRAME_DRAFT_KEY);
+    localStorage.removeItem("photoEffects.F5_frame.draft.v7");
     localStorage.removeItem("photoEffects.F5_frame.draft.v6");
     localStorage.removeItem("photoEffects.F5_frame.draft.v5");
   } catch (error) {
@@ -509,6 +598,13 @@ function migrateLegacyFields(state){
   if (next.selectedParameter === "innerPadding") {
     next.selectedParameter = "innerFrameWidth";
   }
+  if (next.artisticFrameId === undefined) next.artisticFrameId = null;
+  if (!next.framePresentation) {
+    next.framePresentation = next.artisticFrameId ? "artistic" : "classic";
+  }
+  if (next.artisticPhotoScale == null) next.artisticPhotoScale = 100;
+  if (next.artisticOffsetX == null) next.artisticOffsetX = 0;
+  if (next.artisticOffsetY == null) next.artisticOffsetY = 0;
   next.innerPadding = 0;
   next.activeProfessionalSubTab = null;
 
