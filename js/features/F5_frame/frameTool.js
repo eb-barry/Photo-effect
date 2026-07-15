@@ -1,17 +1,21 @@
-// F5 畫框 - Canvas 影像處理 v0.4.0
-// Dual outer/inner classic frames; Gallery Layer-2 uses transparent chrome.
+// F5 畫框 - Canvas 影像處理 v0.4.2
+// Classic dual materials + artistic overlay WebP; Gallery Layer-2 transparent chrome.
 
 import {
   mapStyleToMaterial,
+  renderArtisticFramedPhoto,
   renderFramedPhoto,
   renderGalleryPresentation,
+  resolveArtisticOutputSize,
   resolveFramedOutputSize,
   resolveGalleryOutputSize
 } from "../../core/frameRenderer.js";
 import { resolveGallerySceneImage } from "./galleryAssets.js";
 import { loadTextureForMaterial } from "./frameAssets.js";
 import {
+  getArtisticFrameById,
   getGallerySceneById,
+  isArtisticMode,
   isGalleryMode,
   pickDefaultGallerySceneId,
   resolveAppliedFrameType,
@@ -125,6 +129,13 @@ export function resolveFrameCanvasSize(contentSize, state, maxEdge = FRAME_MAX_E
     });
   }
 
+  if (isArtisticMode(state) && state.artisticFrameId) {
+    const art = getArtisticFrameById(state.artisticFrameId);
+    const aspect = art?.aspect
+      || resolvePhotoAspectKey(contentSize.width, contentSize.height);
+    return resolveArtisticOutputSize({ aspect, maxEdge });
+  }
+
   const chrome = classicChromeParams(state, { forGallery: false });
   const drawOuterWidth = chrome.outerMaterialId
     ? chrome.outerFrameWidth
@@ -141,6 +152,7 @@ export function resolveFrameCanvasSize(contentSize, state, maxEdge = FRAME_MAX_E
 
 function classicLayerCacheKey(state, contentSize){
   return [
+    "classic",
     resolveClassicOuterMaterialId(state),
     resolveClassicInnerMaterialId(state) || "-",
     contentSize.width,
@@ -151,6 +163,26 @@ function classicLayerCacheKey(state, contentSize){
     Math.round(Number(state.outerPadding) || 0),
     Math.round(Number(state.opacity) || 100)
   ].join("|");
+}
+
+function artisticLayerCacheKey(state, outputSize){
+  return [
+    "artistic",
+    state.artisticFrameId || "-",
+    outputSize.width,
+    outputSize.height,
+    Math.round(Number(state.artisticPhotoScale) || 100),
+    Math.round(Number(state.artisticOffsetX) || 0),
+    Math.round(Number(state.artisticOffsetY) || 0),
+    Math.round(Number(state.opacity) || 100)
+  ].join("|");
+}
+
+function resolveArtisticLayerSize(contentSize, state, maxEdge = FRAME_MAX_EDGE){
+  const art = getArtisticFrameById(state.artisticFrameId);
+  const aspect = art?.aspect
+    || resolvePhotoAspectKey(contentSize.width, contentSize.height);
+  return resolveArtisticOutputSize({ aspect, maxEdge });
 }
 
 function getOrBuildContentCanvas(sourceImage, contentSize){
@@ -222,6 +254,38 @@ async function getOrBuildClassicFramedLayer(sourceImage, state, contentSize){
   return layer;
 }
 
+async function buildArtisticFramedLayer(sourceImage, state, outputSize, { transparentBackground = false } = {}){
+  const frameImage = state.artisticFrameId
+    ? await loadTextureForMaterial(state.artisticFrameId)
+    : null;
+  const layer = document.createElement("canvas");
+  layer.width = outputSize.width;
+  layer.height = outputSize.height;
+  const layerCtx = layer.getContext("2d");
+  renderArtisticFramedPhoto(layerCtx, sourceImage, frameImage, {
+    opacity: (Number(state.opacity) || 100) / 100,
+    artisticPhotoScale: state.artisticPhotoScale,
+    artisticOffsetX: state.artisticOffsetX,
+    artisticOffsetY: state.artisticOffsetY,
+    transparentBackground,
+    shadow: transparentBackground ? 18 : 28
+  });
+  return layer;
+}
+
+async function getOrBuildArtisticFramedLayer(sourceImage, state, contentSize, options = {}){
+  const outputSize = resolveArtisticLayerSize(contentSize, state);
+  const key = artisticLayerCacheKey(state, outputSize)
+    + (options.transparentBackground ? "|t" : "");
+  if (layerCache.key === key && layerCache.layer) {
+    return layerCache.layer;
+  }
+  const layer = await buildArtisticFramedLayer(sourceImage, state, outputSize, options);
+  layerCache.key = key;
+  layerCache.layer = layer;
+  return layer;
+}
+
 function getScenePreviewImage(sceneImage, targetWidth, targetHeight){
   if (!sceneImage) return null;
   const tw = Math.max(1, Math.round(targetWidth));
@@ -281,7 +345,12 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
     const scene = getGallerySceneById(sceneId);
     const sceneImageFull = await resolveGallerySceneImage(sceneId);
     const sceneImage = getScenePreviewImage(sceneImageFull, width, height);
-    const framedLayer = await getOrBuildClassicFramedLayer(sourceImage, state, contentSize);
+    const useArtisticLayer = isArtisticMode(state) && Boolean(state.artisticFrameId);
+    const framedLayer = useArtisticLayer
+      ? await getOrBuildArtisticFramedLayer(sourceImage, state, contentSize, {
+          transparentBackground: true
+        })
+      : await getOrBuildClassicFramedLayer(sourceImage, state, contentSize);
 
     renderGalleryPresentation(ctx, framedLayer, {
       sceneImage,
@@ -297,6 +366,19 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
       galleryLightDirection: state.galleryLightDirection,
       galleryLightDistance: state.galleryLightDistance,
       fastPreview
+    });
+    return;
+  }
+
+  if (isArtisticMode(state) && state.artisticFrameId) {
+    const frameImage = await loadTextureForMaterial(state.artisticFrameId);
+    renderArtisticFramedPhoto(ctx, sourceImage, frameImage, {
+      opacity: (Number(state.opacity) || 100) / 100,
+      artisticPhotoScale: state.artisticPhotoScale,
+      artisticOffsetX: state.artisticOffsetX,
+      artisticOffsetY: state.artisticOffsetY,
+      transparentBackground: false,
+      shadow: 28
     });
     return;
   }

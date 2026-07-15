@@ -30,10 +30,11 @@ application.
                                                          source & starburst
                                                          effects
 
-  F5         畫框 (Frame)       🚧                   Classic + Gallery
-                                                         scene compositing
-                                                         (aspect-matched
-                                                         walls)
+  F5         畫框 (Frame)       🚧                   Classic dual
+                                                         materials + artistic
+                                                         overlay WebP +
+                                                         Gallery walls
+                                                         (aspect-matched)
 
   F6         照片牆 (Photo Wall)    📋                   Multi-photo
                                                          collage

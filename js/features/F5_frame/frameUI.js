@@ -1,9 +1,10 @@
-// F5 畫框 - UI v0.4.1
-// 經典／藝術雙材質 + 照片畫廊牆面（F2 風格開關）+ Layer2 手勢。
+// F5 畫框 - UI v0.4.2
+// 經典雙材質 + 藝術單選疊圖 + 照片畫廊牆面（F2 風格開關）+ Layer2 手勢。
 
 import {
   FRAME_CATEGORIES,
   applyFrameTypeDefaults,
+  getArtisticFramesForPhoto,
   getFrameTypesForCategory,
   getGalleryScenesForPhoto,
   getParametersForContext,
@@ -68,14 +69,21 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
       return;
     }
 
-    const types = getFrameTypesForCategory(categoryId);
+    const photo = getPhotoSize();
+    const types = categoryId === "artistic"
+      ? getArtisticFramesForPhoto(photo.width, photo.height)
+      : getFrameTypesForCategory(categoryId);
     const meta = FRAME_CATEGORIES.find(item => item.id === categoryId);
 
     if (!types.length) {
       if (materialHost) materialHost.innerHTML = "";
       if (categoryNote) {
         categoryNote.classList.remove("hidden");
-        categoryNote.textContent = `${meta?.label || "此分類"}即將推出`;
+        if (categoryId === "artistic") {
+          categoryNote.textContent = "尚無藝術畫框：請放入 assets/features/F5_frame/textures/artistic/（art-3x4-*.webp / art-4x3-*.webp），再執行 node scripts/sync-frame-texture-manifests.mjs";
+        } else {
+          categoryNote.textContent = `${meta?.label || "此分類"}即將推出`;
+        }
       }
       return;
     }
@@ -94,7 +102,16 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
       const categoryId = button.dataset.frameCategory;
       const typeId = button.dataset.frameType;
 
-      if (categoryId === "classic" || categoryId === "artistic") {
+      if (categoryId === "artistic") {
+        const active = state.artisticFrameId === typeId;
+        button.classList.toggle("active", active);
+        button.classList.remove("is-outer-frame", "is-inner-frame");
+        button.setAttribute("aria-pressed", String(active));
+        button.querySelector(".frame-material-role")?.remove();
+        return;
+      }
+
+      if (categoryId === "classic") {
         const isOuter = state.outerFrameTypeId === typeId;
         const isInner = state.innerFrameTypeId === typeId;
         button.classList.toggle("active", isOuter || isInner);
@@ -211,8 +228,14 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
       patch.gallerySceneId = pickDefaultGallerySceneId(photo.width, photo.height, state.gallerySceneId);
     } else if (nextCategory === "classic" || nextCategory === "artistic") {
       patch.selectedCategoryId = nextCategory;
-      if (state.outerFrameTypeId || state.innerFrameTypeId) {
+      if (nextCategory === "artistic") {
+        if (state.artisticFrameId) {
+          patch.frameTypeId = state.artisticFrameId;
+          patch.framePresentation = "artistic";
+        }
+      } else if (state.outerFrameTypeId || state.innerFrameTypeId) {
         patch.frameTypeId = state.outerFrameTypeId || state.innerFrameTypeId;
+        patch.framePresentation = "classic";
       }
     }
     Object.assign(state, updateFrameState(state, patch));
@@ -334,7 +357,8 @@ export function renderAdjustControlsPanel(){
 }
 
 export function renderMaterialCarousel(types, categoryId){
-  const dual = categoryId === "classic" || categoryId === "artistic";
+  const dual = categoryId === "classic";
+  const artistic = categoryId === "artistic";
   const buttons = types.map(item => `
     <button
       type="button"
@@ -342,7 +366,7 @@ export function renderMaterialCarousel(types, categoryId){
       data-frame-category="${categoryId}"
       data-frame-type="${item.id}"
       aria-label="${item.label}"
-      title="${dual ? `${item.label}（點選設為外框／內框）` : item.label}"
+      title="${dual ? `${item.label}（點選設為外框／內框）` : artistic ? `${item.label}（點選套用藝術畫框）` : item.label}"
     >
       <span class="crystal-scene-thumb frame-material-thumb">
         <img data-src="${item.thumb}" alt="" loading="lazy" decoding="async" />
@@ -353,7 +377,7 @@ export function renderMaterialCarousel(types, categoryId){
   return `
     <div class="crystal-asset-carousel" data-frame-material-carousel="${categoryId}">
       <span class="crystal-carousel-hint crystal-carousel-hint-left hidden" aria-hidden="true"></span>
-      <div class="crystal-asset-track" role="group" aria-label="${dual ? "外框與內框材質" : "畫框材質"}">${buttons}</div>
+      <div class="crystal-asset-track" role="group" aria-label="${dual ? "外框與內框材質" : artistic ? "藝術畫框" : "畫框材質"}">${buttons}</div>
       <span class="crystal-carousel-hint crystal-carousel-hint-right hidden" aria-hidden="true"></span>
     </div>
   `;

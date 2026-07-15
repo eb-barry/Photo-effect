@@ -1,5 +1,5 @@
-// F5 畫框 - Page Controller v0.4.1
-// Classic frames + Professional Gallery scene compositing (Layer2 pan/pinch).
+// F5 畫框 - Page Controller v0.4.2
+// Classic / artistic overlay + Photo Gallery scene compositing (Layer2 pan/pinch).
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";

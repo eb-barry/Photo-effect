@@ -273,6 +273,70 @@ function rgbCss(rgb){
 }
 
 /**
+ * Artistic overlay frame: photo cover-fit under a transparent-center WebP frame.
+ * Canvas should already match resolveArtisticOutputSize().
+ */
+export function renderArtisticFramedPhoto(ctx, sourceImage, frameImage, options = {}){
+  const width = ctx.canvas.width;
+  const height = ctx.canvas.height;
+  const opacity = Math.max(0.15, Math.min(1, Number(options.opacity) ?? 1));
+  const photoScale = Math.max(0.7, Math.min(1.6, (Number(options.artisticPhotoScale) || 100) / 100));
+  const offsetX = (Number(options.artisticOffsetX) || 0) / 100;
+  const offsetY = (Number(options.artisticOffsetY) || 0) / 100;
+  const transparentBackground = Boolean(options.transparentBackground);
+  const shadow = Math.max(0, Math.min(100, Number(options.shadow) || 0));
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  if (!transparentBackground) {
+    ctx.fillStyle = "rgba(245, 248, 247, 1)";
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  if (shadow > 0) {
+    ctx.save();
+    ctx.shadowColor = `rgba(0, 0, 0, ${0.16 + shadow / 200})`;
+    ctx.shadowBlur = 6 + shadow * 0.35;
+    ctx.shadowOffsetY = 3 + shadow * 0.1;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(2, 2, width - 4, height - 4);
+    ctx.restore();
+  }
+
+  // Photo under the frame (cover-fit + optional pan/scale).
+  if (sourceImage) {
+    const base = Math.max(width / sourceImage.width, height / sourceImage.height) * photoScale;
+    const dw = sourceImage.width * base;
+    const dh = sourceImage.height * base;
+    const dx = (width - dw) / 2 + offsetX * width * 0.35;
+    const dy = (height - dh) / 2 + offsetY * height * 0.35;
+    ctx.drawImage(sourceImage, dx, dy, dw, dh);
+  }
+
+  if (frameImage) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.drawImage(frameImage, 0, 0, width, height);
+    ctx.restore();
+  }
+}
+
+/** Output size follows artistic frame aspect (3:4 / 4:3), scaled to maxEdge. */
+export function resolveArtisticOutputSize(params = {}){
+  const aspectKey = params.aspect || "3x4";
+  const maxEdge = Math.max(640, Number(params.maxEdge) || 1080);
+  if (aspectKey === "4x3") {
+    const width = maxEdge;
+    const height = Math.round(width * 3 / 4);
+    return { width, height, aspect: "4x3" };
+  }
+  const height = maxEdge;
+  const width = Math.round(height * 3 / 4);
+  return { width, height, aspect: "3x4" };
+}
+
+/**
  * Scene-based Gallery: full wall image (Layer 1) + classic-framed photo (Layer 2)
  * placed inside a mount rect with pan/scale + multi spotlight overlays.
  */
