@@ -254,6 +254,10 @@ export function selectArtisticFrame(currentState, frameId){
 
 export function getParametersForContext(state){
   if (isGalleryMode(state)) {
+    // Gallery Layer 2 may be artistic overlay or classic chrome — expose matching adjusts.
+    if (state.framePresentation === "artistic" && state.artisticFrameId) {
+      return [...ARTISTIC_PARAMETERS, ...GALLERY_LIGHT_PARAMETERS];
+    }
     return [...FRAME_PARAMETERS, ...GALLERY_LIGHT_PARAMETERS];
   }
   if (isArtisticMode(state) || state.selectedCategoryId === "artistic") {

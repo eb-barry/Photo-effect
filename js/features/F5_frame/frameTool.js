@@ -1,4 +1,4 @@
-// F5 畫框 - Canvas 影像處理 v0.4.2
+// F5 畫框 - Canvas 影像處理 v0.4.3
 // Classic dual materials + artistic overlay WebP; Gallery Layer-2 transparent chrome.
 
 import {
