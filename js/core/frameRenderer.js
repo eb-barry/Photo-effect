@@ -150,7 +150,11 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
   ctx.save();
   roundRect(ctx, photoX, photoY, photoW, photoH, Math.max(0, cornerRadius * 0.5));
   ctx.clip();
-  ctx.drawImage(sourceImage, photoX, photoY, photoW, photoH);
+  drawPlacedPhoto(ctx, sourceImage, photoX, photoY, photoW, photoH, {
+    photoScale: options.photoScale,
+    photoOffsetX: options.photoOffsetX,
+    photoOffsetY: options.photoOffsetY
+  });
   ctx.restore();
 
   if (effectiveOuter > 0) {
@@ -268,6 +272,20 @@ function roundRect(ctx, x, y, w, h, radius){
   ctx.closePath();
 }
 
+/** Cover-fit photo inside a window with optional scale / pan (percent). */
+function drawPlacedPhoto(ctx, sourceImage, x, y, w, h, placement = {}){
+  if (!sourceImage || !w || !h) return;
+  const scale = Math.max(0.5, Math.min(2, (Number(placement.photoScale) || 100) / 100));
+  const offsetX = (Number(placement.photoOffsetX) || 0) / 100;
+  const offsetY = (Number(placement.photoOffsetY) || 0) / 100;
+  const base = Math.max(w / sourceImage.width, h / sourceImage.height) * scale;
+  const dw = sourceImage.width * base;
+  const dh = sourceImage.height * base;
+  const dx = x + (w - dw) / 2 + offsetX * w * 0.35;
+  const dy = y + (h - dh) / 2 + offsetY * h * 0.35;
+  ctx.drawImage(sourceImage, dx, dy, dw, dh);
+}
+
 function rgbCss(rgb){
   return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
 }
@@ -284,9 +302,9 @@ export function renderArtisticFramedPhoto(ctx, sourceImage, frameImage, options 
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
   const opacity = Math.max(0.15, Math.min(1, Number(options.opacity) ?? 1));
-  const photoScale = Math.max(0.7, Math.min(1.6, (Number(options.artisticPhotoScale) || 100) / 100));
-  const offsetX = (Number(options.artisticOffsetX) || 0) / 100;
-  const offsetY = (Number(options.artisticOffsetY) || 0) / 100;
+  const photoScale = Math.max(0.7, Math.min(1.6, (Number(options.photoScale ?? options.artisticPhotoScale) || 100) / 100));
+  const offsetX = (Number(options.photoOffsetX ?? options.artisticOffsetX) || 0) / 100;
+  const offsetY = (Number(options.photoOffsetY ?? options.artisticOffsetY) || 0) / 100;
   const frameWidthFactor = Math.max(0.5, Math.min(1.6, (Number(options.artisticFrameWidth) || 100) / 100));
   const cornerRadius = Math.max(0, Math.min(
     Math.min(width, height) / 2,

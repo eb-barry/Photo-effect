@@ -1,5 +1,5 @@
-// F5 畫框 - UI v0.4.2
-// 經典雙材質 + 藝術單選疊圖 + 照片畫廊牆面（F2 風格開關）+ Layer2 手勢。
+// F5 畫框 - UI v0.4.4
+// 經典雙材質 + 藝術單選疊圖 + 照片畫廊；畫布手勢縮放／移動照片。
 
 import {
   FRAME_CATEGORIES,
@@ -8,9 +8,11 @@ import {
   getFrameTypesForCategory,
   getGalleryScenesForPhoto,
   getParametersForContext,
+  isArtisticMode,
   isGalleryMode,
   pickDefaultGallerySceneId,
   resetFrameAdjustments,
+  resolvePhotoPlacement,
   toggleClassicMaterialSelection,
   updateFrameState
 } from "./frameState.js";
@@ -29,7 +31,8 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
   const categoryNote = root.querySelector("#frameCategoryNote");
   const sceneHost = root.querySelector("#galleryWallHost");
   const scenePanel = root.querySelector("#galleryWallPanel");
-  const galleryHint = root.querySelector("#galleryGestureHint");
+  const galleryHint = root.querySelector("#galleryGestureHint")
+    || root.querySelector("#photoGestureHint");
   const paramSelect = root.querySelector("#frameParamSelect");
   const slider = root.querySelector("#frameSlider");
   const sliderLabel = root.querySelector("#frameSliderLabel");
@@ -140,10 +143,20 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     });
   }
 
+  function refreshGestureHint(){
+    if (!galleryHint) return;
+    const show = Boolean(state.sourceImageDataUrl);
+    galleryHint.classList.toggle("hidden", !show);
+    if (!show) return;
+    galleryHint.textContent = isGalleryMode(state)
+      ? "拖曳移動作品，雙指縮放大小"
+      : "拖曳移動照片，雙指縮放大小";
+  }
+
   function refreshGalleryPanel(){
     const show = state.activeCategory === "gallery";
-    galleryHint?.classList.toggle("hidden", !show);
     scenePanel?.classList.toggle("hidden", !show);
+    refreshGestureHint();
 
     if (!show) return;
 
@@ -215,6 +228,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     refreshCategoryButtons();
     refreshMaterialPanel();
     refreshGalleryPanel();
+    refreshGestureHint();
     refreshParamSelect();
     refreshSlider();
   }
@@ -317,9 +331,10 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
   });
 
   if (canvas) {
-    enableGalleryPlacementGesture(canvas, state, patch => {
-      if (!isGalleryMode(state)) return;
+    enablePhotoPlacementGesture(canvas, state, patch => {
+      if (!state.sourceImageDataUrl) return;
       Object.assign(state, updateFrameState(state, patch));
+      refreshSlider();
       scheduleRender({ fastPreview: true });
     }, {
       onStart: onGestureStart,
@@ -473,7 +488,7 @@ function updateCarouselHints(track, leftHint, rightHint){
   rightHint?.classList.toggle("hidden", maxScroll - offset <= 4);
 }
 
-function enableGalleryPlacementGesture(canvas, state, setPartialState, hooks = {}){
+function enablePhotoPlacementGesture(canvas, state, setPartialState, hooks = {}){
   const pointers = new Map();
   let lastDrag = null;
   let lastPinchDistance = 0;
@@ -488,8 +503,16 @@ function enableGalleryPlacementGesture(canvas, state, setPartialState, hooks = {
     return Math.hypot(values[0].x - values[1].x, values[0].y - values[1].y);
   };
 
+  const canGesture = () => Boolean(state.sourceImageDataUrl);
+
+  const placementMode = () => {
+    if (isGalleryMode(state)) return "gallery";
+    if (isArtisticMode(state)) return "photo";
+    return "photo";
+  };
+
   canvas.addEventListener("pointerdown", event => {
-    if (!isGalleryMode(state) || !state.sourceImageDataUrl) return;
+    if (!canGesture()) return;
     event.preventDefault();
     canvas.setPointerCapture?.(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -502,22 +525,31 @@ function enableGalleryPlacementGesture(canvas, state, setPartialState, hooks = {
       lastDrag = { x: event.clientX, y: event.clientY };
     } else if (pointers.size === 2) {
       lastPinchDistance = getTwoPointerDistance();
-      startScale = Number(state.galleryPhotoScale || 100);
+      if (placementMode() === "gallery") {
+        startScale = Number(state.galleryPhotoScale || 100);
+      } else {
+        startScale = resolvePhotoPlacement(state).photoScale;
+      }
       lastDrag = null;
     }
   });
 
   canvas.addEventListener("pointermove", event => {
-    if (!pointers.has(event.pointerId) || !isGalleryMode(state)) return;
+    if (!pointers.has(event.pointerId) || !canGesture()) return;
     event.preventDefault();
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 
     if (pointers.size >= 2) {
       const distance = getTwoPointerDistance();
       if (lastPinchDistance > 0 && distance > 0) {
-        setPartialState({
-          galleryPhotoScale: clamp(startScale * (distance / lastPinchDistance), 40, 180)
-        });
+        const nextScale = clamp(startScale * (distance / lastPinchDistance), 80, 160);
+        if (placementMode() === "gallery") {
+          setPartialState({
+            galleryPhotoScale: clamp(startScale * (distance / lastPinchDistance), 40, 180)
+          });
+        } else {
+          setPartialState({ photoScale: nextScale });
+        }
       }
       return;
     }
@@ -531,9 +563,19 @@ function enableGalleryPlacementGesture(canvas, state, setPartialState, hooks = {
     const dx = (event.clientX - lastDrag.x) / Math.max(1, rect.width);
     const dy = (event.clientY - lastDrag.y) / Math.max(1, rect.height);
     lastDrag = { x: event.clientX, y: event.clientY };
+
+    if (placementMode() === "gallery") {
+      setPartialState({
+        galleryOffsetX: clamp(Number(state.galleryOffsetX || 0) + dx * 165, -100, 100),
+        galleryOffsetY: clamp(Number(state.galleryOffsetY || 0) + dy * 165, -100, 100)
+      });
+      return;
+    }
+
+    const place = resolvePhotoPlacement(state);
     setPartialState({
-      galleryOffsetX: clamp(Number(state.galleryOffsetX || 0) + dx * 165, -100, 100),
-      galleryOffsetY: clamp(Number(state.galleryOffsetY || 0) + dy * 165, -100, 100)
+      photoOffsetX: clamp(place.photoOffsetX + dx * 120, -40, 40),
+      photoOffsetY: clamp(place.photoOffsetY + dy * 120, -40, 40)
     });
   });
 
@@ -544,7 +586,7 @@ function enableGalleryPlacementGesture(canvas, state, setPartialState, hooks = {
     if (pointers.size === 0) {
       lastDrag = null;
       lastPinchDistance = 0;
-      canvas.style.cursor = isGalleryMode(state) ? "grab" : "";
+      canvas.style.cursor = canGesture() ? "grab" : "";
       if (gesturing) {
         gesturing = false;
         hooks.onEnd?.();
