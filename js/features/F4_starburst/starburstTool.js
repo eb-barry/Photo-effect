@@ -1,4 +1,4 @@
-// F4 星芒鏡 - Canvas 影像處理 v0.1.4
+// F4 星芒鏡 - Canvas 影像處理 v0.1.5
 // 2D FFT 光圈繞射核心 + 幽靈/眩光/光暈疊層 + 色散與背景光衰減合成。
 
 import { getLightSourceById, getSpikeCount } from "./starburstState.js";
@@ -261,7 +261,7 @@ function drawHalation(ctx, point, minDim, halationValue, tintColor){
  * - 高透明度（source-over 低 alpha），背景依然清晰可見。
  * - 弱：1–2 個柔焦光斑；強：沿指定角度排成「光斑項鍊」+ Flare Veil。
  *
- * 定位模型（v0.1.4）：
+ * 定位模型（v0.1.5）：
  *  - ghostAngle（0–360°）：光斑從星芒中心向外放射的方向。
  *  - ghostDensity（0–100）：光斑鏈的緊密程度；越高越緊湊，越低越分散。
  *  - 星芒移動（手指或其他操作）時，整組光斑完整跟隨，角度與密度不變。

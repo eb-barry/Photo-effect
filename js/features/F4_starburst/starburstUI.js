@@ -1,4 +1,4 @@
-// F4 星芒鏡 - UI v0.1.4
+// F4 星芒鏡 - UI v0.1.5
 // 三按鈕分頁（光圈葉片／光源／星芒效果）+ 下拉選單 + 單一滑桿 + 畫布點選/拖曳定位。
 
 import {
@@ -172,7 +172,9 @@ export function setupStarburstUI(root, state, render, persistDraft = () => {}){
     const config = getApertureConfig();
     Object.assign(state, updateStarburstState(state, { [config.id]: Number(apertureSlider.value) }));
     apertureSliderValue.textContent = formatParameterValue(state[config.id], config);
-    scheduleRender(90);
+    // Position sliders move the star in real-time; aperture/lens sliders need FFT rebuild (slower).
+    const isPositionSlider = config.unit === "position";
+    scheduleRender(isPositionSlider ? 16 : 90);
   });
   apertureSlider?.addEventListener("change", () => persistDraft());
 
@@ -213,9 +215,13 @@ export function setupStarburstUI(root, state, render, persistDraft = () => {}){
   });
 
 
+  const STAR_MOVE_IDS = new Set(["starMoveX", "starMoveY"]);
+
   if (canvas) {
     enableStarburstPointerGesture(canvas, state, partial => {
       Object.assign(state, updateStarburstState(state, partial));
+      // Keep the position sliders visually in sync when user drags on canvas.
+      if (STAR_MOVE_IDS.has(state.selectedApertureParameter)) refreshApertureSlider();
       render();
     }, () => persistDraft());
   }
@@ -296,6 +302,7 @@ function formatParameterValue(value, config){
   const number = Number(value ?? 0);
   if (config.unit === "fstop") return `f/${number.toFixed(1)}`;
   if (config.unit === "degree") return `${Math.round(number)}°`;
+  if (config.unit === "position") return `${Math.round(number)}%`;
   return `${Math.round(number)}`;
 }
 

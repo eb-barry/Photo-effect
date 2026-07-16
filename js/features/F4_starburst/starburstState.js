@@ -1,9 +1,9 @@
-// F4 星芒鏡 - 狀態管理 v0.1.4
+// F4 星芒鏡 - 狀態管理 v0.1.5
 // 光圈葉片／光源／星芒效果 三分頁 + 單一可拖曳星芒座標。
 
 export const STARBURST_FEATURE_ID = "F4_starburst";
-export const STARBURST_FEATURE_VERSION = "0.1.4";
-export const STARBURST_DRAFT_KEY = "photoEffects.F4_starburst.draft.v4";
+export const STARBURST_FEATURE_VERSION = "0.1.5";
+export const STARBURST_DRAFT_KEY = "photoEffects.F4_starburst.draft.v5";
 
 export const STARBURST_CONTROL_TABS = [
   { id: "aperture", label: "光圈葉片" },
@@ -39,10 +39,12 @@ export function normalizeLightSourceId(lightSourceId){
 }
 
 export const APERTURE_PARAMETERS = [
-  { id: "apertureFStop", label: "光圈大小", min: 1.4, max: 16, step: 0.1, unit: "fstop" },
-  { id: "bladeCurvature", label: "葉片弧度", min: 0, max: 100, step: 1, unit: "percent" },
-  { id: "edgeSoftness", label: "邊緣銳利度", min: 0, max: 100, step: 1, unit: "percent" },
-  { id: "randomAsymmetry", label: "不對稱隨機值", min: 0, max: 100, step: 1, unit: "percent" }
+  { id: "apertureFStop",   label: "光圈大小",     min: 1.4, max: 16,  step: 0.1, unit: "fstop"    },
+  { id: "bladeCurvature",  label: "葉片弧度",     min: 0,   max: 100, step: 1,   unit: "percent"  },
+  { id: "edgeSoftness",    label: "邊緣銳利度",   min: 0,   max: 100, step: 1,   unit: "percent"  },
+  { id: "randomAsymmetry", label: "不對稱隨機值", min: 0,   max: 100, step: 1,   unit: "percent"  },
+  { id: "starMoveX",       label: "星芒水平移動", min: 2,   max: 98,  step: 0.5, unit: "position" },
+  { id: "starMoveY",       label: "星芒垂直移動", min: 2,   max: 98,  step: 0.5, unit: "position" }
 ];
 
 export const EFFECT_PARAMETERS = [
@@ -84,6 +86,8 @@ export function createDefaultStarburstState(){
     sharpness: 60,
     dispersion: 26,
 
+    starMoveX: DEFAULT_STARBURST_X * 100,
+    starMoveY: DEFAULT_STARBURST_Y * 100,
     starburstX: DEFAULT_STARBURST_X,
     starburstY: DEFAULT_STARBURST_Y,
     hasPlacedPoint: false,
@@ -111,7 +115,9 @@ export function resetStarburstAdjustments(currentState){
     flare: defaults.flare,
     halation: defaults.halation,
     sharpness: defaults.sharpness,
-    dispersion: defaults.dispersion
+    dispersion: defaults.dispersion,
+    starMoveX: defaults.starMoveX,
+    starMoveY: defaults.starMoveY
   });
 }
 
@@ -119,6 +125,8 @@ export function resetStarburstPosition(currentState){
   return updateStarburstState(currentState, {
     starburstX: DEFAULT_STARBURST_X,
     starburstY: DEFAULT_STARBURST_Y,
+    starMoveX: DEFAULT_STARBURST_X * 100,
+    starMoveY: DEFAULT_STARBURST_Y * 100,
     hasPlacedPoint: true
   });
 }
@@ -155,8 +163,20 @@ export function updateStarburstState(currentState, partial){
   }
 
   next.lightIntensity = clampNumber(next.lightIntensity, 0, 100, createDefaultValue("lightIntensity"));
-  next.starburstX = clampNumber(next.starburstX, 0.02, 0.98, DEFAULT_STARBURST_X);
-  next.starburstY = clampNumber(next.starburstY, 0.02, 0.98, DEFAULT_STARBURST_Y);
+
+  // Bidirectional sync between starburstX/Y (0–1) and starMoveX/Y (2–98 %).
+  // Pointer drag sets starburstX/Y → reflect into starMoveX/Y sliders.
+  // Slider sets starMoveX/Y → derive starburstX/Y.
+  if (partial && ("starburstX" in partial || "starburstY" in partial)) {
+    next.starburstX = clampNumber(next.starburstX, 0.02, 0.98, DEFAULT_STARBURST_X);
+    next.starburstY = clampNumber(next.starburstY, 0.02, 0.98, DEFAULT_STARBURST_Y);
+    next.starMoveX = Math.round(next.starburstX * 100 * 2) / 2;
+    next.starMoveY = Math.round(next.starburstY * 100 * 2) / 2;
+  } else {
+    // starMoveX/Y already clamped [2, 98] by the APERTURE_PARAMETERS loop above
+    next.starburstX = clampNumber(next.starMoveX / 100, 0.02, 0.98, DEFAULT_STARBURST_X);
+    next.starburstY = clampNumber(next.starMoveY / 100, 0.02, 0.98, DEFAULT_STARBURST_Y);
+  }
   next.hasPlacedPoint = Boolean(next.hasPlacedPoint);
 
   return next;
