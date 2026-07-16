@@ -1,8 +1,8 @@
-// F5 畫框 - 狀態管理 v0.4.3
+// F5 畫框 - 狀態管理 v0.4.4
 // Classic dual materials + artistic overlay + Photo Gallery (wall scenes).
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.4.3";
+export const FRAME_FEATURE_VERSION = "0.4.4";
 export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v8";
 
 export const FRAME_CATEGORIES = [
@@ -42,11 +42,18 @@ let gallerySceneCatalog = DEFAULT_GALLERY_SCENES.map(normalizeSceneDefaults);
 const dynamicFrameTypes = Object.fromEntries(FRAME_CATEGORIES.map(item => [item.id, []]));
 
 /** Shared chrome params. No gap between outer/inner — only widths + outer margin. */
+export const PHOTO_PLACEMENT_PARAMETERS = [
+  { id: "photoScale", label: "縮放照片", min: 80, max: 160, step: 1, unit: "percent" },
+  { id: "photoOffsetX", label: "照片左右移動", min: -40, max: 40, step: 1, unit: "percent" },
+  { id: "photoOffsetY", label: "照片上下移動", min: -40, max: 40, step: 1, unit: "percent" }
+];
+
 export const FRAME_PARAMETERS = [
   { id: "outerFrameWidth", label: "外框寬", min: 4, max: 96, step: 1, unit: "px" },
   { id: "innerFrameWidth", label: "內框寬", min: 0, max: 72, step: 1, unit: "px" },
   { id: "cornerRadius", label: "圓角", min: 0, max: 48, step: 1, unit: "px" },
   { id: "outerPadding", label: "外邊距", min: 0, max: 40, step: 1, unit: "px" },
+  ...PHOTO_PLACEMENT_PARAMETERS,
   { id: "opacity", label: "不透明度", min: 40, max: 100, step: 1, unit: "percent" }
 ];
 
@@ -54,9 +61,7 @@ export const FRAME_PARAMETERS = [
 export const ARTISTIC_PARAMETERS = [
   { id: "artisticFrameWidth", label: "畫框寬度", min: 50, max: 160, step: 1, unit: "percent" },
   { id: "artisticCornerRadius", label: "畫框圓角", min: 0, max: 80, step: 1, unit: "px" },
-  { id: "artisticPhotoScale", label: "照片縮放", min: 80, max: 140, step: 1, unit: "percent" },
-  { id: "artisticOffsetX", label: "照片左右", min: -40, max: 40, step: 1, unit: "percent" },
-  { id: "artisticOffsetY", label: "照片上下", min: -40, max: 40, step: 1, unit: "percent" },
+  ...PHOTO_PLACEMENT_PARAMETERS,
   { id: "opacity", label: "不透明度", min: 40, max: 100, step: 1, unit: "percent" }
 ];
 
@@ -252,6 +257,17 @@ export function selectArtisticFrame(currentState, frameId){
   });
 }
 
+export function resolvePhotoPlacement(state = {}){
+  const photoScale = Number(state.photoScale ?? state.artisticPhotoScale);
+  const photoOffsetX = Number(state.photoOffsetX ?? state.artisticOffsetX);
+  const photoOffsetY = Number(state.photoOffsetY ?? state.artisticOffsetY);
+  return {
+    photoScale: Number.isFinite(photoScale) ? photoScale : 100,
+    photoOffsetX: Number.isFinite(photoOffsetX) ? photoOffsetX : 0,
+    photoOffsetY: Number.isFinite(photoOffsetY) ? photoOffsetY : 0
+  };
+}
+
 export function getParametersForContext(state){
   if (isGalleryMode(state)) {
     // Gallery Layer 2 may be artistic overlay or classic chrome — expose matching adjusts.
@@ -346,6 +362,10 @@ export function createDefaultFrameState(){
     opacity: 100,
     artisticFrameWidth: 100,
     artisticCornerRadius: 0,
+    photoScale: 100,
+    photoOffsetX: 0,
+    photoOffsetY: 0,
+    // Legacy aliases (migrated → photo*)
     artisticPhotoScale: 100,
     artisticOffsetX: 0,
     artisticOffsetY: 0,
@@ -384,9 +404,9 @@ export function resetFrameAdjustments(currentState){
     opacity: defaults.opacity,
     artisticFrameWidth: defaults.artisticFrameWidth,
     artisticCornerRadius: defaults.artisticCornerRadius,
-    artisticPhotoScale: defaults.artisticPhotoScale,
-    artisticOffsetX: defaults.artisticOffsetX,
-    artisticOffsetY: defaults.artisticOffsetY,
+    photoScale: defaults.photoScale,
+    photoOffsetX: defaults.photoOffsetX,
+    photoOffsetY: defaults.photoOffsetY,
     selectedParameter: defaults.selectedParameter,
     galleryPhotoScale: defaults.galleryPhotoScale,
     galleryOffsetX: defaults.galleryOffsetX,
@@ -490,6 +510,9 @@ export function updateFrameState(currentState, partial){
 
   next.frameWidth = next.outerFrameWidth;
   next.innerPadding = 0;
+  next.artisticPhotoScale = next.photoScale;
+  next.artisticOffsetX = next.photoOffsetX;
+  next.artisticOffsetY = next.photoOffsetY;
 
   next.galleryPhotoScale = clampNumber(next.galleryPhotoScale, 40, 180, 100);
   next.galleryOffsetX = clampNumber(next.galleryOffsetX, -100, 100, 0);
@@ -612,9 +635,19 @@ function migrateLegacyFields(state){
   if (!next.framePresentation) {
     next.framePresentation = next.artisticFrameId ? "artistic" : "classic";
   }
-  if (next.artisticPhotoScale == null) next.artisticPhotoScale = 100;
-  if (next.artisticOffsetX == null) next.artisticOffsetX = 0;
-  if (next.artisticOffsetY == null) next.artisticOffsetY = 0;
+  if (next.photoScale == null) {
+    next.photoScale = next.artisticPhotoScale == null ? 100 : next.artisticPhotoScale;
+  }
+  if (next.photoOffsetX == null) {
+    next.photoOffsetX = next.artisticOffsetX == null ? 0 : next.artisticOffsetX;
+  }
+  if (next.photoOffsetY == null) {
+    next.photoOffsetY = next.artisticOffsetY == null ? 0 : next.artisticOffsetY;
+  }
+  // Keep legacy artistic* keys mirrored for older drafts / readers.
+  next.artisticPhotoScale = next.photoScale;
+  next.artisticOffsetX = next.photoOffsetX;
+  next.artisticOffsetY = next.photoOffsetY;
   if (next.artisticFrameWidth == null) next.artisticFrameWidth = 100;
   if (next.artisticCornerRadius == null) next.artisticCornerRadius = 0;
   next.innerPadding = 0;

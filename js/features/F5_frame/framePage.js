@@ -70,7 +70,7 @@ export async function renderFramePage(root, navigate){
           <canvas id="editorCanvas" class="hidden crystal-canvas frame-canvas"></canvas>
         </div>
 
-        <p class="note hidden" id="galleryGestureHint">拖曳移動作品，雙指縮放大小</p>
+        <p class="note hidden" id="galleryGestureHint">拖曳移動照片，雙指縮放大小</p>
 
         <div class="frame-category-scroller hidden" id="frameCategoryBar" role="tablist" aria-label="畫框分類">
           <div class="frame-category-track" id="frameCategoryTrack">
@@ -139,7 +139,7 @@ export async function renderFramePage(root, navigate){
         fastPreview: Boolean(options.fastPreview ?? gestureFast)
       });
       if (serial !== renderSerial) return;
-      canvas.style.cursor = isGalleryMode(state) ? "grab" : "";
+      canvas.style.cursor = state.sourceImageDataUrl ? "grab" : "";
     } catch (error) {
       console.error("[F5 畫框] 繪製失敗：", error);
     }

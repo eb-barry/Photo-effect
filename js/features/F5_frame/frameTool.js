@@ -1,4 +1,4 @@
-// F5 畫框 - Canvas 影像處理 v0.4.3
+// F5 畫框 - Canvas 影像處理 v0.4.4
 // Classic dual materials + artistic overlay WebP; Gallery Layer-2 transparent chrome.
 
 import {
@@ -21,7 +21,8 @@ import {
   resolveAppliedFrameType,
   resolveClassicInnerMaterialId,
   resolveClassicOuterMaterialId,
-  resolvePhotoAspectKey
+  resolvePhotoAspectKey,
+  resolvePhotoPlacement
 } from "./frameState.js";
 
 /** Preview/editor max edge — keep well below native wall textures (1536–2048). */
@@ -156,6 +157,7 @@ export function resolveFrameCanvasSize(contentSize, state, maxEdge = FRAME_MAX_E
 }
 
 function classicLayerCacheKey(state, contentSize){
+  const place = resolvePhotoPlacement(state);
   return [
     "classic",
     resolveClassicOuterMaterialId(state),
@@ -166,11 +168,15 @@ function classicLayerCacheKey(state, contentSize){
     Math.round(Number(state.innerFrameWidth) || 0),
     Math.round(Number(state.cornerRadius) || 0),
     Math.round(Number(state.outerPadding) || 0),
+    Math.round(place.photoScale),
+    Math.round(place.photoOffsetX),
+    Math.round(place.photoOffsetY),
     Math.round(Number(state.opacity) || 100)
   ].join("|");
 }
 
 function artisticLayerCacheKey(state, outputSize){
+  const place = resolvePhotoPlacement(state);
   return [
     "artistic",
     state.artisticFrameId || "-",
@@ -178,9 +184,9 @@ function artisticLayerCacheKey(state, outputSize){
     outputSize.height,
     Math.round(Number(state.artisticFrameWidth) || 100),
     Math.round(Number(state.artisticCornerRadius) || 0),
-    Math.round(Number(state.artisticPhotoScale) || 100),
-    Math.round(Number(state.artisticOffsetX) || 0),
-    Math.round(Number(state.artisticOffsetY) || 0),
+    Math.round(place.photoScale),
+    Math.round(place.photoOffsetX),
+    Math.round(place.photoOffsetY),
     Math.round(Number(state.opacity) || 100)
   ].join("|");
 }
@@ -233,6 +239,7 @@ async function buildClassicFramedLayer(sourceImage, state, contentSize){
   layer.height = framedSize.height;
   const layerCtx = layer.getContext("2d");
   const contentCanvas = getOrBuildContentCanvas(sourceImage, contentSize);
+  const place = resolvePhotoPlacement(state);
 
   renderFramedPhoto(layerCtx, contentCanvas, {
     frameStyle: drawOuterId,
@@ -244,7 +251,8 @@ async function buildClassicFramedLayer(sourceImage, state, contentSize){
     outerFrameWidth: drawOuterWidth,
     innerFrameWidth: drawInnerWidth,
     contentWidth: contentSize.width,
-    contentHeight: contentSize.height
+    contentHeight: contentSize.height,
+    ...place
   });
 
   return layer;
@@ -269,13 +277,12 @@ async function buildArtisticFramedLayer(sourceImage, state, outputSize, { transp
   layer.width = outputSize.width;
   layer.height = outputSize.height;
   const layerCtx = layer.getContext("2d");
+  const place = resolvePhotoPlacement(state);
   renderArtisticFramedPhoto(layerCtx, sourceImage, frameImage, {
     opacity: (Number(state.opacity) || 100) / 100,
     artisticFrameWidth: state.artisticFrameWidth,
     artisticCornerRadius: state.artisticCornerRadius,
-    artisticPhotoScale: state.artisticPhotoScale,
-    artisticOffsetX: state.artisticOffsetX,
-    artisticOffsetY: state.artisticOffsetY,
+    ...place,
     transparentBackground,
     shadow: transparentBackground ? 18 : 28
   });
@@ -383,13 +390,12 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
     const frameImage = state.artisticFrameId
       ? await loadTextureForMaterial(state.artisticFrameId)
       : null;
+    const place = resolvePhotoPlacement(state);
     renderArtisticFramedPhoto(ctx, sourceImage, frameImage, {
       opacity: (Number(state.opacity) || 100) / 100,
       artisticFrameWidth: state.artisticFrameWidth,
       artisticCornerRadius: state.artisticCornerRadius,
-      artisticPhotoScale: state.artisticPhotoScale,
-      artisticOffsetX: state.artisticOffsetX,
-      artisticOffsetY: state.artisticOffsetY,
+      ...place,
       transparentBackground: false,
       shadow: frameImage ? 28 : 0
     });
@@ -411,6 +417,7 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
     drawInnerId ? loadTextureForMaterial(drawInnerId) : Promise.resolve(null)
   ]);
   const contentCanvas = getOrBuildContentCanvas(sourceImage, contentSize);
+  const place = resolvePhotoPlacement(state);
 
   renderFramedPhoto(ctx, contentCanvas, {
     frameStyle,
@@ -423,7 +430,8 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
     outerFrameWidth: drawOuterWidth,
     innerFrameWidth: drawInnerWidth,
     contentWidth: contentSize.width,
-    contentHeight: contentSize.height
+    contentHeight: contentSize.height,
+    ...place
   });
 }
 
