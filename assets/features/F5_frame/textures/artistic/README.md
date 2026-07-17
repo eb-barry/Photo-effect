@@ -2,7 +2,7 @@
 
 把透明背景的 WebP 畫框放在**這個資料夾**。
 
-> **重要：** 只上傳 `.webp` 不夠，必須再跑一次 sync，App 才會讀到新框。  
+> **重要：** 只上傳 `.webp` 不夠，必須再同步 `manifest.json`（Actions 手動按鈕或本機 script），App 才會讀到新框。  
 > 瀏覽器無法列目錄，清單來自本資料夾的 `manifest.json`。
 
 ## 檔名
@@ -16,13 +16,23 @@
 
 ## 新增畫框後
 
-在專案根目錄執行：
+**方式 A（推薦，不用再開 PR）：**
+
+1. 在 GitHub 上傳 `.webp` 到本資料夾（可直接推到 `main`）
+2. 開啟 **Actions** → **Sync F5 frame manifests** → **Run workflow**
+3. 選要更新的 branch（通常 `main`），執行後會自動重寫 `manifest.json` 並 commit
+4. 硬重新整理 App 即可看到新框
+
+**方式 B（本機）：**
 
 ```bash
 node scripts/sync-frame-texture-manifests.mjs
 ```
 
-會重寫本資料夾的 `manifest.json`，App 會自動載入所有 `*.webp`，之後陸續新增檔案只需重複此步驟。
+再自行 commit / push。
+
+> 只上傳 `.webp` 不夠：瀏覽器無法列目錄，App 只讀 `manifest.json`。
+
 
 ## App 內可調參數
 

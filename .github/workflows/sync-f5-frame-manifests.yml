@@ -1,0 +1,62 @@
+# Manually sync F5 frame texture / wall / artistic manifests from *.webp files.
+# GitHub → Actions → "Sync F5 frame manifests" → Run workflow
+
+name: Sync F5 frame manifests
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_changes:
+        description: "Commit and push updated manifest.json files to this branch"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-f5-frame-manifests
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Needed so the push can update the branch that triggered the run
+          # (for workflow_dispatch this is the branch selected in the UI).
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Regenerate manifests
+        run: node scripts/sync-frame-texture-manifests.mjs
+
+      - name: Detect changes
+        id: changes
+        run: |
+          if git diff --quiet -- \
+            'assets/features/F5_frame/**/manifest.json'; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No manifest changes."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git status --short -- 'assets/features/F5_frame/**/manifest.json'
+          fi
+
+      - name: Commit and push manifests
+        if: >-
+          steps.changes.outputs.changed == 'true' &&
+          (inputs.commit_changes == true || inputs.commit_changes == 'true')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          find assets/features/F5_frame -name manifest.json -print0 | xargs -0 git add
+          git commit -m "chore(F5): sync frame texture manifests from WebP files"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
