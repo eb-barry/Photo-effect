@@ -31,7 +31,12 @@ Avoid unrelated refactoring.
 
 ## F5 frame assets
 
-Drop new WebP files into the matching folder, then regenerate manifests:
+Drop new WebP files into the matching folder, then regenerate manifests.
+
+**Manual (no extra sync PR):** GitHub → **Actions** → **Sync F5 frame manifests** → **Run workflow**  
+(select `main` or your branch; the Action rewrites `manifest.json` and commits)
+
+**Local:**
 
 ```bash
 node scripts/sync-frame-texture-manifests.mjs

@@ -66,9 +66,10 @@ service-worker.js
 index.html
 ```
 
-After adding or renaming F5 `.webp` textures / walls / artistic overlays, run:
+After adding or renaming F5 `.webp` textures / walls / artistic overlays, regenerate manifests via:
 
-`node scripts/sync-frame-texture-manifests.mjs`
+- GitHub Actions → **Sync F5 frame manifests** → **Run workflow** (manual; commits `manifest.json`), or
+- `node scripts/sync-frame-texture-manifests.mjs` locally
 
 ## 5. CSS Standard
 
