@@ -858,6 +858,35 @@ body.magic-sky-scroll-locked {
   margin-top: 8px;
 }
 
+.frame-classic-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.frame-classic-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.frame-row-label {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(7, 70, 68, 0.88);
+}
+
+.frame-strip-thumb {
+  background: #e7ebea;
+}
+
+.frame-strip-thumb img {
+  object-fit: cover;
+  object-position: center;
+}
+
 .frame-material-button {
   flex: 0 0 104px;
 }

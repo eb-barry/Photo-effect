@@ -1,10 +1,12 @@
-// F5 畫框 - UI v0.4.4
-// 經典雙材質 + 藝術單選疊圖 + 照片畫廊；畫布手勢縮放／移動照片。
+// F5 畫框 - UI v0.4.5
+// 經典：外框／內框兩排縮圖；藝術疊圖；照片畫廊；畫布手勢縮放／移動照片。
 
 import {
   FRAME_CATEGORIES,
   applyFrameTypeDefaults,
   getArtisticFramesForPhoto,
+  getClassicInnerFrames,
+  getClassicOuterFrames,
   getFrameTypesForCategory,
   getGalleryScenesForPhoto,
   getParametersForContext,
@@ -13,7 +15,8 @@ import {
   pickDefaultGallerySceneId,
   resetFrameAdjustments,
   resolvePhotoPlacement,
-  toggleClassicMaterialSelection,
+  selectArtisticFrame,
+  selectClassicFrameRole,
   updateFrameState
 } from "./frameState.js";
 
@@ -31,6 +34,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
   const categoryNote = root.querySelector("#frameCategoryNote");
   const sceneHost = root.querySelector("#galleryWallHost");
   const scenePanel = root.querySelector("#galleryWallPanel");
+  const controlsPanel = root.querySelector("#frameControlsPanel");
   const galleryHint = root.querySelector("#galleryGestureHint")
     || root.querySelector("#photoGestureHint");
   const paramSelect = root.querySelector("#frameParamSelect");
@@ -62,6 +66,13 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     });
   }
 
+  /** When classic/artistic material picker is open, hide adjust panel (per classic UX). */
+  function refreshControlsPanelVisibility(){
+    if (!controlsPanel || !state.sourceImageDataUrl) return;
+    const picking = state.activeCategory === "classic" || state.activeCategory === "artistic";
+    controlsPanel.classList.toggle("hidden", picking);
+  }
+
   function refreshMaterialPanel(){
     const categoryId = state.activeCategory;
     const expanded = Boolean(categoryId) && categoryId !== "gallery";
@@ -70,6 +81,29 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     if (!expanded) {
       if (categoryId !== "gallery") categoryNote?.classList.add("hidden");
       if (materialHost) materialHost.innerHTML = "";
+      refreshControlsPanelVisibility();
+      return;
+    }
+
+    if (categoryId === "classic") {
+      const outerTypes = getClassicOuterFrames();
+      const innerTypes = getClassicInnerFrames();
+      if (!outerTypes.length && !innerTypes.length) {
+        if (materialHost) materialHost.innerHTML = "";
+        if (categoryNote) {
+          categoryNote.classList.remove("hidden");
+          categoryNote.textContent = "尚無經典畫框材質：請放入 classic-*.webp / inner-*.webp（2560×256），再同步 manifest";
+        }
+        refreshControlsPanelVisibility();
+        return;
+      }
+      categoryNote?.classList.add("hidden");
+      if (materialHost) {
+        materialHost.innerHTML = renderClassicDualRows(outerTypes, innerTypes);
+        materialHost.querySelectorAll("[data-frame-material-carousel]").forEach(setupMaterialCarousel);
+      }
+      refreshMaterialButtons();
+      refreshControlsPanelVisibility();
       return;
     }
 
@@ -84,11 +118,12 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
       if (categoryNote) {
         categoryNote.classList.remove("hidden");
         if (categoryId === "artistic") {
-          categoryNote.textContent = "尚無藝術畫框：請放入 assets/features/F5_frame/textures/artistic/（art-3x4-*.webp / art-4x3-*.webp），再執行 node scripts/sync-frame-texture-manifests.mjs";
+          categoryNote.textContent = "尚無藝術畫框：請放入 assets/features/F5_frame/textures/artistic/（art-3x4-*.webp / art-4x3-*.webp），再執行 sync";
         } else {
           categoryNote.textContent = `${meta?.label || "此分類"}即將推出`;
         }
       }
+      refreshControlsPanelVisibility();
       return;
     }
 
@@ -99,12 +134,14 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
       if (carousel) setupMaterialCarousel(carousel);
     }
     refreshMaterialButtons();
+    refreshControlsPanelVisibility();
   }
 
   function refreshMaterialButtons(){
     root.querySelectorAll("[data-frame-type]").forEach(button => {
       const categoryId = button.dataset.frameCategory;
       const typeId = button.dataset.frameType;
+      const role = button.dataset.frameRole;
 
       if (categoryId === "artistic") {
         const active = state.artisticFrameId === typeId;
@@ -116,24 +153,14 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
       }
 
       if (categoryId === "classic") {
-        const isOuter = state.outerFrameTypeId === typeId;
-        const isInner = state.innerFrameTypeId === typeId;
-        button.classList.toggle("active", isOuter || isInner);
-        button.classList.toggle("is-outer-frame", isOuter);
-        button.classList.toggle("is-inner-frame", isInner);
-        button.setAttribute("aria-pressed", String(isOuter || isInner));
-
-        let badge = button.querySelector(".frame-material-role");
-        if (isOuter || isInner) {
-          if (!badge) {
-            badge = document.createElement("span");
-            badge.className = "frame-material-role";
-            button.appendChild(badge);
-          }
-          badge.textContent = isOuter && isInner ? "外+內" : isOuter ? "外框" : "內框";
-        } else if (badge) {
-          badge.remove();
-        }
+        const active = role === "inner"
+          ? state.innerFrameTypeId === typeId
+          : state.outerFrameTypeId === typeId;
+        button.classList.toggle("active", active);
+        button.classList.toggle("is-outer-frame", role === "outer" && active);
+        button.classList.toggle("is-inner-frame", role === "inner" && active);
+        button.setAttribute("aria-pressed", String(active));
+        button.querySelector(".frame-material-role")?.remove();
         return;
       }
 
@@ -231,6 +258,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     refreshGestureHint();
     refreshParamSelect();
     refreshSlider();
+    refreshControlsPanelVisibility();
   }
 
   function toggleCategory(categoryId){
@@ -248,9 +276,11 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
         if (state.artisticFrameId) {
           patch.frameTypeId = state.artisticFrameId;
         }
-      } else if (state.outerFrameTypeId || state.innerFrameTypeId) {
-        patch.frameTypeId = state.outerFrameTypeId || state.innerFrameTypeId;
+      } else {
         patch.framePresentation = "classic";
+        if (state.outerFrameTypeId || state.innerFrameTypeId) {
+          patch.frameTypeId = state.outerFrameTypeId || state.innerFrameTypeId;
+        }
       }
     }
     Object.assign(state, updateFrameState(state, patch));
@@ -270,9 +300,21 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     event.preventDefault();
     const categoryId = button.dataset.frameCategory;
     const frameTypeId = button.dataset.frameType;
+    const role = button.dataset.frameRole;
 
-    if (categoryId === "classic" || categoryId === "artistic") {
-      Object.assign(state, toggleClassicMaterialSelection(state, frameTypeId, categoryId));
+    if (categoryId === "classic") {
+      Object.assign(state, selectClassicFrameRole(state, frameTypeId, role === "inner" ? "inner" : "outer"));
+      onMaterialChange();
+      refreshMaterialButtons();
+      refreshParamSelect();
+      refreshSlider();
+      scheduleRender({ fastPreview: false });
+      persistDraft();
+      return;
+    }
+
+    if (categoryId === "artistic") {
+      Object.assign(state, selectArtisticFrame(state, frameTypeId));
       onMaterialChange();
       refreshMaterialButtons();
       refreshParamSelect();
@@ -373,28 +415,54 @@ export function renderAdjustControlsPanel(){
   `;
 }
 
-export function renderMaterialCarousel(types, categoryId){
-  const dual = categoryId === "classic";
+export function renderClassicDualRows(outerTypes, innerTypes){
+  return `
+    <div class="frame-classic-rows">
+      <div class="frame-classic-row">
+        <p class="frame-row-label">外框</p>
+        ${renderMaterialCarousel(outerTypes, "classic", "outer")}
+      </div>
+      <div class="frame-classic-row">
+        <p class="frame-row-label">內框</p>
+        ${innerTypes.length
+          ? renderMaterialCarousel(innerTypes, "classic", "inner")
+          : `<p class="note">尚無內框材質（inner-*.webp）</p>`}
+      </div>
+    </div>
+  `;
+}
+
+export function renderMaterialCarousel(types, categoryId, role = null){
   const artistic = categoryId === "artistic";
+  const classicRole = categoryId === "classic" ? (role || "outer") : null;
   const buttons = types.map(item => `
     <button
       type="button"
       class="crystal-scene-button frame-material-button"
       data-frame-category="${categoryId}"
       data-frame-type="${item.id}"
+      ${classicRole ? `data-frame-role="${classicRole}"` : ""}
       aria-label="${item.label}"
-      title="${dual ? `${item.label}（點選設為外框／內框）` : artistic ? `${item.label}（點選套用藝術畫框）` : item.label}"
+      title="${artistic ? `${item.label}（點選套用藝術畫框）` : item.label}"
     >
-      <span class="crystal-scene-thumb frame-material-thumb">
+      <span class="crystal-scene-thumb frame-material-thumb${classicRole ? " frame-strip-thumb" : ""}">
         <img data-src="${item.thumb}" alt="" loading="lazy" decoding="async" />
       </span>
     </button>
   `).join("");
 
+  const aria = classicRole === "inner"
+    ? "內框材質"
+    : classicRole === "outer"
+      ? "外框材質"
+      : artistic
+        ? "藝術畫框"
+        : "畫框材質";
+
   return `
-    <div class="crystal-asset-carousel" data-frame-material-carousel="${categoryId}">
+    <div class="crystal-asset-carousel" data-frame-material-carousel="${categoryId}${classicRole ? `-${classicRole}` : ""}">
       <span class="crystal-carousel-hint crystal-carousel-hint-left hidden" aria-hidden="true"></span>
-      <div class="crystal-asset-track" role="group" aria-label="${dual ? "外框與內框材質" : artistic ? "藝術畫框" : "畫框材質"}">${buttons}</div>
+      <div class="crystal-asset-track" role="group" aria-label="${aria}">${buttons}</div>
       <span class="crystal-carousel-hint crystal-carousel-hint-right hidden" aria-hidden="true"></span>
     </div>
   `;
@@ -505,11 +573,7 @@ function enablePhotoPlacementGesture(canvas, state, setPartialState, hooks = {})
 
   const canGesture = () => Boolean(state.sourceImageDataUrl);
 
-  const placementMode = () => {
-    if (isGalleryMode(state)) return "gallery";
-    if (isArtisticMode(state)) return "photo";
-    return "photo";
-  };
+  const placementMode = () => (isGalleryMode(state) ? "gallery" : "photo");
 
   canvas.addEventListener("pointerdown", event => {
     if (!canGesture()) return;

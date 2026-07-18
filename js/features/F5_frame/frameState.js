@@ -1,8 +1,8 @@
-// F5 畫框 - 狀態管理 v0.4.4
-// Classic dual materials + artistic overlay + Photo Gallery (wall scenes).
+// F5 畫框 - 狀態管理 v0.4.5
+// Classic strip rails (outer/inner) + artistic overlay + Photo Gallery.
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.4.4";
+export const FRAME_FEATURE_VERSION = "0.4.5";
 export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v8";
 
 export const FRAME_CATEGORIES = [
@@ -114,7 +114,10 @@ export function setFrameTypesFromCatalog(categoryId, catalogItems = []){
     file: item.file,
     asset: item.asset,
     aspect: item.aspect || null,
-    kind: item.kind || (categoryId === "artistic" ? "overlay" : "texture"),
+    kind: item.kind || (categoryId === "artistic" ? "overlay" : categoryId === "classic" ? "strip" : "texture"),
+    role: item.role || (categoryId === "classic"
+      ? (/(^|[-_])inner([-_]|$)/i.test(String(item.id || item.file || "")) ? "inner" : "outer")
+      : null),
     defaults: item.defaults || undefined
   }));
 }
@@ -122,6 +125,14 @@ export function setFrameTypesFromCatalog(categoryId, catalogItems = []){
 export function getFrameTypesForCategory(categoryId){
   if (categoryId === "gallery" || categoryId === "professional") return [];
   return dynamicFrameTypes[categoryId] || [];
+}
+
+export function getClassicOuterFrames(){
+  return getFrameTypesForCategory("classic").filter(item => item.role !== "inner");
+}
+
+export function getClassicInnerFrames(){
+  return getFrameTypesForCategory("classic").filter(item => item.role === "inner");
 }
 
 export function findFrameType(categoryId, frameTypeId){
@@ -183,6 +194,8 @@ export function resolveClassicMaterialId(state){
 }
 
 export function getFirstAvailableFrameType(){
+  const firstOuter = getClassicOuterFrames()[0];
+  if (firstOuter) return firstOuter;
   for (const category of FRAME_CATEGORIES) {
     if (category.id === "gallery") continue;
     const first = getFrameTypesForCategory(category.id)[0];
@@ -283,64 +296,69 @@ export function getParametersForContext(state){
 }
 
 /**
- * Classic / artistic material click:
- * - same as outer → clear outer
- * - same as inner → clear inner
- * - else if no outer → set outer
- * - else if no inner → set inner
- * - else (both set) → replace outer with the new material
+ * Select classic outer or inner strip material (single-select per row).
+ * role: "outer" | "inner"
+ * Tap same item again to clear (inner) or keep outer required.
  */
-export function toggleClassicMaterialSelection(currentState, frameTypeId, categoryId = "classic"){
-  // Artistic overlays use selectArtisticFrame (single overlay), not dual materials.
-  if (categoryId === "artistic") {
-    return selectArtisticFrame(currentState, frameTypeId);
-  }
-  const materialCategory = "classic";
-  const type = findFrameType(materialCategory, frameTypeId) || findFrameTypeAnywhere(frameTypeId)?.type;
-  const id = type?.id || frameTypeId;
-  let outerFrameTypeId = currentState.outerFrameTypeId || null;
-  let innerFrameTypeId = currentState.innerFrameTypeId || null;
+export function selectClassicFrameRole(currentState, frameTypeId, role = "outer"){
+  const type = findFrameType("classic", frameTypeId) || findFrameTypeAnywhere(frameTypeId)?.type;
+  const id = type?.id || frameTypeId || null;
+  if (!id) return currentState;
 
-  if (outerFrameTypeId === id) {
-    outerFrameTypeId = null;
-  } else if (innerFrameTypeId === id) {
-    innerFrameTypeId = null;
-  } else if (!outerFrameTypeId) {
-    outerFrameTypeId = id;
-  } else if (!innerFrameTypeId) {
-    innerFrameTypeId = id;
-  } else {
-    outerFrameTypeId = id;
+  if (role === "inner") {
+    const nextInner = currentState.innerFrameTypeId === id ? null : id;
+    const patch = {
+      selectedCategoryId: "classic",
+      activeCategory: "classic",
+      innerFrameTypeId: nextInner,
+      framePresentation: "classic"
+    };
+    if (nextInner && (Number(currentState.innerFrameWidth) || 0) <= 0) {
+      patch.innerFrameWidth = 16;
+    }
+    if (!nextInner) {
+      patch.innerFrameWidth = 0;
+    }
+    if (!currentState.outerFrameTypeId) {
+      const firstOuter = getClassicOuterFrames()[0]?.id;
+      if (firstOuter) {
+        patch.outerFrameTypeId = firstOuter;
+        patch.classicFrameTypeId = firstOuter;
+        patch.frameTypeId = firstOuter;
+      }
+    } else {
+      patch.classicFrameTypeId = currentState.outerFrameTypeId;
+      patch.frameTypeId = currentState.outerFrameTypeId;
+    }
+    return updateFrameState(currentState, patch);
   }
 
-  if (!outerFrameTypeId && !innerFrameTypeId) {
-    const fallback = getFrameTypesForCategory(materialCategory)[0]?.id
-      || getFrameTypesForCategory("classic")[0]?.id
-      || "wood";
-    outerFrameTypeId = fallback;
-  }
-
-  const primaryId = outerFrameTypeId || innerFrameTypeId;
+  // Outer: always set (required). Tap same keeps selected.
   const patch = {
-    selectedCategoryId: materialCategory,
-    activeCategory: materialCategory,
-    outerFrameTypeId,
-    innerFrameTypeId,
-    classicFrameTypeId: primaryId,
-    frameTypeId: primaryId,
-    framePresentation: "classic"
+    selectedCategoryId: "classic",
+    activeCategory: "classic",
+    outerFrameTypeId: id,
+    classicFrameTypeId: id,
+    frameTypeId: id,
+    framePresentation: "classic",
+    outerFrameWidth: Math.max(4, Number(currentState.outerFrameWidth) || 40)
   };
-
-  if (innerFrameTypeId && (Number(currentState.innerFrameWidth) || 0) <= 0) {
-    patch.innerFrameWidth = 16;
-  }
-
   return updateFrameState(currentState, patch);
 }
 
+/** @deprecated use selectClassicFrameRole / selectArtisticFrame */
+export function toggleClassicMaterialSelection(currentState, frameTypeId, categoryId = "classic"){
+  if (categoryId === "artistic") {
+    return selectArtisticFrame(currentState, frameTypeId);
+  }
+  const type = findFrameType("classic", frameTypeId) || findFrameTypeAnywhere(frameTypeId)?.type;
+  const role = type?.role === "inner" ? "inner" : "outer";
+  return selectClassicFrameRole(currentState, frameTypeId, role);
+}
+
 export function createDefaultFrameState(){
-  const firstClassic = getFrameTypesForCategory("classic")[0];
-  const outerId = firstClassic?.id || "wood";
+  const firstOuter = getClassicOuterFrames()[0] || getFrameTypesForCategory("classic")[0];
+  const outerId = firstOuter?.id || "classic-1";
   return {
     featureId: FRAME_FEATURE_ID,
     featureVersion: FRAME_FEATURE_VERSION,
@@ -464,17 +482,20 @@ export function updateFrameState(currentState, partial){
   if (next.selectedCategoryId === "gallery") {
     next.frameTypeId = "gallery";
   } else if (next.selectedCategoryId === "classic") {
-    const types = getFrameTypesForCategory("classic");
-    const typeIds = new Set(types.map(item => item.id));
+    const outerTypes = getClassicOuterFrames();
+    const innerTypes = getClassicInnerFrames();
+    const outerIds = new Set(outerTypes.map(item => item.id));
+    const innerIds = new Set(innerTypes.map(item => item.id));
 
-    if (next.outerFrameTypeId && typeIds.size && !typeIds.has(next.outerFrameTypeId)) {
-      next.outerFrameTypeId = types[0]?.id || "wood";
+    if (next.outerFrameTypeId && outerIds.size && !outerIds.has(next.outerFrameTypeId)) {
+      next.outerFrameTypeId = outerTypes[0]?.id || null;
     }
-    if (next.innerFrameTypeId && typeIds.size && !typeIds.has(next.innerFrameTypeId)) {
+    if (next.innerFrameTypeId && innerIds.size && !innerIds.has(next.innerFrameTypeId)) {
+      // Legacy draft may have pointed outer id at inner slot — clear invalid.
       next.innerFrameTypeId = null;
     }
-    if (!next.outerFrameTypeId && !next.innerFrameTypeId) {
-      next.outerFrameTypeId = types[0]?.id || next.classicFrameTypeId || "wood";
+    if (!next.outerFrameTypeId) {
+      next.outerFrameTypeId = outerTypes[0]?.id || next.classicFrameTypeId || "classic-1";
     }
     next.classicFrameTypeId = next.outerFrameTypeId || next.innerFrameTypeId;
     next.frameTypeId = next.classicFrameTypeId;
@@ -531,7 +552,9 @@ export function updateFrameState(currentState, partial){
 
 export function applyFrameTypeDefaults(currentState, categoryId, frameTypeId){
   if (categoryId === "classic") {
-    return toggleClassicMaterialSelection(currentState, frameTypeId, "classic");
+    const type = findFrameType("classic", frameTypeId);
+    const role = type?.role === "inner" ? "inner" : "outer";
+    return selectClassicFrameRole(currentState, frameTypeId, role);
   }
   if (categoryId === "artistic") {
     return selectArtisticFrame(currentState, frameTypeId);

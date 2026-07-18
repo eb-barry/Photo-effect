@@ -266,9 +266,9 @@ export async function renderFramePage(root, navigate){
         sourceImageDataUrl: dataUrl,
         activeCategory: "classic",
         selectedCategoryId: "classic",
-        frameTypeId: first?.id || state.classicFrameTypeId || "wood",
-        classicFrameTypeId: first?.id || state.classicFrameTypeId || "wood",
-        outerFrameTypeId: first?.id || state.outerFrameTypeId || "wood",
+        frameTypeId: first?.id || state.classicFrameTypeId || "classic-1",
+        classicFrameTypeId: first?.id || state.classicFrameTypeId || "classic-1",
+        outerFrameTypeId: first?.id || state.outerFrameTypeId || "classic-1",
         innerFrameTypeId: state.innerFrameTypeId || null
       });
       if (!applied) return;
