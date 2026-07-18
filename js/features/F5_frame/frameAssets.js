@@ -148,8 +148,18 @@ function normalizeManifestItem(item, basePath, categoryId, index){
     thumb: asset,
     categoryId,
     aspect: item.aspect || inferAspectFromName(baseName),
-    kind: item.kind || (categoryId === "artistic" ? "overlay" : "texture")
+    kind: item.kind
+      || (categoryId === "artistic" ? "overlay" : null)
+      || (categoryId === "classic" ? "strip" : "texture"),
+    role: item.role || inferClassicRole(baseName, categoryId)
   };
+}
+
+function inferClassicRole(name, categoryId){
+  if (categoryId !== "classic") return null;
+  const text = String(name).toLowerCase();
+  if (/(^|[-_])inner([-_]|$)/.test(text)) return "inner";
+  return "outer";
 }
 
 function inferAspectFromName(name){

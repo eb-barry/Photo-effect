@@ -116,14 +116,18 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
   if (effectiveOuter > 0) {
     ctx.save();
     ctx.globalAlpha = opacity;
-    const fill = createMaterialFillStyle(ctx, outerMaterialId, {
-      textureImage: outerTexture,
-      size: 256,
-      opacity: 1
-    });
-    ctx.fillStyle = fill || rgbCss(getMaterialPreset(outerMaterialId).base);
-    roundRect(ctx, outerX, outerY, outerW, outerH, outerRadius);
-    ctx.fill();
+    if (outerTexture && isStripTexture(outerTexture)) {
+      drawStripFrameRing(ctx, outerTexture, outerX, outerY, outerW, outerH, effectiveOuter);
+    } else {
+      const fill = createMaterialFillStyle(ctx, outerMaterialId, {
+        textureImage: outerTexture,
+        size: 256,
+        opacity: 1
+      });
+      ctx.fillStyle = fill || rgbCss(getMaterialPreset(outerMaterialId).base);
+      roundRect(ctx, outerX, outerY, outerW, outerH, outerRadius);
+      ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -136,20 +140,30 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
   if (effectiveInner > 0 && innerMaterialId) {
     ctx.save();
     ctx.globalAlpha = opacity;
-    const fill = createMaterialFillStyle(ctx, innerMaterialId, {
-      textureImage: innerTexture,
-      size: 256,
-      opacity: 1
-    });
-    ctx.fillStyle = fill || rgbCss(getMaterialPreset(innerMaterialId).base);
-    roundRect(ctx, innerX, innerY, innerW, innerH, innerRadius);
-    ctx.fill();
+    if (innerTexture && isStripTexture(innerTexture)) {
+      drawStripFrameRing(ctx, innerTexture, innerX, innerY, innerW, innerH, effectiveInner);
+    } else {
+      const fill = createMaterialFillStyle(ctx, innerMaterialId, {
+        textureImage: innerTexture,
+        size: 256,
+        opacity: 1
+      });
+      ctx.fillStyle = fill || rgbCss(getMaterialPreset(innerMaterialId).base);
+      roundRect(ctx, innerX, innerY, innerW, innerH, innerRadius);
+      ctx.fill();
+    }
     ctx.restore();
   }
 
   ctx.save();
   roundRect(ctx, photoX, photoY, photoW, photoH, Math.max(0, cornerRadius * 0.5));
   ctx.clip();
+  if (!(outerTexture && isStripTexture(outerTexture)) && !(innerTexture && isStripTexture(innerTexture))) {
+    // Non-strip fills cover the photo hole; keep previous behavior (photo over paint).
+  } else if (!transparentBackground) {
+    ctx.fillStyle = frameStyle === "filmBorder" ? "#0b0b0c" : "rgba(245, 248, 247, 1)";
+    ctx.fillRect(photoX, photoY, photoW, photoH);
+  }
   drawPlacedPhoto(ctx, sourceImage, photoX, photoY, photoW, photoH, {
     photoScale: options.photoScale,
     photoOffsetX: options.photoOffsetX,
@@ -157,7 +171,7 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
   });
   ctx.restore();
 
-  if (effectiveOuter > 0) {
+  if (effectiveOuter > 0 && !(outerTexture && isStripTexture(outerTexture))) {
     drawFrameBevel(ctx, {
       outerX, outerY, outerW, outerH,
       frameWidth: effectiveOuter,
@@ -166,7 +180,7 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
       frameStyle
     });
   }
-  if (effectiveInner > 0 && innerMaterialId) {
+  if (effectiveInner > 0 && innerMaterialId && !(innerTexture && isStripTexture(innerTexture))) {
     drawFrameBevel(ctx, {
       outerX: innerX,
       outerY: innerY,
@@ -270,6 +284,48 @@ function roundRect(ctx, x, y, w, h, radius){
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
+}
+
+function isStripTexture(image){
+  if (!image?.width || !image?.height) return false;
+  return image.width >= image.height * 2.5;
+}
+
+/**
+ * Draw a moulding ring from a long horizontal strip (e.g. 2560×256).
+ * Each side stretches the strip along its length; corners rotate 90°.
+ */
+function drawStripFrameRing(ctx, stripImage, x, y, w, h, frameWidth){
+  const fw = Math.max(1, Math.min(frameWidth, Math.min(w, h) / 2));
+  if (fw <= 0 || w <= 0 || h <= 0) return;
+
+  // Clockwise: top → right → bottom → left. Strip "height" faces inward.
+  drawStripRail(ctx, stripImage, x, y, w, fw, 0);
+  drawStripRail(ctx, stripImage, x + w, y, h, fw, 90);
+  drawStripRail(ctx, stripImage, x + w, y + h, w, fw, 180);
+  drawStripRail(ctx, stripImage, x, y + h, h, fw, 270);
+}
+
+function drawStripRail(ctx, stripImage, originX, originY, length, thickness, angleDeg){
+  if (length <= 0 || thickness <= 0 || !stripImage) return;
+  ctx.save();
+  ctx.translate(originX, originY);
+  ctx.rotate((angleDeg * Math.PI) / 180);
+  // Soft miter: clip a trapezoid so corners meet cleanly.
+  const m = Math.min(thickness, length / 2);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(length, 0);
+  ctx.lineTo(length - m, thickness);
+  ctx.lineTo(m, thickness);
+  ctx.closePath();
+  ctx.clip();
+  ctx.drawImage(
+    stripImage,
+    0, 0, stripImage.width, stripImage.height,
+    0, 0, length, thickness
+  );
+  ctx.restore();
 }
 
 /** Cover-fit photo inside a window with optional scale / pan (percent). */

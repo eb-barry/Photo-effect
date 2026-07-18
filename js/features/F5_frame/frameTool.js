@@ -1,5 +1,5 @@
-// F5 畫框 - Canvas 影像處理 v0.4.4
-// Classic dual materials + artistic overlay WebP; Gallery Layer-2 transparent chrome.
+// F5 畫框 - Canvas 影像處理 v0.4.5
+// Classic strip rails (90°) + artistic overlay; Gallery Layer-2 transparent chrome.
 
 import {
   mapStyleToMaterial,

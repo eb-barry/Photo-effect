@@ -80,6 +80,10 @@ function titleLabel(name){
     const orient = aspect === "4x3" ? "橫式" : "直式";
     return pretty ? `${orient}藝術 ${pretty}` : `${orient}藝術畫框`;
   }
+  const classic = String(name).match(/^classic[-_]?(\d+)$/i);
+  if (classic) return `外框 ${Number(classic[1])}`;
+  const inner = String(name).match(/^inner[-_]?(\d+)$/i);
+  if (inner) return `內框 ${Number(inner[1])}`;
   return String(name)
     .replace(/[-_]+/g, " ")
     .replace(/\s+/g, " ")
@@ -113,6 +117,17 @@ function inferAspectFromFile(file){
   return null;
 }
 
+function inferClassicRole(file){
+  const name = String(file).toLowerCase();
+  if (/^inner[-_]?\d*\.webp$/i.test(name) || /(^|[-_])inner([-_]|$)/i.test(name)) {
+    return "inner";
+  }
+  if (/^classic[-_]?\d*\.webp$/i.test(name) || /(^|[-_])classic([-_]|$)/i.test(name)) {
+    return "outer";
+  }
+  return "outer";
+}
+
 function syncCategory(category){
   const absDir = path.join(root, category.dir);
   if (!fs.existsSync(absDir)) {
@@ -133,10 +148,17 @@ function syncCategory(category){
     const entry = { id, label, file };
     if (aspect) entry.aspect = aspect;
     if (category.id === "artistic") entry.kind = "overlay";
+    if (category.id === "classic") {
+      entry.kind = "strip";
+      entry.role = inferClassicRole(file);
+    }
     return entry;
   });
 
   items.sort((a, b) => {
+    if (a.role && b.role && a.role !== b.role) {
+      return a.role === "outer" ? -1 : 1;
+    }
     const ai = PREFERRED_ORDER.indexOf(a.id);
     const bi = PREFERRED_ORDER.indexOf(b.id);
     if (ai !== -1 || bi !== -1) {
