@@ -1,5 +1,5 @@
-// F5 畫框 - UI v0.4.5
-// 經典：外框／內框兩排縮圖；藝術疊圖；照片畫廊；畫布手勢縮放／移動照片。
+// F5 畫框 - UI v0.4.6
+// L1：經典／藝術／照片畫廊／參數調整。材質分頁只顯示縮圖；參數集中於參數調整。
 
 import {
   FRAME_CATEGORIES,
@@ -10,7 +10,7 @@ import {
   getFrameTypesForCategory,
   getGalleryScenesForPhoto,
   getParametersForContext,
-  isArtisticMode,
+  isAdjustMode,
   isGalleryMode,
   pickDefaultGallerySceneId,
   resetFrameAdjustments,
@@ -66,19 +66,19 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     });
   }
 
-  /** When classic/artistic material picker is open, hide adjust panel (per classic UX). */
+  /** 參數調整分頁才顯示滑桿；材質／畫廊分頁只顯示縮圖。 */
   function refreshControlsPanelVisibility(){
-    if (!controlsPanel || !state.sourceImageDataUrl) return;
-    const picking = state.activeCategory === "classic" || state.activeCategory === "artistic";
-    controlsPanel.classList.toggle("hidden", picking);
+    if (!controlsPanel) return;
+    const show = Boolean(state.sourceImageDataUrl) && isAdjustMode(state);
+    controlsPanel.classList.toggle("hidden", !show);
   }
 
   function refreshMaterialPanel(){
     const categoryId = state.activeCategory;
-    const expanded = Boolean(categoryId) && categoryId !== "gallery";
-    materialPanel?.classList.toggle("hidden", !expanded);
+    const showMaterials = categoryId === "classic" || categoryId === "artistic";
+    materialPanel?.classList.toggle("hidden", !showMaterials);
 
-    if (!expanded) {
+    if (!showMaterials) {
       if (categoryId !== "gallery") categoryNote?.classList.add("hidden");
       if (materialHost) materialHost.innerHTML = "";
       refreshControlsPanelVisibility();
@@ -264,7 +264,10 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
   function toggleCategory(categoryId){
     const nextCategory = state.activeCategory === categoryId ? null : categoryId;
     const patch = { activeCategory: nextCategory };
-    if (nextCategory === "gallery") {
+
+    if (nextCategory === "adjust") {
+      // 參數調整：隱藏縮圖、顯示統一參數；不改變目前材質／畫廊渲染模式。
+    } else if (nextCategory === "gallery") {
       patch.selectedCategoryId = "gallery";
       patch.frameTypeId = "gallery";
       const photo = getPhotoSize();
@@ -283,6 +286,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
         }
       }
     }
+
     Object.assign(state, updateFrameState(state, patch));
     refreshAllControls();
     scheduleRender({ fastPreview: false });
@@ -355,7 +359,11 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     const config = getParameterConfig();
     Object.assign(state, updateFrameState(state, { [config.id]: Number(slider.value) }));
     if (sliderValue) sliderValue.textContent = formatParameterValue(state[config.id], config);
-    const fast = isGalleryMode(state) && String(config.id).startsWith("gallery");
+    const fast = isGalleryMode(state) && (
+      config.id === "photoScale"
+      || config.id === "photoOffsetX"
+      || config.id === "photoOffsetY"
+    );
     scheduleRender({ fastPreview: fast });
   });
 
@@ -402,8 +410,8 @@ export function renderCategoryScroller(){
 export function renderAdjustControlsPanel(){
   return `
     <div class="selection-row crystal-adjust-row">
-      <label for="frameParamSelect" class="selection-label">調整項目</label>
-      <select id="frameParamSelect" class="select-control" aria-label="調整項目"></select>
+      <label for="frameParamSelect" class="selection-label">參數調整</label>
+      <select id="frameParamSelect" class="select-control" aria-label="參數調整"></select>
     </div>
     <div class="slider-row" id="frameSliderRow">
       <div class="slider-head">
@@ -589,11 +597,7 @@ function enablePhotoPlacementGesture(canvas, state, setPartialState, hooks = {})
       lastDrag = { x: event.clientX, y: event.clientY };
     } else if (pointers.size === 2) {
       lastPinchDistance = getTwoPointerDistance();
-      if (placementMode() === "gallery") {
-        startScale = Number(state.galleryPhotoScale || 100);
-      } else {
-        startScale = resolvePhotoPlacement(state).photoScale;
-      }
+      startScale = resolvePhotoPlacement(state).photoScale;
       lastDrag = null;
     }
   });
@@ -607,13 +611,7 @@ function enablePhotoPlacementGesture(canvas, state, setPartialState, hooks = {})
       const distance = getTwoPointerDistance();
       if (lastPinchDistance > 0 && distance > 0) {
         const nextScale = clamp(startScale * (distance / lastPinchDistance), 80, 160);
-        if (placementMode() === "gallery") {
-          setPartialState({
-            galleryPhotoScale: clamp(startScale * (distance / lastPinchDistance), 40, 180)
-          });
-        } else {
-          setPartialState({ photoScale: nextScale });
-        }
+        setPartialState({ photoScale: nextScale });
       }
       return;
     }
@@ -628,18 +626,11 @@ function enablePhotoPlacementGesture(canvas, state, setPartialState, hooks = {})
     const dy = (event.clientY - lastDrag.y) / Math.max(1, rect.height);
     lastDrag = { x: event.clientX, y: event.clientY };
 
-    if (placementMode() === "gallery") {
-      setPartialState({
-        galleryOffsetX: clamp(Number(state.galleryOffsetX || 0) + dx * 165, -100, 100),
-        galleryOffsetY: clamp(Number(state.galleryOffsetY || 0) + dy * 165, -100, 100)
-      });
-      return;
-    }
-
     const place = resolvePhotoPlacement(state);
+    const dragGain = placementMode() === "gallery" ? 165 : 120;
     setPartialState({
-      photoOffsetX: clamp(place.photoOffsetX + dx * 120, -40, 40),
-      photoOffsetY: clamp(place.photoOffsetY + dy * 120, -40, 40)
+      photoOffsetX: clamp(place.photoOffsetX + dx * dragGain, -40, 40),
+      photoOffsetY: clamp(place.photoOffsetY + dy * dragGain, -40, 40)
     });
   });
 

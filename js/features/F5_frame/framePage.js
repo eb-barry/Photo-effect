@@ -1,5 +1,5 @@
-// F5 畫框 - Page Controller v0.4.2
-// Classic / artistic overlay + Photo Gallery scene compositing (Layer2 pan/pinch).
+// F5 畫框 - Page Controller v0.4.6
+// Classic / artistic / gallery thumbs + unified 參數調整 tab.
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -150,7 +150,8 @@ export async function renderFramePage(root, navigate){
     canvas.classList.remove("hidden");
     root.querySelector("#frameCategoryBar")?.classList.remove("hidden");
     root.querySelector("#resetFrameSettingsBtn")?.classList.remove("hidden");
-    root.querySelector("#frameControlsPanel")?.classList.remove("hidden");
+    // 參數面板由 UI 依「參數調整」分頁顯示，預設隱藏。
+    root.querySelector("#frameControlsPanel")?.classList.add("hidden");
   };
 
   const persistDraft = (immediate = false) => {

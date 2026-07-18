@@ -117,7 +117,7 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
     ctx.save();
     ctx.globalAlpha = opacity;
     if (outerTexture && isStripTexture(outerTexture)) {
-      drawStripFrameRing(ctx, outerTexture, outerX, outerY, outerW, outerH, effectiveOuter);
+      drawStripFrameRing(ctx, outerTexture, outerX, outerY, outerW, outerH, effectiveOuter, outerRadius);
     } else {
       const fill = createMaterialFillStyle(ctx, outerMaterialId, {
         textureImage: outerTexture,
@@ -141,7 +141,7 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
     ctx.save();
     ctx.globalAlpha = opacity;
     if (innerTexture && isStripTexture(innerTexture)) {
-      drawStripFrameRing(ctx, innerTexture, innerX, innerY, innerW, innerH, effectiveInner);
+      drawStripFrameRing(ctx, innerTexture, innerX, innerY, innerW, innerH, effectiveInner, innerRadius);
     } else {
       const fill = createMaterialFillStyle(ctx, innerMaterialId, {
         textureImage: innerTexture,
@@ -276,8 +276,13 @@ function drawPolaroidDetails(ctx, layout, outerX, outerY, outerW, outerH){
 }
 
 function roundRect(ctx, x, y, w, h, radius){
-  const r = Math.max(0, Math.min(radius, Math.min(w, h) / 2));
   ctx.beginPath();
+  appendRoundRect(ctx, x, y, w, h, radius);
+  ctx.closePath();
+}
+
+function appendRoundRect(ctx, x, y, w, h, radius){
+  const r = Math.max(0, Math.min(radius, Math.min(w, h) / 2));
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
   ctx.arcTo(x + w, y + h, x, y + h, r);
@@ -294,16 +299,29 @@ function isStripTexture(image){
 /**
  * Draw a moulding ring from a long horizontal strip (e.g. 2560×256).
  * Each side stretches the strip along its length; corners rotate 90°.
+ * cornerRadius clips the ring to a rounded outer/inner silhouette.
  */
-function drawStripFrameRing(ctx, stripImage, x, y, w, h, frameWidth){
+function drawStripFrameRing(ctx, stripImage, x, y, w, h, frameWidth, cornerRadius = 0){
   const fw = Math.max(1, Math.min(frameWidth, Math.min(w, h) / 2));
   if (fw <= 0 || w <= 0 || h <= 0) return;
+
+  const outerR = Math.max(0, Math.min(cornerRadius, Math.min(w, h) / 2));
+  const holeW = Math.max(1, w - fw * 2);
+  const holeH = Math.max(1, h - fw * 2);
+  const innerR = Math.max(0, Math.min(cornerRadius * 0.55, Math.min(holeW, holeH) / 2));
+
+  ctx.save();
+  ctx.beginPath();
+  appendRoundRect(ctx, x, y, w, h, outerR);
+  appendRoundRect(ctx, x + fw, y + fw, holeW, holeH, innerR);
+  ctx.clip("evenodd");
 
   // Clockwise: top → right → bottom → left. Strip "height" faces inward.
   drawStripRail(ctx, stripImage, x, y, w, fw, 0);
   drawStripRail(ctx, stripImage, x + w, y, h, fw, 90);
   drawStripRail(ctx, stripImage, x + w, y + h, w, fw, 180);
   drawStripRail(ctx, stripImage, x, y + h, h, fw, 270);
+  ctx.restore();
 }
 
 function drawStripRail(ctx, stripImage, originX, originY, length, thickness, angleDeg){
