@@ -1,15 +1,19 @@
-// F5 畫框 - 狀態管理 v0.4.5
-// Classic strip rails (outer/inner) + artistic overlay + Photo Gallery.
+// F5 畫框 - 狀態管理 v0.4.6
+// Classic strip rails + artistic overlay + gallery + unified 參數調整 tab.
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.4.5";
+export const FRAME_FEATURE_VERSION = "0.4.6";
 export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v8";
 
 export const FRAME_CATEGORIES = [
   { id: "classic", label: "經典畫框" },
   { id: "artistic", label: "藝術畫框" },
-  { id: "gallery", label: "照片畫廊" }
+  { id: "gallery", label: "照片畫廊" },
+  { id: "adjust", label: "參數調整" }
 ];
+
+/** Categories that own material / wall thumbnails. */
+export const FRAME_MATERIAL_CATEGORIES = ["classic", "artistic", "gallery"];
 
 /** @deprecated kept for draft migration only */
 export const PROFESSIONAL_TYPES = [
@@ -39,16 +43,19 @@ export const DEFAULT_GALLERY_SCENES = [
 
 let gallerySceneCatalog = DEFAULT_GALLERY_SCENES.map(normalizeSceneDefaults);
 
-const dynamicFrameTypes = Object.fromEntries(FRAME_CATEGORIES.map(item => [item.id, []]));
+const dynamicFrameTypes = Object.fromEntries(
+  ["classic", "artistic", "gallery", "professional"].map(id => [id, []])
+);
 
-/** Shared chrome params. No gap between outer/inner — only widths + outer margin. */
+/** Shared photo placement under the frame window. */
 export const PHOTO_PLACEMENT_PARAMETERS = [
-  { id: "photoScale", label: "縮放照片", min: 80, max: 160, step: 1, unit: "percent" },
+  { id: "photoScale", label: "照片縮放", min: 80, max: 160, step: 1, unit: "percent" },
   { id: "photoOffsetX", label: "照片左右移動", min: -40, max: 40, step: 1, unit: "percent" },
   { id: "photoOffsetY", label: "照片上下移動", min: -40, max: 40, step: 1, unit: "percent" }
 ];
 
-export const FRAME_PARAMETERS = [
+/** Unified params for the 參數調整 tab (classic / artistic / gallery). */
+export const UNIFIED_PARAMETERS = [
   { id: "outerFrameWidth", label: "外框寬", min: 4, max: 96, step: 1, unit: "px" },
   { id: "innerFrameWidth", label: "內框寬", min: 0, max: 72, step: 1, unit: "px" },
   { id: "cornerRadius", label: "圓角", min: 0, max: 48, step: 1, unit: "px" },
@@ -57,14 +64,13 @@ export const FRAME_PARAMETERS = [
   { id: "opacity", label: "不透明度", min: 40, max: 100, step: 1, unit: "percent" }
 ];
 
-/** Artistic overlay frames: photo placement under transparent frame. */
-export const ARTISTIC_PARAMETERS = [
-  { id: "artisticFrameWidth", label: "畫框寬度", min: 50, max: 160, step: 1, unit: "percent" },
-  { id: "artisticCornerRadius", label: "畫框圓角", min: 0, max: 80, step: 1, unit: "px" },
-  ...PHOTO_PLACEMENT_PARAMETERS,
-  { id: "opacity", label: "不透明度", min: 40, max: 100, step: 1, unit: "percent" }
-];
+/** @deprecated use UNIFIED_PARAMETERS */
+export const FRAME_PARAMETERS = UNIFIED_PARAMETERS;
 
+/** @deprecated artistic-specific adjusts folded into UNIFIED_PARAMETERS */
+export const ARTISTIC_PARAMETERS = UNIFIED_PARAMETERS;
+
+/** @deprecated gallery lights removed from UI; kept for draft clamp only */
 export const GALLERY_LIGHT_PARAMETERS = [
   { id: "galleryLightCount", label: "光源數量", min: 1, max: 4, step: 1, unit: "count" },
   { id: "galleryLightPosX", label: "光源位置 X", min: 0, max: 100, step: 1, unit: "percent" },
@@ -140,10 +146,10 @@ export function findFrameType(categoryId, frameTypeId){
 }
 
 export function findFrameTypeAnywhere(frameTypeId){
-  for (const category of FRAME_CATEGORIES) {
-    if (category.id === "gallery") continue;
-    const hit = findFrameType(category.id, frameTypeId);
-    if (hit) return { categoryId: category.id, type: hit };
+  for (const categoryId of FRAME_MATERIAL_CATEGORIES) {
+    if (categoryId === "gallery") continue;
+    const hit = findFrameType(categoryId, frameTypeId);
+    if (hit) return { categoryId, type: hit };
   }
   return null;
 }
@@ -152,7 +158,7 @@ export function resolveAppliedFrameType(state){
   if (isGalleryMode(state)) {
     return { id: "gallery", label: "照片畫廊", materialId: "gallery" };
   }
-  const categoryId = state.selectedCategoryId || state.activeCategory || "classic";
+  const categoryId = normalizeSelectedCategoryId(state.selectedCategoryId || state.activeCategory || "classic");
   if (categoryId === "gallery") {
     return { id: "gallery", label: "照片畫廊", materialId: "gallery" };
   }
@@ -196,9 +202,9 @@ export function resolveClassicMaterialId(state){
 export function getFirstAvailableFrameType(){
   const firstOuter = getClassicOuterFrames()[0];
   if (firstOuter) return firstOuter;
-  for (const category of FRAME_CATEGORIES) {
-    if (category.id === "gallery") continue;
-    const first = getFrameTypesForCategory(category.id)[0];
+  for (const categoryId of FRAME_MATERIAL_CATEGORIES) {
+    if (categoryId === "gallery") continue;
+    const first = getFrameTypesForCategory(categoryId)[0];
     if (first) return first;
   }
   return null;
@@ -281,18 +287,28 @@ export function resolvePhotoPlacement(state = {}){
   };
 }
 
-export function getParametersForContext(state){
-  if (isGalleryMode(state)) {
-    // Gallery Layer 2 may be artistic overlay or classic chrome — expose matching adjusts.
-    if (state.framePresentation === "artistic" && state.artisticFrameId) {
-      return [...ARTISTIC_PARAMETERS, ...GALLERY_LIGHT_PARAMETERS];
-    }
-    return [...FRAME_PARAMETERS, ...GALLERY_LIGHT_PARAMETERS];
+export function getParametersForContext(_state){
+  return UNIFIED_PARAMETERS;
+}
+
+export function isAdjustMode(state){
+  return normalizeActiveCategory(state?.activeCategory) === "adjust";
+}
+
+/** Map unified 外框寬 (px) → artistic overlay width factor (percent). */
+export function resolveArtisticFrameWidthPercent(state = {}){
+  const outer = Number(state.outerFrameWidth ?? state.frameWidth);
+  if (Number.isFinite(outer)) {
+    return clampNumber((outer / 40) * 100, 50, 160, 100);
   }
-  if (isArtisticMode(state) || state.selectedCategoryId === "artistic") {
-    return ARTISTIC_PARAMETERS;
-  }
-  return FRAME_PARAMETERS;
+  return clampNumber(state.artisticFrameWidth, 50, 160, 100);
+}
+
+/** Unified 圓角 drives artistic silhouette radius. */
+export function resolveArtisticCornerRadius(state = {}){
+  const radius = Number(state.cornerRadius);
+  if (Number.isFinite(radius)) return Math.max(0, radius);
+  return Math.max(0, Number(state.artisticCornerRadius) || 0);
 }
 
 /**
@@ -456,7 +472,8 @@ export function normalizeActiveCategory(categoryId){
 
 export function normalizeSelectedCategoryId(categoryId){
   if (categoryId === "professional") return "gallery";
-  if (FRAME_CATEGORIES.some(item => item.id === categoryId)) return categoryId;
+  if (categoryId === "adjust") return "classic";
+  if (FRAME_MATERIAL_CATEGORIES.includes(categoryId)) return categoryId;
   return "classic";
 }
 
@@ -534,10 +551,14 @@ export function updateFrameState(currentState, partial){
   next.artisticPhotoScale = next.photoScale;
   next.artisticOffsetX = next.photoOffsetX;
   next.artisticOffsetY = next.photoOffsetY;
+  // Keep artistic* mirrors in sync with unified 參數調整.
+  next.artisticFrameWidth = resolveArtisticFrameWidthPercent(next);
+  next.artisticCornerRadius = resolveArtisticCornerRadius(next);
 
-  next.galleryPhotoScale = clampNumber(next.galleryPhotoScale, 40, 180, 100);
-  next.galleryOffsetX = clampNumber(next.galleryOffsetX, -100, 100, 0);
-  next.galleryOffsetY = clampNumber(next.galleryOffsetY, -100, 100, 0);
+  // Gallery wall placement also uses unified photo* params.
+  next.galleryPhotoScale = clampNumber(next.photoScale, 40, 180, 100);
+  next.galleryOffsetX = clampNumber(next.photoOffsetX, -100, 100, 0);
+  next.galleryOffsetY = clampNumber(next.photoOffsetY, -100, 100, 0);
 
   const available = getParametersForContext(next);
   if (!available.some(item => item.id === next.selectedParameter)) {
@@ -659,13 +680,16 @@ function migrateLegacyFields(state){
     next.framePresentation = next.artisticFrameId ? "artistic" : "classic";
   }
   if (next.photoScale == null) {
-    next.photoScale = next.artisticPhotoScale == null ? 100 : next.artisticPhotoScale;
+    next.photoScale = next.artisticPhotoScale ?? next.galleryPhotoScale ?? 100;
   }
   if (next.photoOffsetX == null) {
-    next.photoOffsetX = next.artisticOffsetX == null ? 0 : next.artisticOffsetX;
+    next.photoOffsetX = next.artisticOffsetX ?? next.galleryOffsetX ?? 0;
   }
   if (next.photoOffsetY == null) {
-    next.photoOffsetY = next.artisticOffsetY == null ? 0 : next.artisticOffsetY;
+    next.photoOffsetY = next.artisticOffsetY ?? next.galleryOffsetY ?? 0;
+  }
+  if (next.cornerRadius == null && next.artisticCornerRadius != null) {
+    next.cornerRadius = next.artisticCornerRadius;
   }
   // Keep legacy artistic* keys mirrored for older drafts / readers.
   next.artisticPhotoScale = next.photoScale;

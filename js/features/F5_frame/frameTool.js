@@ -1,5 +1,5 @@
-// F5 畫框 - Canvas 影像處理 v0.4.5
-// Classic strip rails (90°) + artistic overlay; Gallery Layer-2 transparent chrome.
+// F5 畫框 - Canvas 影像處理 v0.4.6
+// Classic strip rails (90°) + artistic overlay; Gallery Layer-2; unified 參數調整.
 
 import {
   mapStyleToMaterial,
@@ -19,6 +19,8 @@ import {
   isGalleryMode,
   pickDefaultGallerySceneId,
   resolveAppliedFrameType,
+  resolveArtisticCornerRadius,
+  resolveArtisticFrameWidthPercent,
   resolveClassicInnerMaterialId,
   resolveClassicOuterMaterialId,
   resolvePhotoAspectKey,
@@ -182,8 +184,8 @@ function artisticLayerCacheKey(state, outputSize){
     state.artisticFrameId || "-",
     outputSize.width,
     outputSize.height,
-    Math.round(Number(state.artisticFrameWidth) || 100),
-    Math.round(Number(state.artisticCornerRadius) || 0),
+    Math.round(resolveArtisticFrameWidthPercent(state)),
+    Math.round(resolveArtisticCornerRadius(state)),
     Math.round(place.photoScale),
     Math.round(place.photoOffsetX),
     Math.round(place.photoOffsetY),
@@ -280,8 +282,8 @@ async function buildArtisticFramedLayer(sourceImage, state, outputSize, { transp
   const place = resolvePhotoPlacement(state);
   renderArtisticFramedPhoto(layerCtx, sourceImage, frameImage, {
     opacity: (Number(state.opacity) || 100) / 100,
-    artisticFrameWidth: state.artisticFrameWidth,
-    artisticCornerRadius: state.artisticCornerRadius,
+    artisticFrameWidth: resolveArtisticFrameWidthPercent(state),
+    artisticCornerRadius: resolveArtisticCornerRadius(state),
     ...place,
     transparentBackground,
     shadow: transparentBackground ? 18 : 28
@@ -368,13 +370,14 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
         })
       : await getOrBuildClassicFramedLayer(sourceImage, state, contentSize);
 
+    const place = resolvePhotoPlacement(state);
     renderGalleryPresentation(ctx, framedLayer, {
       sceneImage,
       aspect: scene?.aspect || aspect,
       mount: scene?.mount,
-      galleryPhotoScale: state.galleryPhotoScale,
-      galleryOffsetX: state.galleryOffsetX,
-      galleryOffsetY: state.galleryOffsetY,
+      galleryPhotoScale: place.photoScale,
+      galleryOffsetX: place.photoOffsetX,
+      galleryOffsetY: place.photoOffsetY,
       galleryLightCount: state.galleryLightCount,
       galleryLightPosX: state.galleryLightPosX,
       galleryLightPosY: state.galleryLightPosY,
@@ -393,8 +396,8 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
     const place = resolvePhotoPlacement(state);
     renderArtisticFramedPhoto(ctx, sourceImage, frameImage, {
       opacity: (Number(state.opacity) || 100) / 100,
-      artisticFrameWidth: state.artisticFrameWidth,
-      artisticCornerRadius: state.artisticCornerRadius,
+      artisticFrameWidth: resolveArtisticFrameWidthPercent(state),
+      artisticCornerRadius: resolveArtisticCornerRadius(state),
       ...place,
       transparentBackground: false,
       shadow: frameImage ? 28 : 0
