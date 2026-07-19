@@ -135,7 +135,8 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
   const innerY = outerY + effectiveOuter;
   const innerW = outerW - effectiveOuter * 2;
   const innerH = outerH - effectiveOuter * 2;
-  const innerRadius = Math.max(0, cornerRadius + effectiveInner * 0.08);
+  // 圓角只適用外框；內框始終直角。
+  const innerRadius = 0;
 
   if (effectiveInner > 0 && innerMaterialId) {
     ctx.save();
@@ -155,8 +156,10 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
     ctx.restore();
   }
 
+  // 有內框時照片視窗跟內框同為直角；僅外框時才帶一點外框圓角。
+  const photoRadius = effectiveInner > 0 ? 0 : Math.max(0, cornerRadius * 0.5);
   ctx.save();
-  roundRect(ctx, photoX, photoY, photoW, photoH, Math.max(0, cornerRadius * 0.5));
+  roundRect(ctx, photoX, photoY, photoW, photoH, photoRadius);
   ctx.clip();
   if (!(outerTexture && isStripTexture(outerTexture)) && !(innerTexture && isStripTexture(innerTexture))) {
     // Non-strip fills cover the photo hole; keep previous behavior (photo over paint).
