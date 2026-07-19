@@ -2,7 +2,7 @@
 // Classic strip rails + artistic overlay + gallery + unified 參數調整 tab.
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.4.6";
+export const FRAME_FEATURE_VERSION = "0.4.7";
 export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v8";
 
 export const FRAME_CATEGORIES = [
@@ -54,7 +54,7 @@ export const PHOTO_PLACEMENT_PARAMETERS = [
   { id: "photoOffsetY", label: "照片上下移動", min: -40, max: 40, step: 1, unit: "percent" }
 ];
 
-/** Unified params for the 參數調整 tab (classic / artistic / gallery). */
+/** Unified params for classic / artistic 參數調整 (not used while gallery is active). */
 export const UNIFIED_PARAMETERS = [
   { id: "outerFrameWidth", label: "外框寬", min: 4, max: 96, step: 1, unit: "px" },
   { id: "innerFrameWidth", label: "內框寬", min: 0, max: 72, step: 1, unit: "px" },
@@ -62,6 +62,13 @@ export const UNIFIED_PARAMETERS = [
   { id: "outerPadding", label: "外邊距", min: 0, max: 40, step: 1, unit: "px" },
   ...PHOTO_PLACEMENT_PARAMETERS,
   { id: "opacity", label: "不透明度", min: 40, max: 100, step: 1, unit: "percent" }
+];
+
+/** Gallery only: move/scale the whole framed composite on the wall. */
+export const GALLERY_PLACEMENT_PARAMETERS = [
+  { id: "galleryPhotoScale", label: "作品縮放", min: 40, max: 180, step: 1, unit: "percent" },
+  { id: "galleryOffsetX", label: "作品左右移動", min: -100, max: 100, step: 1, unit: "percent" },
+  { id: "galleryOffsetY", label: "作品上下移動", min: -100, max: 100, step: 1, unit: "percent" }
 ];
 
 /** @deprecated use UNIFIED_PARAMETERS */
@@ -211,12 +218,17 @@ export function getFirstAvailableFrameType(){
 }
 
 export function isGalleryMode(state){
+  // Category-only: do not key off frameTypeId === "gallery", or leaving the
+  // gallery tab can leave artistic/classic renders stuck on the wall path.
   return state.selectedCategoryId === "gallery"
-    || state.frameTypeId === "gallery"
     || state.selectedCategoryId === "professional";
 }
 
 export function isArtisticMode(state){
+  if (isGalleryMode(state)) {
+    // In gallery, Layer-2 follows the last non-gallery presentation.
+    return state.framePresentation === "artistic" && Boolean(state.artisticFrameId);
+  }
   return state.framePresentation === "artistic"
     || state.selectedCategoryId === "artistic";
 }
@@ -267,12 +279,16 @@ export function selectArtisticFrame(currentState, frameId){
   const id = type?.id || frameId || null;
   // Toggle off if same frame tapped again.
   const nextId = currentState.artisticFrameId === id ? null : id;
+  const fallbackTypeId = currentState.outerFrameTypeId
+    || currentState.classicFrameTypeId
+    || getClassicOuterFrames()[0]?.id
+    || null;
   return updateFrameState(currentState, {
     selectedCategoryId: "artistic",
     activeCategory: "artistic",
     artisticFrameId: nextId,
-    framePresentation: nextId ? "artistic" : (currentState.outerFrameTypeId ? "classic" : "artistic"),
-    frameTypeId: nextId || currentState.outerFrameTypeId || currentState.frameTypeId
+    framePresentation: nextId ? "artistic" : (fallbackTypeId ? "classic" : "artistic"),
+    frameTypeId: nextId || fallbackTypeId
   });
 }
 
@@ -287,7 +303,20 @@ export function resolvePhotoPlacement(state = {}){
   };
 }
 
-export function getParametersForContext(_state){
+export function resolveGalleryPlacement(state = {}){
+  const scale = Number(state.galleryPhotoScale);
+  const offsetX = Number(state.galleryOffsetX);
+  const offsetY = Number(state.galleryOffsetY);
+  return {
+    galleryPhotoScale: Number.isFinite(scale) ? scale : 100,
+    galleryOffsetX: Number.isFinite(offsetX) ? offsetX : 0,
+    galleryOffsetY: Number.isFinite(offsetY) ? offsetY : 0
+  };
+}
+
+export function getParametersForContext(state){
+  // Gallery treats the framed result as one image — only wall placement is editable.
+  if (isGalleryMode(state)) return GALLERY_PLACEMENT_PARAMETERS;
   return UNIFIED_PARAMETERS;
 }
 
@@ -525,6 +554,8 @@ export function updateFrameState(currentState, partial){
     next.framePresentation = "artistic";
     if (next.artisticFrameId) {
       next.frameTypeId = next.artisticFrameId;
+    } else if (next.frameTypeId === "gallery" || !next.frameTypeId) {
+      next.frameTypeId = next.outerFrameTypeId || next.classicFrameTypeId || null;
     }
   }
 
@@ -555,10 +586,10 @@ export function updateFrameState(currentState, partial){
   next.artisticFrameWidth = resolveArtisticFrameWidthPercent(next);
   next.artisticCornerRadius = resolveArtisticCornerRadius(next);
 
-  // Gallery wall placement also uses unified photo* params.
-  next.galleryPhotoScale = clampNumber(next.photoScale, 40, 180, 100);
-  next.galleryOffsetX = clampNumber(next.photoOffsetX, -100, 100, 0);
-  next.galleryOffsetY = clampNumber(next.photoOffsetY, -100, 100, 0);
+  // Gallery wall placement is independent from inner photo* placement.
+  next.galleryPhotoScale = clampNumber(next.galleryPhotoScale, 40, 180, 100);
+  next.galleryOffsetX = clampNumber(next.galleryOffsetX, -100, 100, 0);
+  next.galleryOffsetY = clampNumber(next.galleryOffsetY, -100, 100, 0);
 
   const available = getParametersForContext(next);
   if (!available.some(item => item.id === next.selectedParameter)) {

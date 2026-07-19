@@ -1,5 +1,5 @@
-// F5 畫框 - Canvas 影像處理 v0.4.6
-// Classic strip rails (90°) + artistic overlay; Gallery Layer-2; unified 參數調整.
+// F5 畫框 - Canvas 影像處理 v0.4.7
+// Classic / artistic bake; gallery places the whole framed composite on the wall.
 
 import {
   mapStyleToMaterial,
@@ -23,6 +23,7 @@ import {
   resolveArtisticFrameWidthPercent,
   resolveClassicInnerMaterialId,
   resolveClassicOuterMaterialId,
+  resolveGalleryPlacement,
   resolvePhotoAspectKey,
   resolvePhotoPlacement
 } from "./frameState.js";
@@ -363,21 +364,23 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
     const scene = getGallerySceneById(sceneId);
     const sceneImageFull = await resolveGallerySceneImage(sceneId);
     const sceneImage = getScenePreviewImage(sceneImageFull, width, height);
-    const useArtisticLayer = isArtisticMode(state) && Boolean(state.artisticFrameId);
+    // Bake Layer-2 with classic/artistic photo* placement frozen inside the frame.
+    // Wall pan/zoom uses independent gallery* params on the whole composite.
+    const useArtisticLayer = isArtisticMode(state);
     const framedLayer = useArtisticLayer
       ? await getOrBuildArtisticFramedLayer(sourceImage, state, contentSize, {
           transparentBackground: true
         })
       : await getOrBuildClassicFramedLayer(sourceImage, state, contentSize);
 
-    const place = resolvePhotoPlacement(state);
+    const wall = resolveGalleryPlacement(state);
     renderGalleryPresentation(ctx, framedLayer, {
       sceneImage,
       aspect: scene?.aspect || aspect,
       mount: scene?.mount,
-      galleryPhotoScale: place.photoScale,
-      galleryOffsetX: place.photoOffsetX,
-      galleryOffsetY: place.photoOffsetY,
+      galleryPhotoScale: wall.galleryPhotoScale,
+      galleryOffsetX: wall.galleryOffsetX,
+      galleryOffsetY: wall.galleryOffsetY,
       galleryLightCount: state.galleryLightCount,
       galleryLightPosX: state.galleryLightPosX,
       galleryLightPosY: state.galleryLightPosY,
