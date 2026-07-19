@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8" /></head><body>
+<div id="result">PENDING</div>
+<script type="module">
+  import { createDefaultStarburstState, updateStarburstState, APERTURE_PARAMETERS, EFFECT_PARAMETERS } from "./js/features/F4_starburst/starburstState.js";
+
+  (async()=>{
+    const c=[];
+    try{
+      // 1. starMoveX/Y NOT in APERTURE_PARAMETERS
+      const aIds = APERTURE_PARAMETERS.map(p=>p.id);
+      c.push("starMoveX_not_in_aperture:" + !aIds.includes("starMoveX"));
+      c.push("starMoveY_not_in_aperture:" + !aIds.includes("starMoveY"));
+      c.push("aperture_count:" + APERTURE_PARAMETERS.length);
+
+      // 2. starMoveX/Y ARE in EFFECT_PARAMETERS (first two items)
+      const eIds = EFFECT_PARAMETERS.map(p=>p.id);
+      c.push("starMoveX_in_effect:" + eIds.includes("starMoveX"));
+      c.push("starMoveY_in_effect:" + eIds.includes("starMoveY"));
+      c.push("effect_count:" + EFFECT_PARAMETERS.length);
+      c.push("starMoveX_index:" + eIds.indexOf("starMoveX"));
+      c.push("starMoveY_index:" + eIds.indexOf("starMoveY"));
+
+      // 3. Sync still works: slider → starburstX/Y
+      let s = createDefaultStarburstState();
+      s = updateStarburstState(s, { starMoveX: 70 });
+      c.push("sliderX_syncs:" + (Math.abs(s.starburstX - 0.70) < 0.01));
+      s = updateStarburstState(s, { starMoveY: 25 });
+      c.push("sliderY_syncs:" + (Math.abs(s.starburstY - 0.25) < 0.01));
+
+      // 4. Drag → starMoveX/Y sync
+      s = updateStarburstState(s, { starburstX: 0.4, starburstY: 0.6, hasPlacedPoint: true });
+      c.push("drag_syncs_moveX:" + (Math.abs(s.starMoveX - 40) < 1));
+      c.push("drag_syncs_moveY:" + (Math.abs(s.starMoveY - 60) < 1));
+
+      // 5. Clamping handled by EFFECT_PARAMETERS loop
+      s = updateStarburstState(s, { starMoveX: 0, starMoveY: 200 });
+      c.push("clamped_min:" + (s.starMoveX >= 2));
+      c.push("clamped_max:" + (s.starMoveY <= 98));
+
+      // 6. selectedEffectParameter defaults correctly
+      const def = createDefaultStarburstState();
+      c.push("default_selectedEffect:" + def.selectedEffectParameter);
+
+      fetch("/report?"+encodeURIComponent(JSON.stringify(c))).catch(()=>{});
+      document.getElementById("result").textContent="OK:"+JSON.stringify(c);
+    }catch(e){
+      fetch("/report?"+encodeURIComponent("ERROR:"+String(e))).catch(()=>{});
+      document.getElementById("result").textContent="ERROR:"+String(e);
+    }
+  })();
+</script>
+</body></html>

@@ -1,9 +1,9 @@
-// F4 星芒鏡 - 狀態管理 v0.1.5
+// F4 星芒鏡 - 狀態管理 v0.1.6
 // 光圈葉片／光源／星芒效果 三分頁 + 單一可拖曳星芒座標。
 
 export const STARBURST_FEATURE_ID = "F4_starburst";
-export const STARBURST_FEATURE_VERSION = "0.1.5";
-export const STARBURST_DRAFT_KEY = "photoEffects.F4_starburst.draft.v5";
+export const STARBURST_FEATURE_VERSION = "0.1.6";
+export const STARBURST_DRAFT_KEY = "photoEffects.F4_starburst.draft.v6";
 
 export const STARBURST_CONTROL_TABS = [
   { id: "aperture", label: "光圈葉片" },
@@ -39,22 +39,22 @@ export function normalizeLightSourceId(lightSourceId){
 }
 
 export const APERTURE_PARAMETERS = [
-  { id: "apertureFStop",   label: "光圈大小",     min: 1.4, max: 16,  step: 0.1, unit: "fstop"    },
-  { id: "bladeCurvature",  label: "葉片弧度",     min: 0,   max: 100, step: 1,   unit: "percent"  },
-  { id: "edgeSoftness",    label: "邊緣銳利度",   min: 0,   max: 100, step: 1,   unit: "percent"  },
-  { id: "randomAsymmetry", label: "不對稱隨機值", min: 0,   max: 100, step: 1,   unit: "percent"  },
-  { id: "starMoveX",       label: "星芒水平移動", min: 2,   max: 98,  step: 0.5, unit: "position" },
-  { id: "starMoveY",       label: "星芒垂直移動", min: 2,   max: 98,  step: 0.5, unit: "position" }
+  { id: "apertureFStop",   label: "光圈大小",     min: 1.4, max: 16,  step: 0.1, unit: "fstop"   },
+  { id: "bladeCurvature",  label: "葉片弧度",     min: 0,   max: 100, step: 1,   unit: "percent" },
+  { id: "edgeSoftness",    label: "邊緣銳利度",   min: 0,   max: 100, step: 1,   unit: "percent" },
+  { id: "randomAsymmetry", label: "不對稱隨機值", min: 0,   max: 100, step: 1,   unit: "percent" }
 ];
 
 export const EFFECT_PARAMETERS = [
-  { id: "ghosting",      label: "幽靈效應強度", min: 0,   max: 100, step: 1,   unit: "percent" },
-  { id: "ghostAngle",   label: "光斑放射角度", min: 0,   max: 360, step: 1,   unit: "degree"  },
-  { id: "ghostDensity", label: "光斑放射密度", min: 0,   max: 100, step: 1,   unit: "percent" },
-  { id: "flare",        label: "眩光",         min: 0,   max: 100, step: 1,   unit: "percent" },
-  { id: "halation",     label: "光暈",         min: 0,   max: 100, step: 1,   unit: "percent" },
-  { id: "sharpness",    label: "銳利度",       min: 0,   max: 100, step: 1,   unit: "percent" },
-  { id: "dispersion",   label: "色散",         min: 0,   max: 100, step: 1,   unit: "percent" }
+  { id: "starMoveX",     label: "星芒水平移動", min: 2,   max: 98,  step: 0.5, unit: "position" },
+  { id: "starMoveY",     label: "星芒垂直移動", min: 2,   max: 98,  step: 0.5, unit: "position" },
+  { id: "ghosting",      label: "幽靈效應強度", min: 0,   max: 100, step: 1,   unit: "percent"  },
+  { id: "ghostAngle",    label: "光斑放射角度", min: 0,   max: 360, step: 1,   unit: "degree"   },
+  { id: "ghostDensity",  label: "光斑放射密度", min: 0,   max: 100, step: 1,   unit: "percent"  },
+  { id: "flare",         label: "眩光",         min: 0,   max: 100, step: 1,   unit: "percent"  },
+  { id: "halation",      label: "光暈",         min: 0,   max: 100, step: 1,   unit: "percent"  },
+  { id: "sharpness",     label: "銳利度",       min: 0,   max: 100, step: 1,   unit: "percent"  },
+  { id: "dispersion",    label: "色散",         min: 0,   max: 100, step: 1,   unit: "percent"  }
 ];
 
 export const DEFAULT_STARBURST_X = 0.5;
@@ -173,7 +173,7 @@ export function updateStarburstState(currentState, partial){
     next.starMoveX = Math.round(next.starburstX * 100 * 2) / 2;
     next.starMoveY = Math.round(next.starburstY * 100 * 2) / 2;
   } else {
-    // starMoveX/Y already clamped [2, 98] by the APERTURE_PARAMETERS loop above
+    // starMoveX/Y already clamped [2, 98] by the EFFECT_PARAMETERS loop above
     next.starburstX = clampNumber(next.starMoveX / 100, 0.02, 0.98, DEFAULT_STARBURST_X);
     next.starburstY = clampNumber(next.starMoveY / 100, 0.02, 0.98, DEFAULT_STARBURST_Y);
   }
