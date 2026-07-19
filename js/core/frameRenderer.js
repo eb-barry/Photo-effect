@@ -153,11 +153,16 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
     ctx.restore();
   }
 
-  // Photo window is always square — no matte / white third frame under the photo.
+  // Photo window is always square — no white matte "third frame" under the photo.
   ctx.save();
   ctx.beginPath();
   ctx.rect(photoX, photoY, photoW, photoH);
   ctx.clip();
+  if (!transparentBackground) {
+    // Letterbox behind a zoomed-out photo; avoid the old off-white mat ring.
+    ctx.fillStyle = "#0b0b0c";
+    ctx.fillRect(photoX, photoY, photoW, photoH);
+  }
   drawPlacedPhoto(ctx, sourceImage, photoX, photoY, photoW, photoH, {
     photoScale: options.photoScale,
     photoOffsetX: options.photoOffsetX,
