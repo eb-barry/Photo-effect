@@ -392,10 +392,11 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
     return;
   }
 
-  if (isArtisticMode(state)) {
-    const frameImage = state.artisticFrameId
-      ? await loadTextureForMaterial(state.artisticFrameId)
-      : null;
+  if (isArtisticMode(state) && state.artisticFrameId) {
+    const frameImage = await loadTextureForMaterial(state.artisticFrameId);
+    if (!frameImage) {
+      console.warn(`[F5 畫框] 藝術畫框材質載入失敗：${state.artisticFrameId}`);
+    }
     const place = resolvePhotoPlacement(state);
     renderArtisticFramedPhoto(ctx, sourceImage, frameImage, {
       opacity: (Number(state.opacity) || 100) / 100,

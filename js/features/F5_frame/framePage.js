@@ -133,14 +133,25 @@ export async function renderFramePage(root, navigate){
   const render = async (options = {}) => {
     if (!sourceImage || !contentSize) return;
     const serial = ++renderSerial;
-    syncCanvasToState();
+    // Render offscreen, then blit only if this is still the latest request.
+    // Prevents a slower classic bake from overwriting a newer artistic result.
+    const targetSize = resolveFrameCanvasSize(contentSize, state);
+    const offscreen = document.createElement("canvas");
+    offscreen.width = targetSize.width;
+    offscreen.height = targetSize.height;
+    const offCtx = offscreen.getContext("2d", { alpha: true });
     try {
-      await renderFrameStudio(ctx, sourceImage, state, {
+      await renderFrameStudio(offCtx, sourceImage, state, {
         fastPreview: Boolean(options.fastPreview ?? gestureFast)
       });
       if (serial !== renderSerial) return;
+      applyCanvasSize(targetSize);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(offscreen, 0, 0);
       canvas.style.cursor = state.sourceImageDataUrl ? "grab" : "";
     } catch (error) {
+      if (serial !== renderSerial) return;
       console.error("[F5 畫框] 繪製失敗：", error);
     }
   };
