@@ -1,4 +1,4 @@
-// F4 星芒鏡 - UI v0.1.5
+// F4 星芒鏡 - UI v0.1.6
 // 三按鈕分頁（光圈葉片／光源／星芒效果）+ 下拉選單 + 單一滑桿 + 畫布點選/拖曳定位。
 
 import {
@@ -172,9 +172,7 @@ export function setupStarburstUI(root, state, render, persistDraft = () => {}){
     const config = getApertureConfig();
     Object.assign(state, updateStarburstState(state, { [config.id]: Number(apertureSlider.value) }));
     apertureSliderValue.textContent = formatParameterValue(state[config.id], config);
-    // Position sliders move the star in real-time; aperture/lens sliders need FFT rebuild (slower).
-    const isPositionSlider = config.unit === "position";
-    scheduleRender(isPositionSlider ? 16 : 90);
+    scheduleRender(90);
   });
   apertureSlider?.addEventListener("change", () => persistDraft());
 
@@ -202,6 +200,7 @@ export function setupStarburstUI(root, state, render, persistDraft = () => {}){
     const numValue = Number(effectSlider.value);
     Object.assign(state, updateStarburstState(state, { [config.id]: numValue }));
     effectSliderValue.textContent = formatParameterValue(numValue, config);
+    // Position items translate the star without FFT rebuild → 16 ms; others → 16 ms too (no FFT in effect tab).
     scheduleRender(16);
   });
   effectSlider?.addEventListener("change", () => persistDraft());
@@ -215,13 +214,12 @@ export function setupStarburstUI(root, state, render, persistDraft = () => {}){
   });
 
 
-  const STAR_MOVE_IDS = new Set(["starMoveX", "starMoveY"]);
-
   if (canvas) {
     enableStarburstPointerGesture(canvas, state, partial => {
       Object.assign(state, updateStarburstState(state, partial));
       // Keep the position sliders visually in sync when user drags on canvas.
-      if (STAR_MOVE_IDS.has(state.selectedApertureParameter)) refreshApertureSlider();
+      const sel = state.selectedEffectParameter;
+      if (sel === "starMoveX" || sel === "starMoveY") refreshEffectSlider();
       render();
     }, () => persistDraft());
   }
@@ -285,8 +283,8 @@ export function renderLightPanel(){
 export function renderEffectPanel(){
   return `
     <div class="selection-row crystal-adjust-row">
-      <label for="effectParamSelect" class="selection-label">效果項目</label>
-      <select id="effectParamSelect" class="select-control" aria-label="星芒效果項目"></select>
+      <label for="effectParamSelect" class="selection-label">調整項目</label>
+      <select id="effectParamSelect" class="select-control" aria-label="星芒調整項目"></select>
     </div>
     <div class="slider-row" id="effectSliderRow">
       <div class="slider-head">
