@@ -2,7 +2,7 @@
 // Classic / artistic each keep an independent 參數調整 profile.
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.4.9";
+export const FRAME_FEATURE_VERSION = "0.4.10";
 export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v9";
 
 export const FRAME_CATEGORIES = [
@@ -396,13 +396,39 @@ export function isAdjustMode(state){
   return normalizeActiveCategory(state?.activeCategory) === "adjust";
 }
 
-/** Map 外框寬 (px) → artistic overlay width factor (percent). */
-export function resolveArtisticFrameWidthPercent(source = {}){
+/**
+ * Artistic 外框寬 in px — same slider range / default as classic (4–96, default 40).
+ */
+export function resolveArtisticFrameWidthPx(source = {}){
   const outer = Number(source.outerFrameWidth ?? source.frameWidth);
   if (Number.isFinite(outer)) {
-    return clampNumber((outer / 40) * 100, 50, 160, 100);
+    return clampNumber(outer, 4, 96, 40);
   }
-  return clampNumber(source.artisticFrameWidth, 50, 160, 100);
+  // Legacy drafts stored a percent-like artisticFrameWidth (≈100 at default).
+  if (source.artisticFrameWidth != null) {
+    return clampNumber((Number(source.artisticFrameWidth) / 100) * 40, 4, 96, 40);
+  }
+  return 40;
+}
+
+/**
+ * Map classic-style 外框寬 (px) → overlay scale factor.
+ * Uses the full 4–96 slider like classic: 4→0.85, 40→1.0 (natural), 96→1.3.
+ * Range stays gentle so baked WebP borders never vanish.
+ */
+export function resolveArtisticFrameWidthFactor(source = {}){
+  const px = resolveArtisticFrameWidthPx(source);
+  if (px <= 40) {
+    const t = (px - 4) / (40 - 4);
+    return 0.85 + Math.max(0, Math.min(1, t)) * (1 - 0.85);
+  }
+  const t = (px - 40) / (96 - 40);
+  return 1 + Math.max(0, Math.min(1, t)) * (1.3 - 1);
+}
+
+/** @deprecated use resolveArtisticFrameWidthFactor / resolveArtisticFrameWidthPx */
+export function resolveArtisticFrameWidthPercent(source = {}){
+  return resolveArtisticFrameWidthFactor(source) * 100;
 }
 
 /** 圓角 for artistic silhouette radius. */
@@ -686,7 +712,7 @@ export function updateFrameState(currentState, partial = {}){
   next.artisticOffsetY = next.photoOffsetY;
 
   // Artistic render mirrors always come from the artistic profile (not classic knobs).
-  next.artisticFrameWidth = resolveArtisticFrameWidthPercent(next.artisticAdjust);
+  next.artisticFrameWidth = resolveArtisticFrameWidthFactor(next.artisticAdjust) * 100;
   next.artisticCornerRadius = resolveArtisticCornerRadius(next.artisticAdjust);
 
   // Gallery wall placement is independent from inner photo* placement.

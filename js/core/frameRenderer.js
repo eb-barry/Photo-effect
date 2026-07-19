@@ -399,7 +399,18 @@ export function renderArtisticFramedPhoto(ctx, sourceImage, frameImage, options 
   const photoScale = Math.max(0.7, Math.min(1.6, (Number(options.photoScale ?? options.artisticPhotoScale) || 100) / 100));
   const offsetX = (Number(options.photoOffsetX ?? options.artisticOffsetX) || 0) / 100;
   const offsetY = (Number(options.photoOffsetY ?? options.artisticOffsetY) || 0) / 100;
-  const frameWidthFactor = Math.max(0.5, Math.min(1.6, (Number(options.artisticFrameWidth) || 100) / 100));
+  // Same mental model as classic 外框寬 (px, default 40 → natural overlay).
+  // Map 4→0.85, 40→1.0, 96→1.3 (mirrors resolveArtisticFrameWidthFactor).
+  const frameWidthPx = Number(options.outerFrameWidth);
+  let frameWidthFactor;
+  if (Number.isFinite(frameWidthPx) && frameWidthPx > 0) {
+    const px = Math.max(4, Math.min(96, frameWidthPx));
+    frameWidthFactor = px <= 40
+      ? 0.85 + ((px - 4) / (40 - 4)) * (1 - 0.85)
+      : 1 + ((px - 40) / (96 - 40)) * (1.3 - 1);
+  } else {
+    frameWidthFactor = Math.max(0.85, Math.min(1.3, (Number(options.artisticFrameWidth) || 100) / 100));
+  }
   const cornerRadius = Math.max(0, Math.min(
     Math.min(width, height) / 2,
     Number(options.artisticCornerRadius) || 0
@@ -458,13 +469,22 @@ export function renderArtisticFramedPhoto(ctx, sourceImage, frameImage, options 
   ctx.restore();
 }
 
-/** Scale/crop baked overlay to simulate thicker (factor>1) or thinner (factor<1) borders. */
+/**
+ * Scale/crop baked overlay to simulate thicker (factor>1) or thinner (factor<1) borders.
+ * Factor is centered at 1.0 (= classic default 外框寬 40px) and kept near 1 so
+ * ornate WebP borders are never cropped/scaled completely off-canvas.
+ */
 function drawArtisticFrameOverlay(ctx, frameImage, width, height, frameWidthFactor){
   const fw = frameImage.width || width;
   const fh = frameImage.height || height;
-  if (frameWidthFactor >= 1) {
+  const factor = Math.max(0.85, Math.min(1.3, Number(frameWidthFactor) || 1));
+  if (Math.abs(factor - 1) < 0.001) {
+    ctx.drawImage(frameImage, 0, 0, fw, fh, 0, 0, width, height);
+    return;
+  }
+  if (factor > 1) {
     // Thicker: crop toward the center of the frame art, then stretch to canvas.
-    const inset = (1 - 1 / frameWidthFactor) / 2;
+    const inset = (1 - 1 / factor) / 2;
     const sx = fw * inset;
     const sy = fh * inset;
     const sw = Math.max(1, fw * (1 - 2 * inset));
@@ -472,8 +492,8 @@ function drawArtisticFrameOverlay(ctx, frameImage, width, height, frameWidthFact
     ctx.drawImage(frameImage, sx, sy, sw, sh, 0, 0, width, height);
     return;
   }
-  // Thinner: enlarge overlay past the canvas so the hole grows and outer border is clipped.
-  const scale = 1 / frameWidthFactor;
+  // Thinner: enlarge overlay slightly past the canvas so the hole grows.
+  const scale = 1 / factor;
   const dw = width * scale;
   const dh = height * scale;
   const dx = (width - dw) / 2;

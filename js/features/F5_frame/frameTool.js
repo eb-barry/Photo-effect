@@ -20,7 +20,8 @@ import {
   pickDefaultGallerySceneId,
   resolveAppliedFrameType,
   resolveArtisticCornerRadius,
-  resolveArtisticFrameWidthPercent,
+  resolveArtisticFrameWidthFactor,
+  resolveArtisticFrameWidthPx,
   resolveClassicInnerMaterialId,
   resolveClassicOuterMaterialId,
   resolveGalleryPlacement,
@@ -188,7 +189,7 @@ function artisticLayerCacheKey(state, outputSize){
     state.artisticFrameId || "-",
     outputSize.width,
     outputSize.height,
-    Math.round(resolveArtisticFrameWidthPercent(adjust)),
+    Math.round(resolveArtisticFrameWidthPx(adjust)),
     Math.round(resolveArtisticCornerRadius(adjust)),
     Math.round(place.photoScale),
     Math.round(place.photoOffsetX),
@@ -287,7 +288,8 @@ async function buildArtisticFramedLayer(sourceImage, state, outputSize, { transp
   const place = resolvePhotoPlacement(artAdjust);
   renderArtisticFramedPhoto(layerCtx, sourceImage, frameImage, {
     opacity: (Number(artAdjust.opacity) || 100) / 100,
-    artisticFrameWidth: resolveArtisticFrameWidthPercent(artAdjust),
+    outerFrameWidth: resolveArtisticFrameWidthPx(artAdjust),
+    artisticFrameWidth: resolveArtisticFrameWidthFactor(artAdjust) * 100,
     artisticCornerRadius: resolveArtisticCornerRadius(artAdjust),
     ...place,
     transparentBackground,
@@ -405,7 +407,8 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
     const artAdjust = state.artisticAdjust || state;
     renderArtisticFramedPhoto(ctx, sourceImage, frameImage, {
       opacity: (Number(artAdjust.opacity ?? state.opacity) || 100) / 100,
-      artisticFrameWidth: resolveArtisticFrameWidthPercent(artAdjust),
+      outerFrameWidth: resolveArtisticFrameWidthPx(artAdjust),
+      artisticFrameWidth: resolveArtisticFrameWidthFactor(artAdjust) * 100,
       artisticCornerRadius: resolveArtisticCornerRadius(artAdjust),
       photoScale: artAdjust.photoScale,
       photoOffsetX: artAdjust.photoOffsetX,
