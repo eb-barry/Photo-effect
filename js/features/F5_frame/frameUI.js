@@ -1,5 +1,5 @@
-// F5 畫框 - UI v0.4.6
-// L1：經典／藝術／照片畫廊／參數調整。材質分頁只顯示縮圖；參數集中於參數調整。
+// F5 畫框 - UI v0.4.7
+// L1：經典／藝術／照片畫廊／參數調整。畫廊手勢移動整幅含框作品。
 
 import {
   FRAME_CATEGORIES,
@@ -12,8 +12,10 @@ import {
   getParametersForContext,
   isAdjustMode,
   isGalleryMode,
+  pickDefaultArtisticFrameId,
   pickDefaultGallerySceneId,
   resetFrameAdjustments,
+  resolveGalleryPlacement,
   resolvePhotoPlacement,
   selectArtisticFrame,
   selectClassicFrameRole,
@@ -266,7 +268,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     const patch = { activeCategory: nextCategory };
 
     if (nextCategory === "adjust") {
-      // 參數調整：隱藏縮圖、顯示統一參數；不改變目前材質／畫廊渲染模式。
+      // 參數調整：隱藏縮圖、顯示參數；渲染模式由 selectedCategoryId 決定。
     } else if (nextCategory === "gallery") {
       patch.selectedCategoryId = "gallery";
       patch.frameTypeId = "gallery";
@@ -275,15 +277,21 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     } else if (nextCategory === "classic" || nextCategory === "artistic") {
       patch.selectedCategoryId = nextCategory;
       if (nextCategory === "artistic") {
+        const photo = getPhotoSize();
+        const artId = state.artisticFrameId
+          || pickDefaultArtisticFrameId(photo.width, photo.height, null);
         patch.framePresentation = "artistic";
-        if (state.artisticFrameId) {
-          patch.frameTypeId = state.artisticFrameId;
-        }
+        patch.artisticFrameId = artId;
+        patch.frameTypeId = artId
+          || state.outerFrameTypeId
+          || state.classicFrameTypeId
+          || null;
       } else {
         patch.framePresentation = "classic";
-        if (state.outerFrameTypeId || state.innerFrameTypeId) {
-          patch.frameTypeId = state.outerFrameTypeId || state.innerFrameTypeId;
-        }
+        patch.frameTypeId = state.outerFrameTypeId
+          || state.innerFrameTypeId
+          || state.classicFrameTypeId
+          || null;
       }
     }
 
@@ -359,11 +367,7 @@ export function setupFrameUI(root, state, render, persistDraft = () => {}, optio
     const config = getParameterConfig();
     Object.assign(state, updateFrameState(state, { [config.id]: Number(slider.value) }));
     if (sliderValue) sliderValue.textContent = formatParameterValue(state[config.id], config);
-    const fast = isGalleryMode(state) && (
-      config.id === "photoScale"
-      || config.id === "photoOffsetX"
-      || config.id === "photoOffsetY"
-    );
+    const fast = isGalleryMode(state) && String(config.id).startsWith("gallery");
     scheduleRender({ fastPreview: fast });
   });
 
@@ -597,7 +601,11 @@ function enablePhotoPlacementGesture(canvas, state, setPartialState, hooks = {})
       lastDrag = { x: event.clientX, y: event.clientY };
     } else if (pointers.size === 2) {
       lastPinchDistance = getTwoPointerDistance();
-      startScale = resolvePhotoPlacement(state).photoScale;
+      if (placementMode() === "gallery") {
+        startScale = resolveGalleryPlacement(state).galleryPhotoScale;
+      } else {
+        startScale = resolvePhotoPlacement(state).photoScale;
+      }
       lastDrag = null;
     }
   });
@@ -610,8 +618,15 @@ function enablePhotoPlacementGesture(canvas, state, setPartialState, hooks = {})
     if (pointers.size >= 2) {
       const distance = getTwoPointerDistance();
       if (lastPinchDistance > 0 && distance > 0) {
-        const nextScale = clamp(startScale * (distance / lastPinchDistance), 80, 160);
-        setPartialState({ photoScale: nextScale });
+        if (placementMode() === "gallery") {
+          setPartialState({
+            galleryPhotoScale: clamp(startScale * (distance / lastPinchDistance), 40, 180)
+          });
+        } else {
+          setPartialState({
+            photoScale: clamp(startScale * (distance / lastPinchDistance), 80, 160)
+          });
+        }
       }
       return;
     }
@@ -626,11 +641,19 @@ function enablePhotoPlacementGesture(canvas, state, setPartialState, hooks = {})
     const dy = (event.clientY - lastDrag.y) / Math.max(1, rect.height);
     lastDrag = { x: event.clientX, y: event.clientY };
 
+    if (placementMode() === "gallery") {
+      const wall = resolveGalleryPlacement(state);
+      setPartialState({
+        galleryOffsetX: clamp(wall.galleryOffsetX + dx * 165, -100, 100),
+        galleryOffsetY: clamp(wall.galleryOffsetY + dy * 165, -100, 100)
+      });
+      return;
+    }
+
     const place = resolvePhotoPlacement(state);
-    const dragGain = placementMode() === "gallery" ? 165 : 120;
     setPartialState({
-      photoOffsetX: clamp(place.photoOffsetX + dx * dragGain, -40, 40),
-      photoOffsetY: clamp(place.photoOffsetY + dy * dragGain, -40, 40)
+      photoOffsetX: clamp(place.photoOffsetX + dx * 120, -40, 40),
+      photoOffsetY: clamp(place.photoOffsetY + dy * 120, -40, 40)
     });
   });
 
