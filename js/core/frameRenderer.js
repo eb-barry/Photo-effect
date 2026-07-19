@@ -117,7 +117,8 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
     ctx.save();
     ctx.globalAlpha = opacity;
     if (outerTexture && isStripTexture(outerTexture)) {
-      drawStripFrameRing(ctx, outerTexture, outerX, outerY, outerW, outerH, effectiveOuter, outerRadius);
+      // Only the outermost silhouette is rounded; the hole stays square.
+      drawStripFrameRing(ctx, outerTexture, outerX, outerY, outerW, outerH, effectiveOuter, outerRadius, 0);
     } else {
       const fill = createMaterialFillStyle(ctx, outerMaterialId, {
         textureImage: outerTexture,
@@ -125,8 +126,7 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
         opacity: 1
       });
       ctx.fillStyle = fill || rgbCss(getMaterialPreset(outerMaterialId).base);
-      roundRect(ctx, outerX, outerY, outerW, outerH, outerRadius);
-      ctx.fill();
+      fillFrameRing(ctx, outerX, outerY, outerW, outerH, effectiveOuter, outerRadius, 0);
     }
     ctx.restore();
   }
@@ -135,14 +135,12 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
   const innerY = outerY + effectiveOuter;
   const innerW = outerW - effectiveOuter * 2;
   const innerH = outerH - effectiveOuter * 2;
-  // 圓角只適用外框；內框始終直角。
-  const innerRadius = 0;
 
   if (effectiveInner > 0 && innerMaterialId) {
     ctx.save();
     ctx.globalAlpha = opacity;
     if (innerTexture && isStripTexture(innerTexture)) {
-      drawStripFrameRing(ctx, innerTexture, innerX, innerY, innerW, innerH, effectiveInner, innerRadius);
+      drawStripFrameRing(ctx, innerTexture, innerX, innerY, innerW, innerH, effectiveInner, 0, 0);
     } else {
       const fill = createMaterialFillStyle(ctx, innerMaterialId, {
         textureImage: innerTexture,
@@ -150,23 +148,16 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
         opacity: 1
       });
       ctx.fillStyle = fill || rgbCss(getMaterialPreset(innerMaterialId).base);
-      roundRect(ctx, innerX, innerY, innerW, innerH, innerRadius);
-      ctx.fill();
+      fillFrameRing(ctx, innerX, innerY, innerW, innerH, effectiveInner, 0, 0);
     }
     ctx.restore();
   }
 
-  // 有內框時照片視窗跟內框同為直角；僅外框時才帶一點外框圓角。
-  const photoRadius = effectiveInner > 0 ? 0 : Math.max(0, cornerRadius * 0.5);
+  // Photo window is always square — no matte / white third frame under the photo.
   ctx.save();
-  roundRect(ctx, photoX, photoY, photoW, photoH, photoRadius);
+  ctx.beginPath();
+  ctx.rect(photoX, photoY, photoW, photoH);
   ctx.clip();
-  if (!(outerTexture && isStripTexture(outerTexture)) && !(innerTexture && isStripTexture(innerTexture))) {
-    // Non-strip fills cover the photo hole; keep previous behavior (photo over paint).
-  } else if (!transparentBackground) {
-    ctx.fillStyle = frameStyle === "filmBorder" ? "#0b0b0c" : "rgba(245, 248, 247, 1)";
-    ctx.fillRect(photoX, photoY, photoW, photoH);
-  }
   drawPlacedPhoto(ctx, sourceImage, photoX, photoY, photoW, photoH, {
     photoScale: options.photoScale,
     photoOffsetX: options.photoOffsetX,
@@ -179,6 +170,7 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
       outerX, outerY, outerW, outerH,
       frameWidth: effectiveOuter,
       cornerRadius: outerRadius,
+      holeRadius: 0,
       materialId: outerMaterialId,
       frameStyle
     });
@@ -190,7 +182,8 @@ export function renderFramedPhoto(ctx, sourceImage, options = {}){
       outerW: innerW,
       outerH: innerH,
       frameWidth: effectiveInner,
-      cornerRadius: innerRadius,
+      cornerRadius: 0,
+      holeRadius: 0,
       materialId: innerMaterialId,
       frameStyle
     });
@@ -236,6 +229,7 @@ export function mapStyleToMaterial(frameStyle){
 function drawFrameBevel(ctx, geo){
   const { outerX, outerY, outerW, outerH, frameWidth, cornerRadius, materialId } = geo;
   if (frameWidth <= 0) return;
+  const holeRadius = Math.max(0, Number(geo.holeRadius) || 0);
   const preset = getMaterialPreset(materialId);
   const gloss = preset.gloss || 0.2;
 
@@ -246,7 +240,7 @@ function drawFrameBevel(ctx, geo){
   ctx.stroke();
 
   const inset = frameWidth;
-  roundRect(ctx, outerX + inset, outerY + inset, outerW - inset * 2, outerH - inset * 2, Math.max(0, cornerRadius - 2));
+  roundRect(ctx, outerX + inset, outerY + inset, outerW - inset * 2, outerH - inset * 2, holeRadius);
   ctx.strokeStyle = `rgba(0,0,0,${0.18 + gloss * 0.2})`;
   ctx.stroke();
   ctx.restore();
@@ -300,18 +294,36 @@ function isStripTexture(image){
 }
 
 /**
+ * Fill a moulding ring (outer rect minus hole) with the current fillStyle.
+ * outerRadius rounds only the outer silhouette; holeRadius rounds the opening.
+ */
+function fillFrameRing(ctx, x, y, w, h, frameWidth, outerRadius = 0, holeRadius = 0){
+  const fw = Math.max(1, Math.min(frameWidth, Math.min(w, h) / 2));
+  if (fw <= 0 || w <= 0 || h <= 0) return;
+  const holeW = Math.max(1, w - fw * 2);
+  const holeH = Math.max(1, h - fw * 2);
+  const outerR = Math.max(0, Math.min(outerRadius, Math.min(w, h) / 2));
+  const innerR = Math.max(0, Math.min(holeRadius, Math.min(holeW, holeH) / 2));
+  ctx.beginPath();
+  appendRoundRect(ctx, x, y, w, h, outerR);
+  appendRoundRect(ctx, x + fw, y + fw, holeW, holeH, innerR);
+  ctx.fill("evenodd");
+}
+
+/**
  * Draw a moulding ring from a long horizontal strip (e.g. 2560×256).
  * Each side stretches the strip along its length; corners rotate 90°.
- * cornerRadius clips the ring to a rounded outer/inner silhouette.
+ * outerRadius rounds the outer silhouette; holeRadius rounds the opening
+ * (classic 圓角 uses outer only — hole stays square).
  */
-function drawStripFrameRing(ctx, stripImage, x, y, w, h, frameWidth, cornerRadius = 0){
+function drawStripFrameRing(ctx, stripImage, x, y, w, h, frameWidth, outerRadius = 0, holeRadius = 0){
   const fw = Math.max(1, Math.min(frameWidth, Math.min(w, h) / 2));
   if (fw <= 0 || w <= 0 || h <= 0) return;
 
-  const outerR = Math.max(0, Math.min(cornerRadius, Math.min(w, h) / 2));
+  const outerR = Math.max(0, Math.min(outerRadius, Math.min(w, h) / 2));
   const holeW = Math.max(1, w - fw * 2);
   const holeH = Math.max(1, h - fw * 2);
-  const innerR = Math.max(0, Math.min(cornerRadius * 0.55, Math.min(holeW, holeH) / 2));
+  const innerR = Math.max(0, Math.min(holeRadius, Math.min(holeW, holeH) / 2));
 
   ctx.save();
   ctx.beginPath();
