@@ -92,23 +92,24 @@ export function resolveContentSize(image, maxEdge = FRAME_MAX_EDGE){
 }
 
 function classicChromeParams(state, { forGallery = false } = {}){
+  const adjust = state.classicAdjust || state;
   const outerMaterialId = resolveClassicOuterMaterialId(state);
   const innerMaterialId = resolveClassicInnerMaterialId(state);
-  let outerFrameWidth = Math.max(0, Number(state.outerFrameWidth ?? state.frameWidth) || 0);
-  let innerFrameWidth = Math.max(0, Number(state.innerFrameWidth) || 0);
+  let outerFrameWidth = Math.max(0, Number(adjust.outerFrameWidth ?? adjust.frameWidth ?? state.frameWidth) || 0);
+  let innerFrameWidth = Math.max(0, Number(adjust.innerFrameWidth) || 0);
 
   if (!outerMaterialId) outerFrameWidth = 0;
   if (!innerMaterialId) innerFrameWidth = 0;
 
   // Inner-only: draw a single ring using inner material + its width (or outer width as fallback).
   if (!outerMaterialId && innerMaterialId && innerFrameWidth <= 0) {
-    innerFrameWidth = Math.max(4, Number(state.outerFrameWidth ?? state.frameWidth) || 40);
+    innerFrameWidth = Math.max(4, Number(adjust.outerFrameWidth ?? state.frameWidth) || 40);
   }
   if (outerMaterialId && outerFrameWidth <= 0) {
     outerFrameWidth = 40;
   }
 
-  const outerPadding = Math.max(0, Number(state.outerPadding) || 0);
+  const outerPadding = Math.max(0, Number(adjust.outerPadding) || 0);
 
   return {
     outerMaterialId,
@@ -116,8 +117,8 @@ function classicChromeParams(state, { forGallery = false } = {}){
     outerFrameWidth,
     innerFrameWidth,
     outerPadding,
-    cornerRadius: Math.max(0, Number(state.cornerRadius) || 0),
-    opacity: (Number(state.opacity) || 100) / 100,
+    cornerRadius: Math.max(0, Number(adjust.cornerRadius) || 0),
+    opacity: (Number(adjust.opacity) || 100) / 100,
     shadow: forGallery ? 22 : 32,
     transparentBackground: forGallery
   };
@@ -160,37 +161,39 @@ export function resolveFrameCanvasSize(contentSize, state, maxEdge = FRAME_MAX_E
 }
 
 function classicLayerCacheKey(state, contentSize){
-  const place = resolvePhotoPlacement(state);
+  const adjust = state.classicAdjust || state;
+  const place = resolvePhotoPlacement(adjust);
   return [
     "classic",
     resolveClassicOuterMaterialId(state),
     resolveClassicInnerMaterialId(state) || "-",
     contentSize.width,
     contentSize.height,
-    Math.round(Number(state.outerFrameWidth ?? state.frameWidth) || 0),
-    Math.round(Number(state.innerFrameWidth) || 0),
-    Math.round(Number(state.cornerRadius) || 0),
-    Math.round(Number(state.outerPadding) || 0),
+    Math.round(Number(adjust.outerFrameWidth ?? state.frameWidth) || 0),
+    Math.round(Number(adjust.innerFrameWidth) || 0),
+    Math.round(Number(adjust.cornerRadius) || 0),
+    Math.round(Number(adjust.outerPadding) || 0),
     Math.round(place.photoScale),
     Math.round(place.photoOffsetX),
     Math.round(place.photoOffsetY),
-    Math.round(Number(state.opacity) || 100)
+    Math.round(Number(adjust.opacity) || 100)
   ].join("|");
 }
 
 function artisticLayerCacheKey(state, outputSize){
-  const place = resolvePhotoPlacement(state);
+  const adjust = state.artisticAdjust || state;
+  const place = resolvePhotoPlacement(adjust);
   return [
     "artistic",
     state.artisticFrameId || "-",
     outputSize.width,
     outputSize.height,
-    Math.round(resolveArtisticFrameWidthPercent(state)),
-    Math.round(resolveArtisticCornerRadius(state)),
+    Math.round(resolveArtisticFrameWidthPercent(adjust)),
+    Math.round(resolveArtisticCornerRadius(adjust)),
     Math.round(place.photoScale),
     Math.round(place.photoOffsetX),
     Math.round(place.photoOffsetY),
-    Math.round(Number(state.opacity) || 100)
+    Math.round(Number(adjust.opacity) || 100)
   ].join("|");
 }
 
@@ -242,7 +245,7 @@ async function buildClassicFramedLayer(sourceImage, state, contentSize){
   layer.height = framedSize.height;
   const layerCtx = layer.getContext("2d");
   const contentCanvas = getOrBuildContentCanvas(sourceImage, contentSize);
-  const place = resolvePhotoPlacement(state);
+  const place = resolvePhotoPlacement(state.classicAdjust || state);
 
   renderFramedPhoto(layerCtx, contentCanvas, {
     frameStyle: drawOuterId,
@@ -280,11 +283,12 @@ async function buildArtisticFramedLayer(sourceImage, state, outputSize, { transp
   layer.width = outputSize.width;
   layer.height = outputSize.height;
   const layerCtx = layer.getContext("2d");
-  const place = resolvePhotoPlacement(state);
+  const artAdjust = state.artisticAdjust || state;
+  const place = resolvePhotoPlacement(artAdjust);
   renderArtisticFramedPhoto(layerCtx, sourceImage, frameImage, {
-    opacity: (Number(state.opacity) || 100) / 100,
-    artisticFrameWidth: resolveArtisticFrameWidthPercent(state),
-    artisticCornerRadius: resolveArtisticCornerRadius(state),
+    opacity: (Number(artAdjust.opacity) || 100) / 100,
+    artisticFrameWidth: resolveArtisticFrameWidthPercent(artAdjust),
+    artisticCornerRadius: resolveArtisticCornerRadius(artAdjust),
     ...place,
     transparentBackground,
     shadow: transparentBackground ? 18 : 28
@@ -398,11 +402,14 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
       console.warn(`[F5 畫框] 藝術畫框材質載入失敗：${state.artisticFrameId}`);
     }
     const place = resolvePhotoPlacement(state);
+    const artAdjust = state.artisticAdjust || state;
     renderArtisticFramedPhoto(ctx, sourceImage, frameImage, {
-      opacity: (Number(state.opacity) || 100) / 100,
-      artisticFrameWidth: resolveArtisticFrameWidthPercent(state),
-      artisticCornerRadius: resolveArtisticCornerRadius(state),
-      ...place,
+      opacity: (Number(artAdjust.opacity ?? state.opacity) || 100) / 100,
+      artisticFrameWidth: resolveArtisticFrameWidthPercent(artAdjust),
+      artisticCornerRadius: resolveArtisticCornerRadius(artAdjust),
+      photoScale: artAdjust.photoScale,
+      photoOffsetX: artAdjust.photoOffsetX,
+      photoOffsetY: artAdjust.photoOffsetY,
       transparentBackground: false,
       shadow: frameImage ? 28 : 0
     });
@@ -424,7 +431,7 @@ export async function renderFrameStudio(ctx, sourceImage, state, options = {}){
     drawInnerId ? loadTextureForMaterial(drawInnerId) : Promise.resolve(null)
   ]);
   const contentCanvas = getOrBuildContentCanvas(sourceImage, contentSize);
-  const place = resolvePhotoPlacement(state);
+  const place = resolvePhotoPlacement(state.classicAdjust || state);
 
   renderFramedPhoto(ctx, contentCanvas, {
     frameStyle,

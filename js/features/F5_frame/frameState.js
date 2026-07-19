@@ -1,9 +1,9 @@
-// F5 畫框 - 狀態管理 v0.4.6
-// Classic strip rails + artistic overlay + gallery + unified 參數調整 tab.
+// F5 畫框 - 狀態管理 v0.4.9
+// Classic / artistic each keep an independent 參數調整 profile.
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.4.8";
-export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v8";
+export const FRAME_FEATURE_VERSION = "0.4.9";
+export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v9";
 
 export const FRAME_CATEGORIES = [
   { id: "classic", label: "經典畫框" },
@@ -54,7 +54,7 @@ export const PHOTO_PLACEMENT_PARAMETERS = [
   { id: "photoOffsetY", label: "照片上下移動", min: -40, max: 40, step: 1, unit: "percent" }
 ];
 
-/** Unified params for classic / artistic 參數調整 (not used while gallery is active). */
+/** Params shown for classic / artistic 參數調整 (not used while gallery is active). */
 export const UNIFIED_PARAMETERS = [
   { id: "outerFrameWidth", label: "外框寬", min: 4, max: 96, step: 1, unit: "px" },
   { id: "innerFrameWidth", label: "內框寬", min: 0, max: 72, step: 1, unit: "px" },
@@ -62,6 +62,19 @@ export const UNIFIED_PARAMETERS = [
   { id: "outerPadding", label: "外邊距", min: 0, max: 40, step: 1, unit: "px" },
   ...PHOTO_PLACEMENT_PARAMETERS,
   { id: "opacity", label: "不透明度", min: 40, max: 100, step: 1, unit: "percent" }
+];
+
+/** Flat adjust fields stored per classic / artistic profile. */
+export const ADJUST_PROFILE_KEYS = [
+  "outerFrameWidth",
+  "innerFrameWidth",
+  "cornerRadius",
+  "outerPadding",
+  "photoScale",
+  "photoOffsetX",
+  "photoOffsetY",
+  "opacity",
+  "selectedParameter"
 ];
 
 /** Gallery only: move/scale the whole framed composite on the wall. */
@@ -76,6 +89,69 @@ export const FRAME_PARAMETERS = UNIFIED_PARAMETERS;
 
 /** @deprecated artistic-specific adjusts folded into UNIFIED_PARAMETERS */
 export const ARTISTIC_PARAMETERS = UNIFIED_PARAMETERS;
+
+export function createDefaultClassicAdjustProfile(){
+  return {
+    outerFrameWidth: 40,
+    innerFrameWidth: 0,
+    cornerRadius: 6,
+    outerPadding: 0,
+    photoScale: 100,
+    photoOffsetX: 0,
+    photoOffsetY: 0,
+    opacity: 100,
+    selectedParameter: "outerFrameWidth"
+  };
+}
+
+export function createDefaultArtisticAdjustProfile(){
+  return {
+    outerFrameWidth: 40,
+    innerFrameWidth: 0,
+    cornerRadius: 0,
+    outerPadding: 0,
+    photoScale: 100,
+    photoOffsetX: 0,
+    photoOffsetY: 0,
+    opacity: 100,
+    selectedParameter: "outerFrameWidth"
+  };
+}
+
+/** Which adjust profile is active for editing / Layer-2 bake. */
+export function getAdjustProfileMode(state = {}){
+  if (state?.selectedCategoryId === "artistic") return "artistic";
+  if (state?.selectedCategoryId === "classic") return "classic";
+  if (state?.selectedCategoryId === "gallery" || state?.selectedCategoryId === "professional") {
+    return state.framePresentation === "artistic" ? "artistic" : "classic";
+  }
+  return state?.framePresentation === "artistic" ? "artistic" : "classic";
+}
+
+export function captureAdjustProfile(state = {}){
+  const profile = {};
+  for (const key of ADJUST_PROFILE_KEYS) {
+    profile[key] = state[key];
+  }
+  return profile;
+}
+
+export function normalizeAdjustProfile(profile, fallback){
+  const base = { ...fallback, ...(profile || {}) };
+  const defaults = fallback;
+  for (const parameter of UNIFIED_PARAMETERS) {
+    base[parameter.id] = clampNumber(
+      base[parameter.id],
+      parameter.min,
+      parameter.max,
+      defaults[parameter.id]
+    );
+  }
+  if (!UNIFIED_PARAMETERS.some(item => item.id === base.selectedParameter)) {
+    base.selectedParameter = defaults.selectedParameter || "outerFrameWidth";
+  }
+  return base;
+}
 
 /** @deprecated gallery lights removed from UI; kept for draft clamp only */
 export const GALLERY_LIGHT_PARAMETERS = [
@@ -320,20 +396,20 @@ export function isAdjustMode(state){
   return normalizeActiveCategory(state?.activeCategory) === "adjust";
 }
 
-/** Map unified 外框寬 (px) → artistic overlay width factor (percent). */
-export function resolveArtisticFrameWidthPercent(state = {}){
-  const outer = Number(state.outerFrameWidth ?? state.frameWidth);
+/** Map 外框寬 (px) → artistic overlay width factor (percent). */
+export function resolveArtisticFrameWidthPercent(source = {}){
+  const outer = Number(source.outerFrameWidth ?? source.frameWidth);
   if (Number.isFinite(outer)) {
     return clampNumber((outer / 40) * 100, 50, 160, 100);
   }
-  return clampNumber(state.artisticFrameWidth, 50, 160, 100);
+  return clampNumber(source.artisticFrameWidth, 50, 160, 100);
 }
 
-/** Unified 圓角 drives artistic silhouette radius. */
-export function resolveArtisticCornerRadius(state = {}){
-  const radius = Number(state.cornerRadius);
+/** 圓角 for artistic silhouette radius. */
+export function resolveArtisticCornerRadius(source = {}){
+  const radius = Number(source.cornerRadius);
   if (Number.isFinite(radius)) return Math.max(0, radius);
-  return Math.max(0, Number(state.artisticCornerRadius) || 0);
+  return Math.max(0, Number(source.artisticCornerRadius) || 0);
 }
 
 /**
@@ -346,6 +422,14 @@ export function selectClassicFrameRole(currentState, frameTypeId, role = "outer"
   const id = type?.id || frameTypeId || null;
   if (!id) return currentState;
 
+  const classicWidth = Number(
+    currentState.classicAdjust?.innerFrameWidth ?? currentState.innerFrameWidth
+  ) || 0;
+  const classicOuterWidth = Math.max(
+    4,
+    Number(currentState.classicAdjust?.outerFrameWidth ?? currentState.outerFrameWidth) || 40
+  );
+
   if (role === "inner") {
     const nextInner = currentState.innerFrameTypeId === id ? null : id;
     const patch = {
@@ -354,7 +438,7 @@ export function selectClassicFrameRole(currentState, frameTypeId, role = "outer"
       innerFrameTypeId: nextInner,
       framePresentation: "classic"
     };
-    if (nextInner && (Number(currentState.innerFrameWidth) || 0) <= 0) {
+    if (nextInner && classicWidth <= 0) {
       patch.innerFrameWidth = 16;
     }
     if (!nextInner) {
@@ -382,7 +466,7 @@ export function selectClassicFrameRole(currentState, frameTypeId, role = "outer"
     classicFrameTypeId: id,
     frameTypeId: id,
     framePresentation: "classic",
-    outerFrameWidth: Math.max(4, Number(currentState.outerFrameWidth) || 40)
+    outerFrameWidth: classicOuterWidth
   };
   return updateFrameState(currentState, patch);
 }
@@ -400,6 +484,8 @@ export function toggleClassicMaterialSelection(currentState, frameTypeId, catego
 export function createDefaultFrameState(){
   const firstOuter = getClassicOuterFrames()[0] || getFrameTypesForCategory("classic")[0];
   const outerId = firstOuter?.id || "classic-1";
+  const classicAdjust = createDefaultClassicAdjustProfile();
+  const artisticAdjust = createDefaultArtisticAdjustProfile();
   return {
     featureId: FRAME_FEATURE_ID,
     featureVersion: FRAME_FEATURE_VERSION,
@@ -411,26 +497,22 @@ export function createDefaultFrameState(){
     innerFrameTypeId: null,
     artisticFrameId: null,
     framePresentation: "classic",
-    selectedParameter: "outerFrameWidth",
     sourceImageDataUrl: null,
 
-    outerFrameWidth: 40,
-    innerFrameWidth: 0,
-    cornerRadius: 6,
-    outerPadding: 0,
-    opacity: 100,
+    // Independent profiles — top-level fields mirror the active profile.
+    classicAdjust: { ...classicAdjust },
+    artisticAdjust: { ...artisticAdjust },
+    ...classicAdjust,
+
     artisticFrameWidth: 100,
     artisticCornerRadius: 0,
-    photoScale: 100,
-    photoOffsetX: 0,
-    photoOffsetY: 0,
     // Legacy aliases (migrated → photo*)
-    artisticPhotoScale: 100,
-    artisticOffsetX: 0,
-    artisticOffsetY: 0,
+    artisticPhotoScale: classicAdjust.photoScale,
+    artisticOffsetX: classicAdjust.photoOffsetX,
+    artisticOffsetY: classicAdjust.photoOffsetY,
 
     // Legacy aliases kept during migration reads
-    frameWidth: 40,
+    frameWidth: classicAdjust.outerFrameWidth,
     innerPadding: 0,
 
     activeProfessionalSubTab: "scene",
@@ -454,29 +536,27 @@ export function createDefaultFrameState(){
 }
 
 export function resetFrameAdjustments(currentState){
-  const defaults = createDefaultFrameState();
-  return updateFrameState(currentState, {
-    outerFrameWidth: defaults.outerFrameWidth,
-    innerFrameWidth: defaults.innerFrameWidth,
-    cornerRadius: defaults.cornerRadius,
-    outerPadding: defaults.outerPadding,
-    opacity: defaults.opacity,
-    artisticFrameWidth: defaults.artisticFrameWidth,
-    artisticCornerRadius: defaults.artisticCornerRadius,
-    photoScale: defaults.photoScale,
-    photoOffsetX: defaults.photoOffsetX,
-    photoOffsetY: defaults.photoOffsetY,
-    selectedParameter: defaults.selectedParameter,
-    galleryPhotoScale: defaults.galleryPhotoScale,
-    galleryOffsetX: defaults.galleryOffsetX,
-    galleryOffsetY: defaults.galleryOffsetY,
-    galleryLightCount: defaults.galleryLightCount,
-    galleryLightPosX: defaults.galleryLightPosX,
-    galleryLightPosY: defaults.galleryLightPosY,
-    galleryLightIntensity: defaults.galleryLightIntensity,
-    galleryLightDirection: defaults.galleryLightDirection,
-    galleryLightDistance: defaults.galleryLightDistance
-  });
+  const mode = getAdjustProfileMode(currentState);
+  const defaults = mode === "artistic"
+    ? createDefaultArtisticAdjustProfile()
+    : createDefaultClassicAdjustProfile();
+  const profileKey = mode === "artistic" ? "artisticAdjust" : "classicAdjust";
+  const patch = {
+    ...defaults,
+    [profileKey]: { ...defaults }
+  };
+  if (isGalleryMode(currentState)) {
+    patch.galleryPhotoScale = 100;
+    patch.galleryOffsetX = 0;
+    patch.galleryOffsetY = 0;
+    patch.galleryLightCount = 1;
+    patch.galleryLightPosX = 50;
+    patch.galleryLightPosY = 12;
+    patch.galleryLightIntensity = 58;
+    patch.galleryLightDirection = 270;
+    patch.galleryLightDistance = 55;
+  }
+  return updateFrameState(currentState, patch);
 }
 
 export function resetGalleryPlacement(currentState){
@@ -508,7 +588,9 @@ export function normalizeProfessionalSubTab(tabId){
   return null;
 }
 
-export function updateFrameState(currentState, partial){
+export function updateFrameState(currentState, partial = {}){
+  const prevMode = getAdjustProfileMode(currentState);
+
   const merged = migrateLegacyFields({
     ...currentState,
     ...partial,
@@ -567,20 +649,45 @@ export function updateFrameState(currentState, partial){
     next.gallerySceneId = scenes[0].id;
   }
 
-  const params = [...FRAME_PARAMETERS, ...ARTISTIC_PARAMETERS, ...GALLERY_LIGHT_PARAMETERS];
-  const defaults = createDefaultFrameState();
-  for (const parameter of params) {
-    next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, defaults[parameter.id]);
+  const classicDefaults = createDefaultClassicAdjustProfile();
+  const artisticDefaults = createDefaultArtisticAdjustProfile();
+  next.classicAdjust = normalizeAdjustProfile(next.classicAdjust, classicDefaults);
+  next.artisticAdjust = normalizeAdjustProfile(next.artisticAdjust, artisticDefaults);
+
+  const nextMode = getAdjustProfileMode(next);
+  const prevKey = prevMode === "artistic" ? "artisticAdjust" : "classicAdjust";
+  const nextKey = nextMode === "artistic" ? "artisticAdjust" : "classicAdjust";
+
+  if (prevMode !== nextMode) {
+    // Preserve the previous mode's knobs, then load the destination profile.
+    next[prevKey] = normalizeAdjustProfile(captureAdjustProfile(currentState), prevMode === "artistic" ? artisticDefaults : classicDefaults);
+    Object.assign(next, next[nextKey]);
+    // Intentional adjust writes in this patch win over the loaded profile.
+    for (const key of ADJUST_PROFILE_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(partial, key)) {
+        next[key] = partial[key];
+      }
+    }
   }
+
+  const params = [...FRAME_PARAMETERS, ...GALLERY_LIGHT_PARAMETERS];
+  const flatDefaults = createDefaultFrameState();
+  for (const parameter of params) {
+    next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, flatDefaults[parameter.id]);
+  }
+
+  // Persist the active flat fields back into the active profile.
+  next[nextKey] = normalizeAdjustProfile(captureAdjustProfile(next), nextMode === "artistic" ? artisticDefaults : classicDefaults);
 
   next.frameWidth = next.outerFrameWidth;
   next.innerPadding = 0;
   next.artisticPhotoScale = next.photoScale;
   next.artisticOffsetX = next.photoOffsetX;
   next.artisticOffsetY = next.photoOffsetY;
-  // Keep artistic* mirrors in sync with unified 參數調整.
-  next.artisticFrameWidth = resolveArtisticFrameWidthPercent(next);
-  next.artisticCornerRadius = resolveArtisticCornerRadius(next);
+
+  // Artistic render mirrors always come from the artistic profile (not classic knobs).
+  next.artisticFrameWidth = resolveArtisticFrameWidthPercent(next.artisticAdjust);
+  next.artisticCornerRadius = resolveArtisticCornerRadius(next.artisticAdjust);
 
   // Gallery wall placement is independent from inner photo* placement.
   next.galleryPhotoScale = clampNumber(next.galleryPhotoScale, 40, 180, 100);
@@ -590,6 +697,7 @@ export function updateFrameState(currentState, partial){
   const available = getParametersForContext(next);
   if (!available.some(item => item.id === next.selectedParameter)) {
     next.selectedParameter = available[0]?.id || "outerFrameWidth";
+    next[nextKey].selectedParameter = next.selectedParameter;
   }
 
   next.galleryTitle = String(next.galleryTitle ?? "Untitled").slice(0, 80);
@@ -647,6 +755,7 @@ export function saveFrameDraft(state){
 export function loadFrameDraft(){
   try {
     const raw = localStorage.getItem(FRAME_DRAFT_KEY)
+      || localStorage.getItem("photoEffects.F5_frame.draft.v8")
       || localStorage.getItem("photoEffects.F5_frame.draft.v7")
       || localStorage.getItem("photoEffects.F5_frame.draft.v6")
       || localStorage.getItem("photoEffects.F5_frame.draft.v5");
@@ -663,6 +772,7 @@ export function loadFrameDraft(){
 export function clearFrameDraft(){
   try {
     localStorage.removeItem(FRAME_DRAFT_KEY);
+    localStorage.removeItem("photoEffects.F5_frame.draft.v8");
     localStorage.removeItem("photoEffects.F5_frame.draft.v7");
     localStorage.removeItem("photoEffects.F5_frame.draft.v6");
     localStorage.removeItem("photoEffects.F5_frame.draft.v5");
@@ -718,6 +828,32 @@ function migrateLegacyFields(state){
   if (next.cornerRadius == null && next.artisticCornerRadius != null) {
     next.cornerRadius = next.artisticCornerRadius;
   }
+
+  // Seed independent profiles from flat fields when upgrading older drafts.
+  const classicDefaults = createDefaultClassicAdjustProfile();
+  const artisticDefaults = createDefaultArtisticAdjustProfile();
+  const flatCapture = captureAdjustProfile(next);
+  if (!next.classicAdjust || typeof next.classicAdjust !== "object") {
+    next.classicAdjust = normalizeAdjustProfile(flatCapture, classicDefaults);
+  }
+  if (!next.artisticAdjust || typeof next.artisticAdjust !== "object") {
+    // Prefer legacy artistic* knobs when present so classic edits don't seed artistic.
+    next.artisticAdjust = normalizeAdjustProfile({
+      ...artisticDefaults,
+      outerFrameWidth: next.artisticFrameWidth != null
+        ? clampNumber((Number(next.artisticFrameWidth) / 100) * 40, 4, 96, 40)
+        : flatCapture.outerFrameWidth,
+      cornerRadius: next.artisticCornerRadius != null
+        ? next.artisticCornerRadius
+        : artisticDefaults.cornerRadius,
+      photoScale: next.artisticPhotoScale ?? flatCapture.photoScale,
+      photoOffsetX: next.artisticOffsetX ?? flatCapture.photoOffsetX,
+      photoOffsetY: next.artisticOffsetY ?? flatCapture.photoOffsetY,
+      opacity: flatCapture.opacity,
+      selectedParameter: flatCapture.selectedParameter
+    }, artisticDefaults);
+  }
+
   // Keep legacy artistic* keys mirrored for older drafts / readers.
   next.artisticPhotoScale = next.photoScale;
   next.artisticOffsetX = next.photoOffsetX;
