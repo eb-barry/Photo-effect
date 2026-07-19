@@ -2,7 +2,7 @@
 // Classic strip rails + artistic overlay + gallery + unified 參數調整 tab.
 
 export const FRAME_FEATURE_ID = "F5_frame";
-export const FRAME_FEATURE_VERSION = "0.4.7";
+export const FRAME_FEATURE_VERSION = "0.4.8";
 export const FRAME_DRAFT_KEY = "photoEffects.F5_frame.draft.v8";
 
 export const FRAME_CATEGORIES = [
@@ -277,18 +277,14 @@ export function reconcileArtisticFrameForPhoto(currentState, photoWidth, photoHe
 export function selectArtisticFrame(currentState, frameId){
   const type = getArtisticFrameById(frameId);
   const id = type?.id || frameId || null;
-  // Toggle off if same frame tapped again.
-  const nextId = currentState.artisticFrameId === id ? null : id;
-  const fallbackTypeId = currentState.outerFrameTypeId
-    || currentState.classicFrameTypeId
-    || getClassicOuterFrames()[0]?.id
-    || null;
+  if (!id) return currentState;
+  // Always apply on tap (do not toggle off). Switching to 經典畫框 clears artistic mode.
   return updateFrameState(currentState, {
     selectedCategoryId: "artistic",
     activeCategory: "artistic",
-    artisticFrameId: nextId,
-    framePresentation: nextId ? "artistic" : (fallbackTypeId ? "classic" : "artistic"),
-    frameTypeId: nextId || fallbackTypeId
+    artisticFrameId: id,
+    framePresentation: "artistic",
+    frameTypeId: id
   });
 }
 

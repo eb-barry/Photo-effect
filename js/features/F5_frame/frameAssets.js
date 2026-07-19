@@ -78,7 +78,7 @@ export async function loadTextureForMaterial(materialId){
   }
 
   console.warn(`[F5 畫框] 找不到材質圖，改用程序化：${materialId}`);
-  textureCache.set(materialId, null);
+  // Do not cache null — a later retry (or fixed path) should be allowed.
   return null;
 }
 
@@ -191,7 +191,15 @@ function titleLabel(name){
 function loadImage(url){
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve(image);
+    image.decoding = "async";
+    image.onload = async () => {
+      try {
+        if (typeof image.decode === "function") await image.decode();
+      } catch {
+        // decode() can reject on some browsers even when pixels are usable.
+      }
+      resolve(image);
+    };
     image.onerror = () => reject(new Error(`Image load failed: ${url}`));
     image.src = url;
   });
