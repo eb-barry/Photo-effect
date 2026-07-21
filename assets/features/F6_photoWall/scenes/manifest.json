@@ -1,0 +1,30 @@
+{
+  "generatedAt": "2026-07-21T00:00:00.000Z",
+  "note": "Drop scene-3x4-*.webp and scene-4x3-*.webp into this folder, then update items.",
+  "items": [
+    {
+      "id": "scene-3x4-1",
+      "label": "直式展場 1",
+      "file": "scene-3x4-1.webp",
+      "aspect": "3x4"
+    },
+    {
+      "id": "scene-3x4-2",
+      "label": "直式展場 2",
+      "file": "scene-3x4-2.webp",
+      "aspect": "3x4"
+    },
+    {
+      "id": "scene-4x3-1",
+      "label": "橫式展場 1",
+      "file": "scene-4x3-1.webp",
+      "aspect": "4x3"
+    },
+    {
+      "id": "scene-4x3-2",
+      "label": "橫式展場 2",
+      "file": "scene-4x3-2.webp",
+      "aspect": "4x3"
+    }
+  ]
+}

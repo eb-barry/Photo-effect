@@ -36,8 +36,8 @@ application.
                                                          Gallery walls
                                                          (aspect-matched)
 
-  F6         照片牆 (Photo Wall)    📋                   Multi-photo
-                                                         collage
+  F6         照片牆 (Photo Wall)    🚧                   Phase 1: scene +
+                                                         multi-photo placement
 
   F7         浮水印 (Watermark)     📋                   Text & image
                                                          watermark
