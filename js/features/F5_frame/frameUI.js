@@ -457,7 +457,7 @@ export function renderMaterialCarousel(types, categoryId, role = null){
       aria-label="${item.label}"
       title="${artistic ? `${item.label}（點選套用藝術畫框）` : item.label}"
     >
-      <span class="crystal-scene-thumb frame-material-thumb${classicRole ? " frame-strip-thumb" : ""}">
+      <span class="crystal-scene-thumb frame-material-thumb${classicRole ? " frame-strip-thumb" : ""}${artistic ? " frame-artistic-thumb" : ""}">
         <img data-src="${item.thumb}" alt="" loading="lazy" decoding="async" />
       </span>
     </button>
