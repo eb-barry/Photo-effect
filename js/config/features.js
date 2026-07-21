@@ -13,7 +13,8 @@ const FEATURE_ROUTES = {
   F2: "F2_crystalBall",
   F3: "F3_magicSky",
   F4: "F4_starburst",
-  F5: "F5_frame"
+  F5: "F5_frame",
+  F6: "F6_photoWall"
 };
 
 /** Override display labels when filename label differs from product name. */

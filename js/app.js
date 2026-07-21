@@ -24,6 +24,9 @@ const routeLoaders = {
   })),
   F5_frame: () => import("./features/F5_frame/framePage.js").then(mod => ({
     run: (root, navigate) => mod.initFramePage(root, { goHome: () => navigate("home") })
+  })),
+  F6_photoWall: () => import("./features/F6_photoWall/photoWallPage.js").then(mod => ({
+    run: (root, navigate) => mod.initPhotoWallPage(root, { goHome: () => navigate("home") })
   }))
 };
 
