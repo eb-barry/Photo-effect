@@ -887,6 +887,18 @@ body.magic-sky-scroll-locked {
   object-position: center;
 }
 
+/* Artistic thumbs: zoom the top-right corner so moulding fills ~3/4 of the tile. */
+.frame-artistic-thumb {
+  background: #eef2f1;
+}
+
+.frame-artistic-thumb img {
+  object-fit: cover;
+  object-position: 100% 0%;
+  transform: scale(1.75);
+  transform-origin: 100% 0%;
+}
+
 .frame-material-button {
   flex: 0 0 104px;
 }
