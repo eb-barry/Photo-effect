@@ -1,4 +1,5 @@
-// F5 畫框 - UI v0.4.9
+// F5 畫框 - UI v0.4.10
+// Artistic thumbs: top-right corner crop (~¾ moulding close-up).
 // L1：經典／藝術／照片畫廊／參數調整。經典與藝術各有獨立參數 profile。
 
 import {
