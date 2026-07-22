@@ -3,7 +3,7 @@
 import { getPhotoWallScenes } from "./photoWallAssets.js";
 
 export const PHOTO_WALL_FEATURE_ID = "F6_photoWall";
-export const PHOTO_WALL_FEATURE_VERSION = "0.1.1";
+export const PHOTO_WALL_FEATURE_VERSION = "0.1.2";
 export const PHOTO_WALL_DRAFT_KEY = "photoEffects.F6_photoWall.draft.v1";
 
 export const PHOTO_WALL_TABS = [
@@ -127,6 +127,49 @@ export function moveCheckedLayers(state, direction){
   return next;
 }
 
+export function computeSequentialLayout(count, sceneAspect = "3x4"){
+  if (count <= 0) return [];
+
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+  const rows = Math.ceil(count / cols);
+  const marginX = 0.1;
+  const marginY = sceneAspect === "4x3" ? 0.16 : 0.12;
+  const gapX = 0.035;
+  const gapY = 0.035;
+  const availableW = 1 - marginX * 2;
+  const availableH = 1 - marginY * 2;
+  const cellW = (availableW - gapX * Math.max(0, cols - 1)) / cols;
+  const cellH = (availableH - gapY * Math.max(0, rows - 1)) / rows;
+  const scale = clamp(Math.min(cellW * 0.94, cellH * 1.1), 0.12, 0.42);
+
+  return Array.from({ length: count }, (_, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    const x = marginX + col * (cellW + gapX) + cellW / 2;
+    const y = marginY + row * (cellH + gapY) + cellH / 2;
+    return { x: clamp01(x), y: clamp01(y), scale };
+  });
+}
+
+/** Place every library photo on the canvas in selection order. */
+export function layoutPhotosOnCanvas(state){
+  if (!state.photos.length) return state;
+
+  const scene = getSceneById(state.sceneId);
+  const layouts = computeSequentialLayout(state.photos.length, scene?.aspect || "3x4");
+
+  return updatePhotoWallState(state, {
+    photos: state.photos.map((photo, index) => ({
+      ...photo,
+      onCanvas: true,
+      checked: index === 0,
+      zIndex: index + 1,
+      position: { ...layouts[index] }
+    })),
+    activeTab: state.activeTab === "scene" ? "photo" : state.activeTab
+  });
+}
+
 export function addPhotosFromFiles(state, entries){
   const nextPhotos = [...state.photos];
   entries.forEach(entry => {
@@ -143,10 +186,11 @@ export function addPhotosFromFiles(state, entries){
       perspective: { ...DEFAULT_PERSPECTIVE }
     });
   });
-  return updatePhotoWallState(state, {
+  const withPhotos = updatePhotoWallState(state, {
     photos: nextPhotos,
     activeTab: state.activeTab === "scene" ? "photo" : state.activeTab
   });
+  return layoutPhotosOnCanvas(withPhotos);
 }
 
 export function placePhotoOnCanvas(state, photoId, position = {}){
@@ -172,13 +216,11 @@ export function placePhotoOnCanvas(state, photoId, position = {}){
 }
 
 export function removePhotoFromCanvas(state, photoId){
-  return updatePhotoWallState(state, {
-    photos: state.photos.map(photo => (
-      photo.id === photoId
-        ? { ...photo, onCanvas: false, checked: false }
-        : photo
-    ))
-  });
+  const photos = state.photos.filter(photo => photo.id !== photoId);
+  if (!photos.length) {
+    return updatePhotoWallState(state, { photos: [] });
+  }
+  return layoutPhotosOnCanvas(updatePhotoWallState(state, { photos }));
 }
 
 export function setPhotoChecked(state, photoId, checked){
