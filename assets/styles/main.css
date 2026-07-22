@@ -1050,6 +1050,10 @@ body.magic-sky-scroll-locked {
 }
 
 /* F6 Photo Wall */
+.photo-wall-page .crystal-tab-panel {
+  min-width: 0;
+}
+
 .photo-wall-tab-bar {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -1083,8 +1087,12 @@ body.magic-sky-scroll-locked {
   display: flex;
   gap: 10px;
   overflow-x: auto;
+  overflow-y: hidden;
   padding: 6px 2px 10px;
   scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
 }
 
 .photo-wall-thumb {
@@ -1096,7 +1104,12 @@ body.magic-sky-scroll-locked {
   background: rgba(255, 255, 255, 0.82);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   scroll-snap-align: start;
+  touch-action: pan-x;
+}
+
+.photo-wall-thumb.is-dragging {
   touch-action: none;
+  opacity: 0.72;
 }
 
 .photo-wall-thumb img {
