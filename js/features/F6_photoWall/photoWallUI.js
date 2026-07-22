@@ -79,7 +79,7 @@ export function renderPhotoStrip(state){
         <input type="checkbox" data-photo-wall-check="${photo.id}" ${photo.checked ? "checked" : ""} />
         <span aria-hidden="true"></span>
       </label>
-      <img src="${photo.dataUrl}" alt="" loading="lazy" decoding="async" />
+      <img src="${photo.thumbDataUrl || photo.workDataUrl || photo.dataUrl}" alt="" loading="lazy" decoding="async" />
       <span class="photo-wall-thumb-label">${photo.onCanvas ? "已上牆" : "拖入畫布"}</span>
     </div>
   `).join("");
@@ -156,15 +156,56 @@ export function setupPhotoWallUI(root, state, hooks){
   const thumbStrip = () => root.querySelector("#photoWallThumbStrip");
 
   let sliderStartValue = 0;
-  let sliderDragging = false;
   let lastOverlays = [];
+  let gestureDepth = 0;
 
-  const setState = nextState => {
+  const applyState = (nextState, options = {}) => {
+    const {
+      refreshUi = true,
+      render = true,
+      persist = true,
+      fastPreview = false
+    } = options;
+
     Object.assign(state, nextState);
     hooks.onStateChange?.(state);
-    refreshAll();
-    hooks.render?.();
-    hooks.persist?.();
+
+    if (refreshUi) refreshAll();
+    if (render) {
+      if (fastPreview) hooks.scheduleRender?.({ fastPreview: true });
+      else hooks.scheduleRenderAndPersist?.({ fastPreview: false });
+    } else if (persist) {
+      hooks.persist?.();
+    }
+  };
+
+  const setState = (nextState, options = {}) => {
+    applyState(nextState, {
+      refreshUi: true,
+      render: true,
+      persist: true,
+      fastPreview: false,
+      ...options
+    });
+  };
+
+  const patchCanvasState = partial => {
+    applyState(updatePhotoWallState(state, partial), {
+      refreshUi: false,
+      render: true,
+      persist: false,
+      fastPreview: true
+    });
+  };
+
+  const beginGesture = () => {
+    if (gestureDepth === 0) hooks.onGestureStart?.();
+    gestureDepth += 1;
+  };
+
+  const endGesture = () => {
+    gestureDepth = Math.max(0, gestureDepth - 1);
+    if (gestureDepth === 0) hooks.onGestureEnd?.();
   };
 
   const patchState = partial => {
@@ -235,11 +276,14 @@ export function setupPhotoWallUI(root, state, hooks){
       patchState({ selectedParameter: select.value });
     });
 
+    let sliderGesture = false;
+
     positionHost?.addEventListener("pointerdown", event => {
       const slider = event.target.closest("#photoWallSlider");
       if (!slider) return;
       sliderStartValue = Number(slider.value);
-      sliderDragging = true;
+      sliderGesture = true;
+      beginGesture();
     });
 
     positionHost?.addEventListener("input", event => {
@@ -250,13 +294,35 @@ export function setupPhotoWallUI(root, state, hooks){
       const nextValue = Number(slider.value);
       if (valueEl) valueEl.textContent = `${Math.round(nextValue)}${config.suffix || ""}`;
       if (state.sliderAlignMode === "absolute") {
-        setState(applyAbsoluteAdjustment(state, state.selectedParameter, nextValue));
+        applyState(applyAbsoluteAdjustment(state, state.selectedParameter, nextValue), {
+          refreshUi: false,
+          render: true,
+          persist: false,
+          fastPreview: true
+        });
         return;
       }
       const delta = nextValue - sliderStartValue;
       if (!delta) return;
-      setState(applyRelativeAdjustment(state, state.selectedParameter, delta));
+      applyState(applyRelativeAdjustment(state, state.selectedParameter, delta), {
+        refreshUi: false,
+        render: true,
+        persist: false,
+        fastPreview: true
+      });
       sliderStartValue = nextValue;
+    });
+
+    positionHost?.addEventListener("pointerup", event => {
+      if (!sliderGesture || !event.target.closest("#photoWallSlider")) return;
+      sliderGesture = false;
+      endGesture();
+    });
+
+    positionHost?.addEventListener("pointercancel", event => {
+      if (!sliderGesture || !event.target.closest("#photoWallSlider")) return;
+      sliderGesture = false;
+      endGesture();
     });
 
     positionHost?.addEventListener("click", event => {
@@ -308,15 +374,18 @@ export function setupPhotoWallUI(root, state, hooks){
     setState(togglePhotoChecked(state, thumb.dataset.photoWallThumb));
   });
 
+  const THUMB_DRAG_THRESHOLD = 8;
+
   const bindThumbDrag = () => {
     root.querySelectorAll("[data-photo-wall-thumb]").forEach(thumb => {
+      if (thumb.dataset.thumbDragBound) return;
+      thumb.dataset.thumbDragBound = "1";
       thumb.addEventListener("pointerdown", onThumbPointerDown);
     });
   };
 
   let dragGhost = null;
   let dragPhotoId = null;
-  let dragFromCanvas = false;
 
   function onThumbPointerDown(event){
     if (event.target.closest(".photo-wall-thumb-check")) return;
@@ -326,33 +395,56 @@ export function setupPhotoWallUI(root, state, hooks){
     const photo = state.photos.find(item => item.id === photoId);
     if (!photo || photo.onCanvas) return;
 
-    event.preventDefault();
-    thumb.setPointerCapture?.(event.pointerId);
-    dragPhotoId = photoId;
-    dragFromCanvas = false;
-    createDragGhost(thumb.querySelector("img")?.src, event.clientX, event.clientY);
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let dragging = false;
+    let pointerId = event.pointerId;
 
     const onMove = moveEvent => {
-      moveEvent.preventDefault();
-      moveDragGhost(moveEvent.clientX, moveEvent.clientY);
+      if (moveEvent.pointerId !== pointerId) return;
+
+      if (!dragging) {
+        const distance = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY);
+        if (distance < THUMB_DRAG_THRESHOLD) return;
+        dragging = true;
+        moveEvent.preventDefault();
+        thumb.classList.add("is-dragging");
+        thumb.setPointerCapture?.(pointerId);
+        dragPhotoId = photoId;
+        createDragGhost(
+          thumb.querySelector("img")?.src,
+          moveEvent.clientX,
+          moveEvent.clientY
+        );
+      } else {
+        moveEvent.preventDefault();
+        moveDragGhost(moveEvent.clientX, moveEvent.clientY);
+      }
     };
 
     const onUp = upEvent => {
-      thumb.releasePointerCapture?.(upEvent.pointerId);
+      if (upEvent.pointerId !== pointerId) return;
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
+      thumb.classList.remove("is-dragging");
+      thumb.releasePointerCapture?.(pointerId);
       removeDragGhost();
 
-      const dropCanvas = canvas && isInside(canvas, upEvent.clientX, upEvent.clientY);
-      if (dropCanvas) {
-        const point = normalizedPointFromCanvas(canvas, upEvent.clientX, upEvent.clientY);
-        setState(placePhotoOnCanvas(state, photoId, point));
+      if (dragging) {
+        const dropTarget = canvasWrap && isInside(canvasWrap, upEvent.clientX, upEvent.clientY);
+        if (dropTarget && canvas) {
+          const point = normalizedPointFromCanvas(canvas, upEvent.clientX, upEvent.clientY);
+          setState(placePhotoOnCanvas(state, photoId, point));
+        }
       }
+
       dragPhotoId = null;
     };
 
-    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointermove", onMove, { passive: false });
     document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
   }
 
   function createDragGhost(src, x, y){
@@ -382,7 +474,9 @@ export function setupPhotoWallUI(root, state, hooks){
     getOverlays: () => lastOverlays,
     setOverlays: overlays => { lastOverlays = overlays; },
     setState,
-    patchState,
+    patchCanvasState,
+    beginGesture,
+    endGesture,
     isDropOnStrip: (x, y) => {
       const strip = thumbStrip();
       return strip ? isInside(strip, x, y) : false;
@@ -410,6 +504,7 @@ function enableCanvasInteractions(canvas, canvasWrap, hooks){
   let longPressTriggered = false;
   let canvasDragFromPhoto = false;
   let dragMoved = false;
+  let gestureActive = false;
 
   canvas.style.touchAction = "none";
 
@@ -429,7 +524,7 @@ function enableCanvasInteractions(canvas, canvasWrap, hooks){
       canvasDragFromPhoto = true;
       let next = setPhotoChecked(state, hit.id, true);
       next = bringPhotoToFront(next, hit.id);
-      hooks.setState(next);
+      hooks.setState(next, { refreshUi: false, render: true, persist: false, fastPreview: false });
 
       longPressTriggered = false;
       longPressTimer = window.setTimeout(() => {
@@ -451,6 +546,10 @@ function enableCanvasInteractions(canvas, canvasWrap, hooks){
       const photo = state.photos.find(item => item.id === hit.id);
       startScale = photo?.position?.scale || 0.28;
     } else if (pointers.size === 2 && state.activeTab === "position") {
+      if (!gestureActive) {
+        gestureActive = true;
+        hooks.beginGesture?.();
+      }
       lastPinchDistance = getPinchDistance();
       const photo = state.photos.find(item => item.id === activePhotoId);
       startScale = photo?.position?.scale || 0.28;
@@ -461,7 +560,6 @@ function enableCanvasInteractions(canvas, canvasWrap, hooks){
   canvas.addEventListener("pointermove", event => {
     if (!pointers.has(event.pointerId)) return;
     const state = getState();
-    event.preventDefault();
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 
     if (longPressTimer && (Math.abs(event.movementX) > 3 || Math.abs(event.movementY) > 3)) {
@@ -469,19 +567,26 @@ function enableCanvasInteractions(canvas, canvasWrap, hooks){
       longPressTimer = null;
     }
 
-    if (state.activeTab === "position" && activePhotoId && (Math.abs(event.movementX) > 2 || Math.abs(event.movementY) > 2)) {
-      dragMoved = true;
+    if (state.activeTab !== "position" || !activePhotoId) return;
+
+    if (!gestureActive && (Math.abs(event.movementX) > 2 || Math.abs(event.movementY) > 2)) {
+      gestureActive = true;
+      hooks.beginGesture?.();
     }
 
-    if (state.activeTab !== "position" || !activePhotoId) return;
+    if (!gestureActive) return;
+
+    event.preventDefault();
+
+    if (activePhotoId && (Math.abs(event.movementX) > 2 || Math.abs(event.movementY) > 2)) {
+      dragMoved = true;
+    }
 
     if (pointers.size >= 2) {
       const distance = getPinchDistance();
       if (lastPinchDistance > 0 && distance > 0) {
-        const photo = state.photos.find(item => item.id === activePhotoId);
-        if (!photo) return;
         const nextScale = clamp(startScale * (distance / lastPinchDistance), 0.08, 0.85);
-        hooks.patchState({
+        hooks.patchCanvasState({
           photos: state.photos.map(item => (
             item.id === activePhotoId
               ? { ...item, position: { ...item.position, scale: nextScale } }
@@ -502,7 +607,7 @@ function enableCanvasInteractions(canvas, canvasWrap, hooks){
     const dy = (event.clientY - lastDrag.y) / Math.max(1, rect.height);
     lastDrag = { x: event.clientX, y: event.clientY };
 
-    hooks.patchState({
+    hooks.patchCanvasState({
       photos: state.photos.map(item => {
         if (item.id !== activePhotoId) return item;
         return {
@@ -537,6 +642,10 @@ function enableCanvasInteractions(canvas, canvasWrap, hooks){
     }
 
     if (pointers.size === 0) {
+      if (gestureActive) {
+        gestureActive = false;
+        hooks.endGesture?.();
+      }
       lastDrag = null;
       lastPinchDistance = 0;
       activePhotoId = null;

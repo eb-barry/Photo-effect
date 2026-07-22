@@ -1,4 +1,4 @@
-// F6 照片牆 - Page Controller v0.1.0 (Phase 1)
+// F6 照片牆 - Page Controller v0.1.1
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -14,6 +14,8 @@ import {
 } from "./photoWallState.js";
 import {
   fileToDataUrl,
+  invalidateSceneLayerCache,
+  preparePhotoVariants,
   renderPhotoWall,
   resolvePhotoWallOutputSize
 } from "./photoWallTool.js";
@@ -88,6 +90,8 @@ export async function renderPhotoWallPage(root, navigate){
 
   const state = { ...savedState };
   let renderSerial = 0;
+  let renderRaf = 0;
+  let gestureFast = false;
   let wallUi = null;
 
   const applyCanvasSize = size => {
@@ -114,14 +118,17 @@ export async function renderPhotoWallPage(root, navigate){
     savePhotoWallDraft(state);
   };
 
-  const render = async () => {
+  const render = async (options = {}) => {
     if (!state.sceneId) return;
     const serial = ++renderSerial;
     const size = resolvePhotoWallOutputSize(state.sceneId);
     applyCanvasSize(size);
 
+    const fastPreview = Boolean(options.fastPreview ?? gestureFast);
+    const useOriginal = Boolean(options.useOriginal);
+
     try {
-      const overlays = await renderPhotoWall(ctx, state);
+      const overlays = await renderPhotoWall(ctx, state, { fastPreview, useOriginal });
       if (serial !== renderSerial) return;
       wallUi?.setOverlays(overlays);
     } catch (error) {
@@ -130,9 +137,29 @@ export async function renderPhotoWallPage(root, navigate){
     syncActionButtons();
   };
 
-  const renderAndPersist = async () => {
-    await render();
-    persistDraft();
+  const scheduleRender = (options = {}) => {
+    if (renderRaf) cancelAnimationFrame(renderRaf);
+    renderRaf = requestAnimationFrame(() => {
+      renderRaf = 0;
+      render(options).catch(console.error);
+    });
+  };
+
+  const renderAndPersist = async (options = {}) => {
+    await render(options);
+    if (!options.fastPreview) persistDraft();
+  };
+
+  const scheduleRenderAndPersist = (options = {}) => {
+    if (options.fastPreview) {
+      scheduleRender(options);
+      return;
+    }
+    if (renderRaf) cancelAnimationFrame(renderRaf);
+    renderRaf = requestAnimationFrame(() => {
+      renderRaf = 0;
+      renderAndPersist(options).catch(console.error);
+    });
   };
 
   root.querySelector("#homeBtn")?.addEventListener("click", event => {
@@ -155,7 +182,8 @@ export async function renderPhotoWallPage(root, navigate){
       const entries = [];
       for (const file of files) {
         const dataUrl = await fileToDataUrl(file);
-        entries.push({ dataUrl, label: file.name || "照片" });
+        const variants = await preparePhotoVariants(dataUrl);
+        entries.push({ ...variants, label: file.name || "照片" });
       }
       Object.assign(state, addPhotosFromFiles(state, entries));
       await renderAndPersist();
@@ -171,10 +199,11 @@ export async function renderPhotoWallPage(root, navigate){
   savePhotoBtn?.addEventListener("click", async event => {
     event.preventDefault();
     if (!state.photos.some(photo => photo.onCanvas)) return;
-    await render();
+    await render({ useOriginal: true, fastPreview: false });
     await downloadCanvas(canvas);
     clearPhotoWallDraft();
     Object.assign(state, updatePhotoWallState(createDefaultPhotoWallState(), {}));
+    invalidateSceneLayerCache();
     wallUi?.refreshAll();
     await render();
   });
@@ -182,11 +211,12 @@ export async function renderPhotoWallPage(root, navigate){
   sharePhotoBtn?.addEventListener("click", async event => {
     event.preventDefault();
     if (!state.photos.some(photo => photo.onCanvas)) return;
-    await render();
+    await render({ useOriginal: true, fastPreview: false });
     const shared = await shareCanvas(canvas);
     if (!shared) await downloadCanvas(canvas);
     clearPhotoWallDraft();
     Object.assign(state, updatePhotoWallState(createDefaultPhotoWallState(), {}));
+    invalidateSceneLayerCache();
     wallUi?.refreshAll();
     await render();
   });
@@ -198,9 +228,20 @@ export async function renderPhotoWallPage(root, navigate){
   }
 
   wallUi = setupPhotoWallUI(root, state, {
-    render: renderAndPersist,
+    scheduleRender,
+    scheduleRenderAndPersist,
     persist: persistDraft,
-    onSceneChange: renderAndPersist
+    onSceneChange: () => {
+      invalidateSceneLayerCache();
+      scheduleRenderAndPersist();
+    },
+    onGestureStart: () => {
+      gestureFast = true;
+    },
+    onGestureEnd: () => {
+      gestureFast = false;
+      scheduleRenderAndPersist({ fastPreview: false });
+    }
   });
 
   syncActionButtons();

@@ -3,7 +3,7 @@
 import { getPhotoWallScenes } from "./photoWallAssets.js";
 
 export const PHOTO_WALL_FEATURE_ID = "F6_photoWall";
-export const PHOTO_WALL_FEATURE_VERSION = "0.1.0";
+export const PHOTO_WALL_FEATURE_VERSION = "0.1.1";
 export const PHOTO_WALL_DRAFT_KEY = "photoEffects.F6_photoWall.draft.v1";
 
 export const PHOTO_WALL_TABS = [
@@ -133,6 +133,8 @@ export function addPhotosFromFiles(state, entries){
     nextPhotos.push({
       id: createPhotoId(),
       dataUrl: entry.dataUrl,
+      workDataUrl: entry.workDataUrl || entry.dataUrl,
+      thumbDataUrl: entry.thumbDataUrl || entry.workDataUrl || entry.dataUrl,
       label: entry.label || "照片",
       onCanvas: false,
       checked: false,
@@ -165,8 +167,7 @@ export function placePhotoOnCanvas(state, photoId, position = {}){
           scale: position.scale ?? photo.position.scale
         }
       };
-    }),
-    activeTab: state.activeTab === "scene" || state.activeTab === "photo" ? "position" : state.activeTab
+    })
   });
 }
 
@@ -287,8 +288,8 @@ export function updatePhotoWallState(currentState, partial){
   next.photos = (next.photos || []).map(normalizePhotoRecord);
 
   if (!canEnableTab(next.activeTab, next)) {
-    if (canEnableTab("position", next)) next.activeTab = "position";
-    else if (canEnableTab("photo", next)) next.activeTab = "photo";
+    if (canEnableTab("photo", next)) next.activeTab = "photo";
+    else if (canEnableTab("scene", next)) next.activeTab = "scene";
     else next.activeTab = "scene";
   }
 
@@ -307,6 +308,8 @@ function normalizePhotoRecord(photo){
   return {
     id: photo.id || createPhotoId(),
     dataUrl: photo.dataUrl || null,
+    workDataUrl: photo.workDataUrl || photo.dataUrl || null,
+    thumbDataUrl: photo.thumbDataUrl || photo.workDataUrl || photo.dataUrl || null,
     label: String(photo.label || "照片").slice(0, 40),
     onCanvas: Boolean(photo.onCanvas),
     checked: Boolean(photo.checked),
