@@ -1107,11 +1107,6 @@ body.magic-sky-scroll-locked {
   touch-action: pan-x;
 }
 
-.photo-wall-thumb.is-dragging {
-  touch-action: none;
-  opacity: 0.72;
-}
-
 .photo-wall-thumb img {
   display: block;
   width: 100%;
@@ -1183,19 +1178,6 @@ body.magic-sky-scroll-locked {
 .photo-wall-layer-btn:active {
   background: linear-gradient(145deg, var(--base), var(--base-dark));
   color: #fff;
-}
-
-.photo-wall-drag-ghost {
-  position: fixed;
-  z-index: 9999;
-  width: 88px;
-  height: 88px;
-  object-fit: cover;
-  border-radius: 12px;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-  opacity: 0.88;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
 }
 
 #photoWallGestureHint {

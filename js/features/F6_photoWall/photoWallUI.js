@@ -11,7 +11,6 @@ import {
   clearCanvasForSceneChange,
   getParameterDisplayValue,
   moveCheckedLayers,
-  placePhotoOnCanvas,
   removePhotoFromCanvas,
   setPhotoChecked,
   togglePhotoChecked,
@@ -19,8 +18,7 @@ import {
 } from "./photoWallState.js";
 import {
   clientToCanvasPoint,
-  hitTestCanvasPhoto,
-  normalizedPointFromCanvas
+  hitTestCanvasPhoto
 } from "./photoWallTool.js";
 
 export function renderControlTabs(state){
@@ -70,7 +68,7 @@ export function renderPhotoStrip(state){
     return `<p class="note photo-wall-strip-empty">請點右上方開啟照片，挑選多張相片。</p>`;
   }
 
-  const items = state.photos.map(photo => `
+  const items = state.photos.map((photo, index) => `
     <div
       class="photo-wall-thumb${photo.onCanvas ? " is-on-canvas" : ""}${photo.checked ? " is-checked" : ""}"
       data-photo-wall-thumb="${photo.id}"
@@ -80,13 +78,13 @@ export function renderPhotoStrip(state){
         <span aria-hidden="true"></span>
       </label>
       <img src="${photo.thumbDataUrl || photo.workDataUrl || photo.dataUrl}" alt="" loading="lazy" decoding="async" />
-      <span class="photo-wall-thumb-label">${photo.onCanvas ? "已上牆" : "拖入畫布"}</span>
+      <span class="photo-wall-thumb-label">照片 ${index + 1}</span>
     </div>
   `).join("");
 
   return `
-    <p class="note photo-wall-strip-hint">勾選縮圖可多選批次調整；將縮圖拖入畫布，或從畫布拖回此處移除。</p>
-    <div class="photo-wall-thumb-strip" id="photoWallThumbStrip" data-photo-wall-dropzone="strip">
+    <p class="note photo-wall-strip-hint">勾選縮圖可多選批次調整；開啟照片後會自動依序排列在畫布上。</p>
+    <div class="photo-wall-thumb-strip" id="photoWallThumbStrip">
       ${items}
     </div>
   `;
@@ -152,8 +150,6 @@ export function setupPhotoWallUI(root, state, hooks){
   const positionHost = root.querySelector("#photoWallPositionHost");
   const perspectiveHost = root.querySelector("#photoWallPerspectiveHost");
   const canvas = root.querySelector("#editorCanvas");
-  const canvasWrap = root.querySelector("#canvasWrap");
-  const thumbStrip = () => root.querySelector("#photoWallThumbStrip");
 
   let sliderStartValue = 0;
   let lastOverlays = [];
@@ -229,7 +225,6 @@ export function setupPhotoWallUI(root, state, hooks){
     if (perspectiveHost) perspectiveHost.innerHTML = renderPerspectivePanel();
 
     mountSceneCarousel(root);
-    bindThumbDrag();
     bindSlider();
     refreshGestureHint();
   };
@@ -240,7 +235,7 @@ export function setupPhotoWallUI(root, state, hooks){
     const show = Boolean(state.sceneId) && state.photos.some(photo => photo.onCanvas);
     hint.classList.toggle("hidden", !show);
     hint.textContent = state.activeTab === "position"
-      ? "拖曳移動、雙指縮放；長按移除；拖回下方縮圖列亦可移除"
+      ? "拖曳移動、雙指縮放；長按畫布照片可移除"
       : "點選畫布照片可選取（紅框光暈）";
   };
 
@@ -374,113 +369,14 @@ export function setupPhotoWallUI(root, state, hooks){
     setState(togglePhotoChecked(state, thumb.dataset.photoWallThumb));
   });
 
-  const THUMB_DRAG_THRESHOLD = 8;
-
-  const bindThumbDrag = () => {
-    root.querySelectorAll("[data-photo-wall-thumb]").forEach(thumb => {
-      if (thumb.dataset.thumbDragBound) return;
-      thumb.dataset.thumbDragBound = "1";
-      thumb.addEventListener("pointerdown", onThumbPointerDown);
-    });
-  };
-
-  let dragGhost = null;
-  let dragPhotoId = null;
-
-  function onThumbPointerDown(event){
-    if (event.target.closest(".photo-wall-thumb-check")) return;
-    const thumb = event.target.closest("[data-photo-wall-thumb]");
-    if (!thumb) return;
-    const photoId = thumb.dataset.photoWallThumb;
-    const photo = state.photos.find(item => item.id === photoId);
-    if (!photo || photo.onCanvas) return;
-
-    const startX = event.clientX;
-    const startY = event.clientY;
-    let dragging = false;
-    let pointerId = event.pointerId;
-
-    const onMove = moveEvent => {
-      if (moveEvent.pointerId !== pointerId) return;
-
-      if (!dragging) {
-        const distance = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY);
-        if (distance < THUMB_DRAG_THRESHOLD) return;
-        dragging = true;
-        moveEvent.preventDefault();
-        thumb.classList.add("is-dragging");
-        thumb.setPointerCapture?.(pointerId);
-        dragPhotoId = photoId;
-        createDragGhost(
-          thumb.querySelector("img")?.src,
-          moveEvent.clientX,
-          moveEvent.clientY
-        );
-      } else {
-        moveEvent.preventDefault();
-        moveDragGhost(moveEvent.clientX, moveEvent.clientY);
-      }
-    };
-
-    const onUp = upEvent => {
-      if (upEvent.pointerId !== pointerId) return;
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      document.removeEventListener("pointercancel", onUp);
-      thumb.classList.remove("is-dragging");
-      thumb.releasePointerCapture?.(pointerId);
-      removeDragGhost();
-
-      if (dragging) {
-        const dropTarget = canvasWrap && isInside(canvasWrap, upEvent.clientX, upEvent.clientY);
-        if (dropTarget && canvas) {
-          const point = normalizedPointFromCanvas(canvas, upEvent.clientX, upEvent.clientY);
-          setState(placePhotoOnCanvas(state, photoId, point));
-        }
-      }
-
-      dragPhotoId = null;
-    };
-
-    document.addEventListener("pointermove", onMove, { passive: false });
-    document.addEventListener("pointerup", onUp);
-    document.addEventListener("pointercancel", onUp);
-  }
-
-  function createDragGhost(src, x, y){
-    removeDragGhost();
-    if (!src) return;
-    dragGhost = document.createElement("img");
-    dragGhost.src = src;
-    dragGhost.className = "photo-wall-drag-ghost";
-    dragGhost.style.left = `${x}px`;
-    dragGhost.style.top = `${y}px`;
-    document.body.appendChild(dragGhost);
-  }
-
-  function moveDragGhost(x, y){
-    if (!dragGhost) return;
-    dragGhost.style.left = `${x}px`;
-    dragGhost.style.top = `${y}px`;
-  }
-
-  function removeDragGhost(){
-    dragGhost?.remove();
-    dragGhost = null;
-  }
-
-  enableCanvasInteractions(canvas, canvasWrap, {
+  enableCanvasInteractions(canvas, {
     getState: () => state,
     getOverlays: () => lastOverlays,
     setOverlays: overlays => { lastOverlays = overlays; },
     setState,
     patchCanvasState,
     beginGesture,
-    endGesture,
-    isDropOnStrip: (x, y) => {
-      const strip = thumbStrip();
-      return strip ? isInside(strip, x, y) : false;
-    }
+    endGesture
   });
 
   refreshAll();
@@ -492,7 +388,7 @@ export function setupPhotoWallUI(root, state, hooks){
   };
 }
 
-function enableCanvasInteractions(canvas, canvasWrap, hooks){
+function enableCanvasInteractions(canvas, hooks){
   if (!canvas) return;
 
   const pointers = new Map();
@@ -503,7 +399,6 @@ function enableCanvasInteractions(canvas, canvasWrap, hooks){
   let longPressTimer = null;
   let longPressTriggered = false;
   let canvasDragFromPhoto = false;
-  let dragMoved = false;
   let gestureActive = false;
 
   canvas.style.touchAction = "none";
@@ -578,10 +473,6 @@ function enableCanvasInteractions(canvas, canvasWrap, hooks){
 
     event.preventDefault();
 
-    if (activePhotoId && (Math.abs(event.movementX) > 2 || Math.abs(event.movementY) > 2)) {
-      dragMoved = true;
-    }
-
     if (pointers.size >= 2) {
       const distance = getPinchDistance();
       if (lastPinchDistance > 0 && distance > 0) {
@@ -634,13 +525,6 @@ function enableCanvasInteractions(canvas, canvasWrap, hooks){
 
     const state = getState();
 
-    if (!longPressTriggered && canvasDragFromPhoto && dragMoved && state.activeTab === "position" && pointers.size === 0) {
-      const dropOnStrip = hooks.isDropOnStrip(event.clientX, event.clientY);
-      if (dropOnStrip && activePhotoId) {
-        hooks.setState(removePhotoFromCanvas(state, activePhotoId));
-      }
-    }
-
     if (pointers.size === 0) {
       if (gestureActive) {
         gestureActive = false;
@@ -650,7 +534,6 @@ function enableCanvasInteractions(canvas, canvasWrap, hooks){
       lastPinchDistance = 0;
       activePhotoId = null;
       canvasDragFromPhoto = false;
-      dragMoved = false;
       longPressTriggered = false;
     }
   };
