@@ -1083,6 +1083,16 @@ body.magic-sky-scroll-locked {
   pointer-events: none;
 }
 
+.photo-wall-scene-label {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--base-dark);
+}
+
 .photo-wall-thumb-strip {
   display: flex;
   gap: 10px;
