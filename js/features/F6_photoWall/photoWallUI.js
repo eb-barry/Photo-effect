@@ -116,7 +116,7 @@ export function renderPositionPanel(state){
       <input id="photoWallSlider" type="range" min="${config.min}" max="${config.max}" step="${config.step}" value="${displayValue}" ${disabled ? "disabled" : ""} />
     </div>
 
-    <p class="note photo-wall-position-hint">點選畫布照片會出現紅框；拖曳、雙指縮放與下方滑桿僅作用於已選取（紅框）的照片。</p>
+    <p class="note photo-wall-position-hint">直接拖曳或雙指縮放畫布上的照片；點選照片可切換紅框，下方滑桿僅作用於紅框選取的照片。</p>
   `;
 }
 
@@ -225,8 +225,8 @@ export function setupPhotoWallUI(root, state, hooks){
     const show = Boolean(state.sceneId) && state.photos.some(photo => photo.onCanvas);
     hint.classList.toggle("hidden", !show);
     hint.textContent = state.activeTab === "position"
-      ? "點選畫布照片切換紅框選取；拖曳或雙指縮放已選取的照片"
-      : "切換至位置分頁後，點選畫布照片可選取（紅框）";
+      ? "拖曳移動、雙指縮放手指下的照片；點選切換紅框，滑桿僅調整紅框照片"
+      : "切換至位置分頁後，可直接拖曳縮放照片，點選可選取供滑桿調整";
   };
 
   const refreshAll = () => {
@@ -358,6 +358,7 @@ function enableCanvasInteractions(canvas, hooks){
   let lastPinchDistance = 0;
   let startScales = new Map();
   let pressPhotoId = null;
+  let manipulatePhotoId = null;
   let gestureActive = false;
 
   canvas.style.touchAction = "none";
@@ -365,17 +366,12 @@ function enableCanvasInteractions(canvas, hooks){
   const getState = () => hooks.getState();
   const overlays = () => hooks.getOverlays();
 
-  function getGestureTargetIds(state){
-    return new Set(getCheckedCanvasPhotos(state).map(photo => photo.id));
-  }
-
-  function rememberStartScales(state, targetIds){
+  function rememberStartScales(state, photoId){
     startScales = new Map();
-    state.photos.forEach(photo => {
-      if (targetIds.has(photo.id)) {
-        startScales.set(photo.id, photo.position?.scale || 0.28);
-      }
-    });
+    const photo = state.photos.find(item => item.id === photoId);
+    if (photo) {
+      startScales.set(photoId, photo.position?.scale || 0.28);
+    }
   }
 
   function clearAllSelections(state){
@@ -385,16 +381,6 @@ function enableCanvasInteractions(canvas, hooks){
         photo.checked ? { ...photo, checked: false } : photo
       ))
     }), { fastPreview: false });
-  }
-
-  function ensurePhotoSelected(state, photoId){
-    const photo = state.photos.find(item => item.id === photoId);
-    if (!photo || photo.checked) return state;
-    return updatePhotoWallState(state, {
-      photos: state.photos.map(item => (
-        item.id === photoId ? { ...item, checked: true } : item
-      ))
-    });
   }
 
   canvas.addEventListener("pointerdown", event => {
@@ -407,10 +393,11 @@ function enableCanvasInteractions(canvas, hooks){
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 
     if (isSecondFinger) {
-      if (state.activeTab === "position" && getGestureTargetIds(state).size > 0) {
+      if (state.activeTab === "position" && manipulatePhotoId) {
         if (!gestureActive) {
           gestureActive = true;
           hooks.beginGesture?.();
+          rememberStartScales(getState(), manipulatePhotoId);
         }
         lastPinchDistance = getPinchDistance();
         lastDrag = null;
@@ -423,17 +410,16 @@ function enableCanvasInteractions(canvas, hooks){
 
     if (hit) {
       pressPhotoId = hit.id;
+      manipulatePhotoId = state.activeTab === "position" ? hit.id : null;
       const next = bringPhotoToFront(state, hit.id);
       hooks.patchCanvasState({ photos: next.photos });
 
       if (state.activeTab === "position") {
         lastDrag = { x: event.clientX, y: event.clientY };
-        const targets = getGestureTargetIds(getState());
-        if (targets.size) rememberStartScales(getState(), targets);
       }
     } else {
       pressPhotoId = null;
-      if (state.activeTab === "position") clearAllSelections(state);
+      manipulatePhotoId = null;
     }
   });
 
@@ -442,37 +428,29 @@ function enableCanvasInteractions(canvas, hooks){
     const state = getState();
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 
-    if (state.activeTab !== "position") return;
+    if (state.activeTab !== "position" || !manipulatePhotoId) return;
 
-    if (!gestureActive && pressPhotoId) {
+    if (!gestureActive) {
       const moved = Math.abs(event.movementX) > 2 || Math.abs(event.movementY) > 2;
       if (moved) {
-        const withSelection = ensurePhotoSelected(state, pressPhotoId);
-        if (withSelection !== state) {
-          hooks.patchCanvasState({ photos: withSelection.photos });
-        }
-        const nextTargets = getGestureTargetIds(getState());
-        if (nextTargets.size) {
-          gestureActive = true;
-          hooks.beginGesture?.();
-          rememberStartScales(getState(), nextTargets);
-        }
+        gestureActive = true;
+        hooks.beginGesture?.();
+        rememberStartScales(state, manipulatePhotoId);
       }
     }
 
     if (!gestureActive) return;
 
     event.preventDefault();
-    const activeTargets = getGestureTargetIds(getState());
-    if (activeTargets.size === 0) return;
 
     if (pointers.size >= 2) {
       const distance = getPinchDistance();
       if (lastPinchDistance > 0 && distance > 0) {
         const ratio = distance / lastPinchDistance;
+        const targetId = manipulatePhotoId;
         hooks.patchCanvasState({
           photos: state.photos.map(item => {
-            if (!activeTargets.has(item.id)) return item;
+            if (item.id !== targetId) return item;
             const baseScale = startScales.get(item.id) ?? item.position.scale;
             return {
               ...item,
@@ -496,10 +474,11 @@ function enableCanvasInteractions(canvas, hooks){
     const dx = (event.clientX - lastDrag.x) / Math.max(1, rect.width);
     const dy = (event.clientY - lastDrag.y) / Math.max(1, rect.height);
     lastDrag = { x: event.clientX, y: event.clientY };
+    const targetId = manipulatePhotoId;
 
     hooks.patchCanvasState({
       photos: state.photos.map(item => {
-        if (!activeTargets.has(item.id)) return item;
+        if (item.id !== targetId) return item;
         return {
           ...item,
           position: {
@@ -517,12 +496,14 @@ function enableCanvasInteractions(canvas, hooks){
     pointers.delete(event.pointerId);
     canvas.releasePointerCapture?.(event.pointerId);
 
-    const state = getState();
-
     if (pointers.size === 0) {
       const latest = getState();
-      if (!gestureActive && pressPhotoId && latest.activeTab === "position") {
-        hooks.setState(togglePhotoChecked(latest, pressPhotoId), { fastPreview: false });
+      if (!gestureActive && latest.activeTab === "position") {
+        if (pressPhotoId) {
+          hooks.setState(togglePhotoChecked(latest, pressPhotoId), { fastPreview: false });
+        } else {
+          clearAllSelections(latest);
+        }
       }
 
       if (gestureActive) {
@@ -533,10 +514,11 @@ function enableCanvasInteractions(canvas, hooks){
       lastPinchDistance = 0;
       startScales = new Map();
       pressPhotoId = null;
+      manipulatePhotoId = null;
     } else if (pointers.size === 1 && gestureActive) {
       lastPinchDistance = 0;
-      const targets = getGestureTargetIds(state);
-      rememberStartScales(state, targets);
+      const latest = getState();
+      if (manipulatePhotoId) rememberStartScales(latest, manipulatePhotoId);
       const values = [...pointers.values()][0];
       lastDrag = values ? { x: values.x, y: values.y } : null;
     }
