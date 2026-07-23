@@ -16,6 +16,7 @@ import {
   setPhotoCanvasVisibility,
   togglePhotoChecked,
   togglePhotoCheckedExclusive,
+  ensurePrimaryPhotoSelected,
   enforceSingleCheckedPhoto,
   updatePhotoPerspectiveCorner,
   updatePhotoWallState
@@ -321,9 +322,15 @@ export function setupPhotoWallUI(root, state, hooks){
     if (positionHost) positionHost.innerHTML = renderPositionPanel(state);
     if (perspectiveHost) perspectiveHost.innerHTML = renderPerspectivePanel(state, lastOverlays, polarKnob);
 
-    if (tab === "perspective" && !perspectiveTabWasActive) {
-      const next = enforceSingleCheckedPhoto(state);
+    if (tab === "position" || tab === "perspective") {
+      let next = ensurePrimaryPhotoSelected(state);
+      if (tab === "perspective") {
+        next = enforceSingleCheckedPhoto(next);
+      }
       if (next !== state) Object.assign(state, next);
+    }
+
+    if (tab === "perspective" && !perspectiveTabWasActive) {
       resetPolarKnob(true);
     }
     if (tab === "perspective") {
