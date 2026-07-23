@@ -81,6 +81,14 @@ export async function renderPhotoWallPage(root, navigate){
     </main>
   `;
 
+  const page = root.querySelector(".photo-wall-page");
+  const blockNativeLongPressUi = event => {
+    event.preventDefault();
+  };
+  for (const type of ["contextmenu", "selectstart"]) {
+    page?.addEventListener(type, blockNativeLongPressUi);
+  }
+
   const imageInput = root.querySelector("#imageInput");
   const canvas = root.querySelector("#editorCanvas");
   const canvasWrap = root.querySelector("#canvasWrap");
