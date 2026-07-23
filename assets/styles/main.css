@@ -1124,9 +1124,13 @@ body.magic-sky-scroll-locked {
   object-fit: cover;
 }
 
-.photo-wall-thumb.is-on-canvas {
+.photo-wall-thumb.is-off-canvas {
   opacity: 0.45;
   filter: grayscale(0.35);
+}
+
+.photo-wall-thumb.is-on-canvas {
+  opacity: 1;
 }
 
 .photo-wall-thumb.is-checked {

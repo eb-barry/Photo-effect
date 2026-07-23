@@ -3,7 +3,7 @@
 import { getPhotoWallScenes } from "./photoWallAssets.js";
 
 export const PHOTO_WALL_FEATURE_ID = "F6_photoWall";
-export const PHOTO_WALL_FEATURE_VERSION = "0.1.2";
+export const PHOTO_WALL_FEATURE_VERSION = "0.1.3";
 export const PHOTO_WALL_DRAFT_KEY = "photoEffects.F6_photoWall.draft.v1";
 
 export const PHOTO_WALL_TABS = [
@@ -151,21 +151,29 @@ export function computeSequentialLayout(count, sceneAspect = "3x4"){
   });
 }
 
-/** Place every library photo on the canvas in selection order. */
+/** Place on-canvas library photos in selection order. Off-canvas photos are left unchanged. */
 export function layoutPhotosOnCanvas(state){
   if (!state.photos.length) return state;
 
   const scene = getSceneById(state.sceneId);
-  const layouts = computeSequentialLayout(state.photos.length, scene?.aspect || "3x4");
+  const onCanvasPhotos = state.photos.filter(photo => photo.onCanvas);
+  if (!onCanvasPhotos.length) return state;
+
+  const layouts = computeSequentialLayout(onCanvasPhotos.length, scene?.aspect || "3x4");
+  let layoutIndex = 0;
 
   return updatePhotoWallState(state, {
-    photos: state.photos.map((photo, index) => ({
-      ...photo,
-      onCanvas: true,
-      checked: index === 0,
-      zIndex: index + 1,
-      position: { ...layouts[index] }
-    })),
+    photos: state.photos.map(photo => {
+      if (!photo.onCanvas) return photo;
+      const position = layouts[layoutIndex];
+      layoutIndex += 1;
+      return {
+        ...photo,
+        checked: false,
+        zIndex: layoutIndex,
+        position: { ...position }
+      };
+    }),
     activeTab: state.activeTab === "scene" ? "photo" : state.activeTab
   });
 }
@@ -179,7 +187,7 @@ export function addPhotosFromFiles(state, entries){
       workDataUrl: entry.workDataUrl || entry.dataUrl,
       thumbDataUrl: entry.thumbDataUrl || entry.workDataUrl || entry.dataUrl,
       label: entry.label || "照片",
-      onCanvas: false,
+      onCanvas: true,
       checked: false,
       zIndex: 0,
       position: { ...DEFAULT_PLACEMENT },
@@ -215,12 +223,23 @@ export function placePhotoOnCanvas(state, photoId, position = {}){
   });
 }
 
-export function removePhotoFromCanvas(state, photoId){
-  const photos = state.photos.filter(photo => photo.id !== photoId);
-  if (!photos.length) {
-    return updatePhotoWallState(state, { photos: [] });
-  }
-  return layoutPhotosOnCanvas(updatePhotoWallState(state, { photos }));
+export function setPhotoCanvasVisibility(state, photoId, visible){
+  const onCanvas = Boolean(visible);
+  const maxZ = Math.max(0, ...state.photos.filter(photo => photo.onCanvas).map(photo => photo.zIndex || 0));
+
+  return updatePhotoWallState(state, {
+    photos: state.photos.map(photo => {
+      if (photo.id !== photoId) return photo;
+      if (!onCanvas) {
+        return { ...photo, onCanvas: false, checked: false };
+      }
+      return {
+        ...photo,
+        onCanvas: true,
+        zIndex: photo.zIndex || maxZ + 1
+      };
+    })
+  });
 }
 
 export function setPhotoChecked(state, photoId, checked){
