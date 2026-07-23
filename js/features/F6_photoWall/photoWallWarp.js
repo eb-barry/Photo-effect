@@ -143,6 +143,12 @@ export function hitTestWarpHandle(handles, canvasX, canvasY, radius = HANDLE_HIT
   return null;
 }
 
+export function photoNeedsWarpDraw(photo){
+  const curve = resolvePhotoEdgeCurve(photo);
+  if (curve.top !== 0 || curve.bottom !== 0) return true;
+  return Boolean(photo.perspective?.customized && photo.perspective?.corners);
+}
+
 export function drawWarpedPhoto(ctx, image, corners, edgeCurve, canvasW, canvasH, options = {}){
   const cornersPx = cornersToCanvas(corners, canvasW, canvasH);
   const curve = {
@@ -274,22 +280,18 @@ function drawTexturedTriangle(ctx, image, s0, s1, s2, d0, d1, d2){
   ctx.closePath();
   ctx.clip();
 
-  const denom = (s0.x * (s2.y - s1.y) + s1.x * (s0.y - s2.y) + s2.x * (s1.y - s0.y));
+  const denom = (s1.x - s0.x) * (s2.y - s0.y) - (s2.x - s0.x) * (s1.y - s0.y);
   if (Math.abs(denom) < 0.0001) {
     ctx.restore();
     return;
   }
 
-  const m11 = (d0.x * (s2.y - s1.y) + d1.x * (s0.y - s2.y) + d2.x * (s1.y - s0.y)) / denom;
-  const m12 = (d0.y * (s2.y - s1.y) + d1.y * (s0.y - s2.y) + d2.y * (s1.y - s0.y)) / denom;
-  const m21 = (d0.x * (s1.x - s2.x) + d1.x * (s2.x - s0.x) + d2.x * (s0.x - s1.x)) / denom;
-  const m22 = (d0.y * (s1.x - s2.x) + d1.y * (s2.x - s0.x) + d2.y * (s0.x - s1.x)) / denom;
-  const dx = (d0.x * (s1.x * s2.y - s2.x * s1.y)
-    + d1.x * (s2.x * s0.y - s0.x * s2.y)
-    + d2.x * (s0.x * s1.y - s1.x * s0.y)) / denom;
-  const dy = (d0.y * (s1.x * s2.y - s2.x * s1.y)
-    + d1.y * (s2.x * s0.y - s0.x * s2.y)
-    + d2.y * (s0.x * s1.y - s1.x * s0.y)) / denom;
+  const m11 = ((d1.x - d0.x) * (s2.y - s0.y) - (d2.x - d0.x) * (s1.y - s0.y)) / denom;
+  const m12 = ((d1.y - d0.y) * (s2.y - s0.y) - (d2.y - d0.y) * (s1.y - s0.y)) / denom;
+  const m21 = ((d2.x - d0.x) * (s1.x - s0.x) - (d1.x - d0.x) * (s2.x - s0.x)) / denom;
+  const m22 = ((d2.y - d0.y) * (s1.x - s0.x) - (d1.y - d0.y) * (s2.x - s0.x)) / denom;
+  const dx = d0.x - m11 * s0.x - m21 * s0.y;
+  const dy = d0.y - m12 * s0.x - m22 * s0.y;
 
   ctx.transform(m11, m12, m21, m22, dx, dy);
   ctx.drawImage(image, 0, 0);
