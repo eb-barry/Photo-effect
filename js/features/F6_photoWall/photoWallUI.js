@@ -23,7 +23,8 @@ import {
 import {
   clientToCanvasPoint,
   hitTestCanvasPhoto,
-  hitTestPerspectiveHandle
+  hitTestPerspectiveHandle,
+  pickCanvasPhotoAtPoint
 } from "./photoWallTool.js";
 import {
   canvasPointToCorner,
@@ -131,7 +132,7 @@ export function renderPositionPanel(state){
       <input id="photoWallSlider" type="range" min="${config.min}" max="${config.max}" step="${config.step}" value="${displayValue}" ${disabled ? "disabled" : ""} />
     </div>
 
-    <p class="note photo-wall-position-hint">直接拖曳或雙指縮放畫布上的照片；點選照片可切換紅框，下方滑桿僅作用於紅框選取的照片。</p>
+    <p class="note photo-wall-position-hint">直接拖曳或雙指縮放畫布上的照片；點選照片可切換紅框。若照片重疊，可在同一位置連續點選以切換下層照片。</p>
   `;
 }
 
@@ -588,6 +589,8 @@ function enableCanvasInteractions(canvas, hooks){
   let activeWarpHandle = null;
   let gestureActive = false;
   let sessionHadPerspectiveEdit = false;
+  let hitCycle = { x: 0, y: 0, photoIds: [], index: 0 };
+  let broughtPhotoToFront = false;
 
   canvas.style.touchAction = "none";
 
@@ -700,6 +703,12 @@ function enableCanvasInteractions(canvas, hooks){
           gestureActive = true;
           hooks.beginGesture?.();
           rememberStartScales(getState(), manipulatePhotoId);
+          if (!broughtPhotoToFront) {
+            broughtPhotoToFront = true;
+            const latest = getState();
+            const next = bringPhotoToFront(latest, manipulatePhotoId);
+            hooks.patchCanvasState({ photos: next.photos });
+          }
         }
         lastPinchDistance = getPinchDistance();
         lastDrag = null;
@@ -707,13 +716,12 @@ function enableCanvasInteractions(canvas, hooks){
       return;
     }
 
-    const hit = hitTestCanvasPhoto(overlays(), point.x, point.y);
+    const hit = pickCanvasPhotoAtPoint(overlays(), point.x, point.y, hitCycle);
 
     if (hit) {
       pressPhotoId = hit.id;
       manipulatePhotoId = allowsPhotoManipulation(state.activeTab) ? hit.id : null;
-      const next = bringPhotoToFront(state, hit.id);
-      hooks.patchCanvasState({ photos: next.photos });
+      broughtPhotoToFront = false;
 
       if (allowsPhotoManipulation(state.activeTab)) {
         lastDrag = { x: event.clientX, y: event.clientY };
@@ -752,6 +760,11 @@ function enableCanvasInteractions(canvas, hooks){
         gestureActive = true;
         hooks.beginGesture?.();
         rememberStartScales(state, manipulatePhotoId);
+        if (!broughtPhotoToFront && manipulatePhotoId) {
+          broughtPhotoToFront = true;
+          const next = bringPhotoToFront(state, manipulatePhotoId);
+          hooks.patchCanvasState({ photos: next.photos });
+        }
       }
     }
 
@@ -811,7 +824,9 @@ function enableCanvasInteractions(canvas, hooks){
           const toggle = latest.activeTab === "perspective"
             ? togglePhotoCheckedExclusive
             : togglePhotoChecked;
-          hooks.setState(toggle(latest, pressPhotoId), { fastPreview: false });
+          let next = toggle(latest, pressPhotoId);
+          next = bringPhotoToFront(next, pressPhotoId);
+          hooks.setState(next, { fastPreview: false });
         } else {
           clearAllSelections(latest);
         }
@@ -833,6 +848,7 @@ function enableCanvasInteractions(canvas, hooks){
       pressPhotoId = null;
       manipulatePhotoId = null;
       activeWarpHandle = null;
+      broughtPhotoToFront = false;
     } else if (pointers.size === 1 && gestureActive) {
       lastPinchDistance = 0;
       const latest = getState();

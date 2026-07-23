@@ -171,14 +171,54 @@ async function drawSceneLayer(ctx, state, width, height){
   ctx.drawImage(layer, 0, 0);
 }
 
-export function hitTestCanvasPhoto(overlays, canvasX, canvasY){
+export function hitTestAllCanvasPhotos(overlays, canvasX, canvasY){
+  const hits = [];
   for (let i = overlays.length - 1; i >= 0; i--) {
-    const { photo, corners, edgeCurve, bounds, canvasW, canvasH } = overlays[i];
-    const cornersPx = cornersToCanvas(corners, canvasW, canvasH);
-    if (hitTestWarpPhoto(cornersPx, edgeCurve, canvasX, canvasY)) return photo;
-    if (bounds && pointInRect(canvasX, canvasY, bounds)) return photo;
+    const entry = overlays[i];
+    if (photoEntryHitsPoint(entry, canvasX, canvasY)) {
+      hits.push(entry.photo);
+    }
   }
-  return null;
+  return hits;
+}
+
+export function pickCanvasPhotoAtPoint(overlays, canvasX, canvasY, cycleState = null){
+  const hits = hitTestAllCanvasPhotos(overlays, canvasX, canvasY);
+  if (!hits.length) {
+    if (cycleState) {
+      cycleState.x = 0;
+      cycleState.y = 0;
+      cycleState.photoIds = [];
+      cycleState.index = 0;
+    }
+    return null;
+  }
+  if (hits.length === 1 || !cycleState) return hits[0];
+
+  const key = hits.map(photo => photo.id).join(",");
+  const nearPriorTap = Math.hypot(canvasX - cycleState.x, canvasY - cycleState.y) <= 28;
+  if (nearPriorTap && cycleState.photoIds.join(",") === key) {
+    cycleState.index = (cycleState.index + 1) % hits.length;
+  } else {
+    cycleState.x = canvasX;
+    cycleState.y = canvasY;
+    cycleState.photoIds = hits.map(photo => photo.id);
+    cycleState.index = 0;
+  }
+  return hits[cycleState.index];
+}
+
+export function hitTestCanvasPhoto(overlays, canvasX, canvasY){
+  return pickCanvasPhotoAtPoint(overlays, canvasX, canvasY) || null;
+}
+
+function photoEntryHitsPoint(entry, canvasX, canvasY){
+  const { corners, edgeCurve, bounds, canvasW, canvasH } = entry;
+  if (bounds && pointInRect(canvasX, canvasY, bounds)) {
+    return true;
+  }
+  const cornersPx = cornersToCanvas(corners, canvasW, canvasH);
+  return hitTestWarpPhoto(cornersPx, edgeCurve, canvasX, canvasY);
 }
 
 export function hitTestPerspectiveHandle(overlays, canvasX, canvasY){
