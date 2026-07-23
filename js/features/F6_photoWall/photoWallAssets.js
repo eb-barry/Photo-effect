@@ -59,15 +59,18 @@ function normalizeScene(item){
   const file = item.file || `${item.id || "scene-3x4-1"}.webp`;
   const id = item.id || file.replace(/\.webp$/i, "");
   const aspect = item.aspect || inferAspect(file, id);
-  const encoded = String(file).split("/").map(encodeURIComponent).join("/");
-  const asset = `${SCENE_BASE}${encoded}`;
+  const encodedFile = String(file).split("/").map(encodeURIComponent).join("/");
+  const asset = `${SCENE_BASE}${encodedFile}`;
+  const thumbFile = item.thumb || file;
+  const encodedThumb = String(thumbFile).split("/").map(encodeURIComponent).join("/");
+  const thumb = thumbFile === file ? asset : `${SCENE_BASE}${encodedThumb}`;
   return {
     id,
     label: item.label || prettifyLabel(id),
     file,
     aspect,
     asset,
-    thumb: asset
+    thumb
   };
 }
 
