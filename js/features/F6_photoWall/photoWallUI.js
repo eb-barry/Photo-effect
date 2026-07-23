@@ -15,6 +15,8 @@ import {
   resetCheckedPerspective,
   setPhotoCanvasVisibility,
   togglePhotoChecked,
+  togglePhotoCheckedExclusive,
+  enforceSingleCheckedPhoto,
   updatePhotoPerspectiveCorner,
   updatePhotoWallState
 } from "./photoWallState.js";
@@ -175,7 +177,7 @@ export function renderPerspectivePanel(state, overlays = [], polarKnob = { dista
       <button type="button" class="photo-wall-reset-btn" data-photo-wall-reset-perspective ${disabled ? "disabled" : ""}>還原視角變形</button>
     </div>
 
-    <p class="note photo-wall-perspective-hint">A–D 四角、E–H 四邊中點皆可 360° 調整。紅框照片會顯示放大後的 A–H 定位點；目前選取的點會以橘色高亮。</p>
+    <p class="note photo-wall-perspective-hint">一次僅能選定一張照片（點選切換紅框）。A–H 定位點放大顯示，畫布調整後旋鈕會歸正以便微調。</p>
   `;
 }
 
@@ -319,6 +321,8 @@ export function setupPhotoWallUI(root, state, hooks){
     if (perspectiveHost) perspectiveHost.innerHTML = renderPerspectivePanel(state, lastOverlays, polarKnob);
 
     if (tab === "perspective" && !perspectiveTabWasActive) {
+      const next = enforceSingleCheckedPhoto(state);
+      if (next !== state) Object.assign(state, next);
       resetPolarKnob(true);
     }
     if (tab === "perspective") {
@@ -350,7 +354,7 @@ export function setupPhotoWallUI(root, state, hooks){
     hint.textContent = state.activeTab === "position"
       ? "拖曳移動、雙指縮放手指下的照片；點選切換紅框，滑桿僅調整紅框照片"
       : state.activeTab === "perspective"
-        ? "畫布調整後旋鈕會歸正；可用方向距離鈕做進一步微調"
+        ? "一次僅能選定一張照片；點選切換紅框，畫布調整後旋鈕歸正"
         : "切換至位置或視角分頁後可操作畫布";
   };
 
@@ -804,7 +808,10 @@ function enableCanvasInteractions(canvas, hooks){
       const selectionTab = latest.activeTab === "position" || latest.activeTab === "perspective";
       if (!gestureActive && !activeWarpHandle && selectionTab) {
         if (pressPhotoId) {
-          hooks.setState(togglePhotoChecked(latest, pressPhotoId), { fastPreview: false });
+          const toggle = latest.activeTab === "perspective"
+            ? togglePhotoCheckedExclusive
+            : togglePhotoChecked;
+          hooks.setState(toggle(latest, pressPhotoId), { fastPreview: false });
         } else {
           clearAllSelections(latest);
         }

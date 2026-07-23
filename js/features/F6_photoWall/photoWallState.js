@@ -13,7 +13,7 @@ import {
 } from "./photoWallWarp.js";
 
 export const PHOTO_WALL_FEATURE_ID = "F6_photoWall";
-export const PHOTO_WALL_FEATURE_VERSION = "0.2.5";
+export const PHOTO_WALL_FEATURE_VERSION = "0.2.6";
 export const PHOTO_WALL_DRAFT_KEY = "photoEffects.F6_photoWall.draft.v1";
 
 export const PHOTO_WALL_TABS = [
@@ -277,6 +277,41 @@ export function togglePhotoChecked(state, photoId){
   const photo = state.photos.find(item => item.id === photoId);
   if (!photo) return state;
   return setPhotoChecked(state, photoId, !photo.checked);
+}
+
+export function togglePhotoCheckedExclusive(state, photoId){
+  const photo = state.photos.find(item => item.id === photoId);
+  if (!photo) return state;
+  const willCheck = !photo.checked;
+  return updatePhotoWallState(state, {
+    photos: state.photos.map(item => ({
+      ...item,
+      checked: item.id === photoId ? willCheck : false
+    }))
+  });
+}
+
+export function enforceSingleCheckedPhoto(state, preferPhotoId = null){
+  const checked = getCheckedCanvasPhotos(state);
+  if (preferPhotoId) {
+    const target = state.photos.find(photo => photo.id === preferPhotoId && photo.onCanvas);
+    if (target) {
+      return updatePhotoWallState(state, {
+        photos: state.photos.map(photo => ({
+          ...photo,
+          checked: photo.id === preferPhotoId
+        }))
+      });
+    }
+  }
+  if (checked.length <= 1) return state;
+  const keepId = checked[checked.length - 1].id;
+  return updatePhotoWallState(state, {
+    photos: state.photos.map(photo => ({
+      ...photo,
+      checked: photo.id === keepId
+    }))
+  });
 }
 
 export function clearCanvasForSceneChange(state, nextSceneId){
