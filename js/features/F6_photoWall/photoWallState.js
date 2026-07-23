@@ -2,18 +2,18 @@
 
 import { getPhotoWallScenes } from "./photoWallAssets.js";
 import {
-  applyPerspectivePointPolar,
+  applyMicroPolarFromBaseline,
   buildCustomizedPerspective,
+  clonePerspectiveRecord,
   createDefaultEdgeCurve,
   createDefaultPerspective,
-  getPerspectivePointPolar,
   mergeCornerRecord,
   transformCornersWithPosition,
   WARP_POINT_DEFS
 } from "./photoWallWarp.js";
 
 export const PHOTO_WALL_FEATURE_ID = "F6_photoWall";
-export const PHOTO_WALL_FEATURE_VERSION = "0.2.4";
+export const PHOTO_WALL_FEATURE_VERSION = "0.2.6";
 export const PHOTO_WALL_DRAFT_KEY = "photoEffects.F6_photoWall.draft.v1";
 
 export const PHOTO_WALL_TABS = [
@@ -279,6 +279,41 @@ export function togglePhotoChecked(state, photoId){
   return setPhotoChecked(state, photoId, !photo.checked);
 }
 
+export function togglePhotoCheckedExclusive(state, photoId){
+  const photo = state.photos.find(item => item.id === photoId);
+  if (!photo) return state;
+  const willCheck = !photo.checked;
+  return updatePhotoWallState(state, {
+    photos: state.photos.map(item => ({
+      ...item,
+      checked: item.id === photoId ? willCheck : false
+    }))
+  });
+}
+
+export function enforceSingleCheckedPhoto(state, preferPhotoId = null){
+  const checked = getCheckedCanvasPhotos(state);
+  if (preferPhotoId) {
+    const target = state.photos.find(photo => photo.id === preferPhotoId && photo.onCanvas);
+    if (target) {
+      return updatePhotoWallState(state, {
+        photos: state.photos.map(photo => ({
+          ...photo,
+          checked: photo.id === preferPhotoId
+        }))
+      });
+    }
+  }
+  if (checked.length <= 1) return state;
+  const keepId = checked[checked.length - 1].id;
+  return updatePhotoWallState(state, {
+    photos: state.photos.map(photo => ({
+      ...photo,
+      checked: photo.id === keepId
+    }))
+  });
+}
+
 export function clearCanvasForSceneChange(state, nextSceneId){
   return updatePhotoWallState(state, {
     sceneId: nextSceneId,
@@ -339,7 +374,7 @@ export function applyAbsoluteAdjustment(state, parameterId, value){
   });
 }
 
-export function applyPerspectivePolar(state, parameterId, angleRad, distancePercent, overlays = []){
+export function applyPerspectiveMicroPolar(state, parameterId, angleRad, distancePercent, baselines, overlays = []){
   const config = PERSPECTIVE_PARAMETERS.find(item => item.id === parameterId);
   if (!config) return state;
 
@@ -347,32 +382,23 @@ export function applyPerspectivePolar(state, parameterId, angleRad, distancePerc
   if (!targets.length) return state;
 
   const overlayById = new Map((overlays || []).map(entry => [entry.photo.id, entry]));
+  const baselineMap = baselines instanceof Map ? baselines : new Map();
 
   return updatePhotoWallState(state, {
     photos: state.photos.map(photo => {
       if (!photo.checked || !photo.onCanvas) return photo;
       const baseCorners = overlayById.get(photo.id)?.baseCorners;
-      if (!baseCorners) return photo;
+      const baseline = baselineMap.get(photo.id);
+      if (!baseCorners || !baseline) return photo;
       return {
         ...photo,
-        perspective: applyPerspectivePointPolar(photo, parameterId, angleRad, distancePercent, baseCorners)
+        perspective: applyMicroPolarFromBaseline(baseline, parameterId, angleRad, distancePercent, baseCorners)
       };
     })
   });
 }
 
-export function getPerspectivePolar(state, parameterId, overlays = []){
-  const config = PERSPECTIVE_PARAMETERS.find(item => item.id === parameterId);
-  const primary = getPrimaryCheckedPhoto(state);
-  if (!config || !primary) {
-    return { angle: 0, angleDeg: 0, distance: 0 };
-  }
-  const baseCorners = (overlays || []).find(entry => entry.photo.id === primary.id)?.baseCorners;
-  if (!baseCorners) {
-    return { angle: 0, angleDeg: 0, distance: 0 };
-  }
-  return getPerspectivePointPolar(primary, parameterId, baseCorners);
-}
+export { clonePerspectiveRecord };
 
 export function resetPhotoPerspective(state, photoId){
   return updatePhotoWallState(state, {

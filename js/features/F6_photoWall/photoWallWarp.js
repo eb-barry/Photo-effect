@@ -7,6 +7,8 @@ export const HANDLE_VISUAL_RADIUS = 20;
 export const HANDLE_EDGE_VISUAL_RADIUS = 21;
 export const PERSPECTIVE_POINT_MAX_CORNER_OFFSET = 0.18;
 export const PERSPECTIVE_POINT_MAX_EDGE_OFFSET = 0.14;
+export const PERSPECTIVE_MICRO_MAX_CORNER_OFFSET = 0.06;
+export const PERSPECTIVE_MICRO_MAX_EDGE_OFFSET = 0.05;
 
 export const WARP_POINT_DEFS = [
   { id: "pointA", handle: "tl", kind: "corner", label: "A 左上角", letter: "A" },
@@ -94,6 +96,52 @@ export function getPerspectivePointPolar(photo, parameterId, baseCorners){
     return getCornerPointPolar(corners, baseCorners, def.handle);
   }
   return getEdgePointPolar(corners, edgeCurve, baseCorners, def.handle);
+}
+
+export function clonePerspectiveRecord(perspective){
+  const source = perspective || createDefaultPerspective();
+  const corners = source.corners
+    ? Object.fromEntries(
+      Object.entries(source.corners).map(([key, point]) => [key, { ...point }])
+    )
+    : null;
+  return {
+    customized: Boolean(source.customized),
+    corners,
+    edgeCurve: {
+      ...createDefaultEdgeCurve(),
+      ...resolvePhotoEdgeCurve({ perspective: source })
+    }
+  };
+}
+
+export function applyMicroPolarFromBaseline(baselinePerspective, parameterId, angleRad, distancePercent, baseCorners){
+  const def = getWarpPointDef(parameterId);
+  const baselineCorners = mergeCornerRecord(baselinePerspective?.corners, baseCorners);
+  const baselineCurve = resolvePhotoEdgeCurve({ perspective: baselinePerspective || {} });
+  const corners = {
+    tl: { ...baselineCorners.tl },
+    tr: { ...baselineCorners.tr },
+    br: { ...baselineCorners.br },
+    bl: { ...baselineCorners.bl }
+  };
+  const edgeCurve = { ...baselineCurve };
+
+  if (def.kind === "corner") {
+    const dist = (clamp(distancePercent, 0, 100) / 100) * PERSPECTIVE_MICRO_MAX_CORNER_OFFSET;
+    corners[def.handle] = {
+      x: clamp(baselineCorners[def.handle].x + Math.cos(angleRad) * dist, -0.25, 1.25),
+      y: clamp(baselineCorners[def.handle].y + Math.sin(angleRad) * dist, -0.25, 1.25)
+    };
+  } else {
+    applyEdgeMicroFromBaseline(corners, edgeCurve, baselineCorners, baselineCurve, def.handle, angleRad, distancePercent);
+  }
+
+  return {
+    customized: true,
+    corners,
+    edgeCurve
+  };
 }
 
 export function applyPerspectivePointPolar(photo, parameterId, angleRad, distancePercent, baseCorners){
@@ -388,6 +436,28 @@ export function normalizePerspectiveRecord(perspective, baseCorners){
     next.corners = normalizeCornerRecord(mergeCornerRecord(source.corners, baseCorners), baseCorners);
   }
   return next;
+}
+
+function applyEdgeMicroFromBaseline(corners, edgeCurve, baselineCorners, baselineCurve, handle, angleRad, distancePercent){
+  const dist = (clamp(distancePercent, 0, 100) / 100) * PERSPECTIVE_MICRO_MAX_EDGE_OFFSET;
+  const offsetX = Math.cos(angleRad) * dist;
+  const offsetY = Math.sin(angleRad) * dist;
+  const { tangent, normal, len } = getEdgeAxes(baselineCorners, handle);
+  const alongTangent = offsetX * tangent.x + offsetY * tangent.y;
+  const alongNormal = offsetX * normal.x + offsetY * normal.y;
+
+  getEdgeCornerKeys(handle).forEach(key => {
+    corners[key] = {
+      x: clamp(baselineCorners[key].x + tangent.x * alongTangent, -0.25, 1.25),
+      y: clamp(baselineCorners[key].y + tangent.y * alongTangent, -0.25, 1.25)
+    };
+  });
+
+  edgeCurve[handle] = clamp(
+    baselineCurve[handle] + (alongNormal / Math.max(0.0001, len * 0.42)) * 100,
+    -100,
+    100
+  );
 }
 
 function getCornerPointPolar(corners, baseCorners, cornerKey){

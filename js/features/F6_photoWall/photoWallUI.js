@@ -5,16 +5,18 @@ import {
   PHOTO_WALL_TABS,
   POSITION_PARAMETERS,
   PERSPECTIVE_PARAMETERS,
-  applyPerspectivePolar,
+  applyPerspectiveMicroPolar,
   applyRelativeAdjustment,
   bringPhotoToFront,
   canEnableTab,
   clearCanvasForSceneChange,
+  clonePerspectiveRecord,
   getParameterDisplayValue,
-  getPerspectivePolar,
   resetCheckedPerspective,
   setPhotoCanvasVisibility,
   togglePhotoChecked,
+  togglePhotoCheckedExclusive,
+  enforceSingleCheckedPhoto,
   updatePhotoPerspectiveCorner,
   updatePhotoWallState
 } from "./photoWallState.js";
@@ -133,14 +135,13 @@ export function renderPositionPanel(state){
   `;
 }
 
-export function renderPerspectivePanel(state, overlays = []){
+export function renderPerspectivePanel(state, overlays = [], polarKnob = { distance: 0, angleDeg: 0 }){
   const disabled = !state.photos.some(photo => photo.onCanvas && photo.checked);
   const paramOptions = PERSPECTIVE_PARAMETERS.map(item => `
     <option value="${item.id}" ${state.selectedPerspectiveParameter === item.id ? "selected" : ""}>${item.label}</option>
   `).join("");
 
   const config = PERSPECTIVE_PARAMETERS.find(item => item.id === state.selectedPerspectiveParameter) || PERSPECTIVE_PARAMETERS[0];
-  const polar = getPerspectivePolar(state, config.id, overlays);
   const def = getWarpPointDef(config.id);
 
   return `
@@ -154,7 +155,7 @@ export function renderPerspectivePanel(state, overlays = []){
     <div class="photo-wall-polar-wrap" id="photoWallPolarWrap">
       <div class="photo-wall-polar-head">
         <span id="photoWallPolarLabel">${config.label}</span>
-        <span id="photoWallPolarValue">${Math.round(polar.distance)}% · ${Math.round(polar.angleDeg)}°</span>
+        <span id="photoWallPolarValue">${Math.round(polarKnob.distance)}% · ${Math.round(polarKnob.angleDeg)}°</span>
       </div>
       <div
         class="photo-wall-polar-pad${disabled ? " is-disabled" : ""}"
@@ -169,14 +170,14 @@ export function renderPerspectivePanel(state, overlays = []){
         <span class="photo-wall-polar-center" id="photoWallPolarCenter" aria-hidden="true">${def.letter}</span>
         <span class="photo-wall-polar-knob" id="photoWallPolarKnob" aria-hidden="true"></span>
       </div>
-      <p class="note photo-wall-polar-hint">以選定點為中心，拖曳橘色圓鈕調整方向與距離。</p>
+      <p class="note photo-wall-polar-hint">以選定點為中心微調；畫布調整後旋鈕會自動歸正，可再進一步細調。</p>
     </div>
 
     <div class="photo-wall-perspective-actions">
       <button type="button" class="photo-wall-reset-btn" data-photo-wall-reset-perspective ${disabled ? "disabled" : ""}>還原視角變形</button>
     </div>
 
-    <p class="note photo-wall-perspective-hint">A–D 四角、E–H 四邊中點皆可 360° 調整。紅框照片會顯示放大後的 A–H 定位點；目前選取的點會以橘色高亮。</p>
+    <p class="note photo-wall-perspective-hint">一次僅能選定一張照片（點選切換紅框）。A–H 定位點放大顯示，畫布調整後旋鈕會歸正以便微調。</p>
   `;
 }
 
@@ -198,6 +199,10 @@ export function setupPhotoWallUI(root, state, hooks){
   let sliderStartValue = 0;
   let lastOverlays = [];
   let gestureDepth = 0;
+  let polarKnob = { angle: 0, distance: 0, angleDeg: 0 };
+  let polarBaselines = new Map();
+  let perspectiveTabWasActive = false;
+  let lastCheckedPhotoKey = "";
   const POLAR_PAD_RATIO = 0.78;
 
   const applyState = (nextState, options = {}) => {
@@ -249,8 +254,54 @@ export function setupPhotoWallUI(root, state, hooks){
     if (gestureDepth === 0) hooks.onGestureEnd?.();
   };
 
+  const capturePolarBaselines = () => {
+    polarBaselines = new Map();
+    state.photos
+      .filter(photo => photo.checked && photo.onCanvas)
+      .forEach(photo => {
+        polarBaselines.set(photo.id, clonePerspectiveRecord(photo.perspective));
+      });
+  };
+
+  const resetPolarKnob = (captureBaseline = true) => {
+    if (captureBaseline) capturePolarBaselines();
+    polarKnob = { angle: 0, distance: 0, angleDeg: 0 };
+    bindPerspectivePolar();
+  };
+
+  const ensurePolarBaselines = () => {
+    if (!polarBaselines.size && state.photos.some(photo => photo.checked && photo.onCanvas)) {
+      capturePolarBaselines();
+    }
+  };
+
   const patchState = partial => {
     setState(updatePhotoWallState(state, partial));
+  };
+
+  const applyPolarKnob = (angle, distance, dx, dy) => {
+    polarKnob = {
+      angle,
+      distance,
+      angleDeg: (angle * 180 / Math.PI + 360) % 360
+    };
+    const pad = root.querySelector("#photoWallPolarPad");
+    const knob = root.querySelector("#photoWallPolarKnob");
+    const valueEl = root.querySelector("#photoWallPolarValue");
+    updatePolarKnobVisual(pad, knob, dx, dy);
+    if (valueEl) {
+      valueEl.textContent = `${Math.round(polarKnob.distance)}% · ${Math.round(polarKnob.angleDeg)}°`;
+    }
+    ensurePolarBaselines();
+    applyState(
+      applyPerspectiveMicroPolar(state, state.selectedPerspectiveParameter, angle, distance, polarBaselines, lastOverlays),
+      {
+        refreshUi: false,
+        render: true,
+        persist: false,
+        fastPreview: true
+      }
+    );
   };
 
   const refreshTabs = () => {
@@ -267,7 +318,27 @@ export function setupPhotoWallUI(root, state, hooks){
     if (sceneHost) sceneHost.innerHTML = renderSceneCarousel(state);
     if (photoHost) photoHost.innerHTML = renderPhotoStrip(state);
     if (positionHost) positionHost.innerHTML = renderPositionPanel(state);
-    if (perspectiveHost) perspectiveHost.innerHTML = renderPerspectivePanel(state, lastOverlays);
+    if (perspectiveHost) perspectiveHost.innerHTML = renderPerspectivePanel(state, lastOverlays, polarKnob);
+
+    if (tab === "perspective" && !perspectiveTabWasActive) {
+      const next = enforceSingleCheckedPhoto(state);
+      if (next !== state) Object.assign(state, next);
+      resetPolarKnob(true);
+    }
+    if (tab === "perspective") {
+      const checkedKey = state.photos
+        .filter(photo => photo.checked && photo.onCanvas)
+        .map(photo => photo.id)
+        .sort()
+        .join(",");
+      if (checkedKey !== lastCheckedPhotoKey) {
+        resetPolarKnob(true);
+        lastCheckedPhotoKey = checkedKey;
+      }
+    } else {
+      lastCheckedPhotoKey = "";
+    }
+    perspectiveTabWasActive = tab === "perspective";
 
     mountSceneCarousel(root);
     bindSlider();
@@ -283,7 +354,7 @@ export function setupPhotoWallUI(root, state, hooks){
     hint.textContent = state.activeTab === "position"
       ? "拖曳移動、雙指縮放手指下的照片；點選切換紅框，滑桿僅調整紅框照片"
       : state.activeTab === "perspective"
-        ? "以選定點為中心拖曳方向距離鈕調整；紅框照片顯示放大的 A–H 定位點"
+        ? "一次僅能選定一張照片；點選切換紅框，畫布調整後旋鈕歸正"
         : "切換至位置或視角分頁後可操作畫布";
   };
 
@@ -342,15 +413,14 @@ export function setupPhotoWallUI(root, state, hooks){
 
     const config = PERSPECTIVE_PARAMETERS.find(item => item.id === state.selectedPerspectiveParameter) || PERSPECTIVE_PARAMETERS[0];
     const def = getWarpPointDef(config.id);
-    const polar = getPerspectivePolar(state, config.id, lastOverlays);
     const rect = pad.getBoundingClientRect();
     const maxR = (rect.width / 2) * POLAR_PAD_RATIO;
-    const dx = Math.cos(polar.angle) * (polar.distance / 100) * maxR;
-    const dy = Math.sin(polar.angle) * (polar.distance / 100) * maxR;
+    const dx = Math.cos(polarKnob.angle) * (polarKnob.distance / 100) * maxR;
+    const dy = Math.sin(polarKnob.angle) * (polarKnob.distance / 100) * maxR;
 
     updatePolarKnobVisual(pad, knob, dx, dy);
     if (label) label.textContent = config.label;
-    if (valueEl) valueEl.textContent = `${Math.round(polar.distance)}% · ${Math.round(polar.angleDeg)}°`;
+    if (valueEl) valueEl.textContent = `${Math.round(polarKnob.distance)}% · ${Math.round(polarKnob.angleDeg)}°`;
     if (center) center.textContent = def.letter;
   };
 
@@ -407,6 +477,7 @@ export function setupPhotoWallUI(root, state, hooks){
       const select = event.target.closest("#photoWallPerspectiveParamTarget");
       if (!select) return;
       patchState({ selectedPerspectiveParameter: select.value });
+      resetPolarKnob(true);
     });
 
     let polarPadGesture = false;
@@ -418,17 +489,9 @@ export function setupPhotoWallUI(root, state, hooks){
       polarPadGesture = true;
       pad.setPointerCapture?.(event.pointerId);
       beginGesture();
-      const knob = root.querySelector("#photoWallPolarKnob");
-      const valueEl = root.querySelector("#photoWallPolarValue");
+      ensurePolarBaselines();
       const { angle, distance, dx, dy } = polarFromClient(pad, event.clientX, event.clientY);
-      updatePolarKnobVisual(pad, knob, dx, dy);
-      if (valueEl) valueEl.textContent = `${Math.round(distance)}% · ${Math.round((angle * 180 / Math.PI + 360) % 360)}°`;
-      applyState(applyPerspectivePolar(state, state.selectedPerspectiveParameter, angle, distance, lastOverlays), {
-        refreshUi: false,
-        render: true,
-        persist: false,
-        fastPreview: true
-      });
+      applyPolarKnob(angle, distance, dx, dy);
     });
 
     perspectiveHost?.addEventListener("pointermove", event => {
@@ -436,17 +499,8 @@ export function setupPhotoWallUI(root, state, hooks){
       const pad = root.querySelector("#photoWallPolarPad");
       if (!pad) return;
       event.preventDefault();
-      const knob = root.querySelector("#photoWallPolarKnob");
-      const valueEl = root.querySelector("#photoWallPolarValue");
       const { angle, distance, dx, dy } = polarFromClient(pad, event.clientX, event.clientY);
-      updatePolarKnobVisual(pad, knob, dx, dy);
-      if (valueEl) valueEl.textContent = `${Math.round(distance)}% · ${Math.round((angle * 180 / Math.PI + 360) % 360)}°`;
-      applyState(applyPerspectivePolar(state, state.selectedPerspectiveParameter, angle, distance, lastOverlays), {
-        refreshUi: false,
-        render: true,
-        persist: false,
-        fastPreview: true
-      });
+      applyPolarKnob(angle, distance, dx, dy);
     });
 
     const endPolarPadGesture = event => {
@@ -466,6 +520,7 @@ export function setupPhotoWallUI(root, state, hooks){
       const resetButton = event.target.closest("[data-photo-wall-reset-perspective]");
       if (!resetButton || resetButton.disabled) return;
       setState(resetCheckedPerspective(state));
+      resetPolarKnob(true);
     });
   }
 
@@ -505,7 +560,8 @@ export function setupPhotoWallUI(root, state, hooks){
     setState,
     patchCanvasState,
     beginGesture,
-    endGesture
+    endGesture,
+    onPerspectiveCanvasChange: () => resetPolarKnob(true)
   });
 
   refreshAll();
@@ -531,6 +587,7 @@ function enableCanvasInteractions(canvas, hooks){
   let manipulatePhotoId = null;
   let activeWarpHandle = null;
   let gestureActive = false;
+  let sessionHadPerspectiveEdit = false;
 
   canvas.style.touchAction = "none";
 
@@ -675,6 +732,7 @@ function enableCanvasInteractions(canvas, hooks){
 
     if (state.activeTab === "perspective" && activeWarpHandle) {
       event.preventDefault();
+      sessionHadPerspectiveEdit = true;
       const nextState = applyWarpHandlePoint(
         state,
         activeWarpHandle.photoId,
@@ -700,6 +758,9 @@ function enableCanvasInteractions(canvas, hooks){
     if (!gestureActive) return;
 
     event.preventDefault();
+    if (state.activeTab === "perspective") {
+      sessionHadPerspectiveEdit = true;
+    }
 
     if (pointers.size >= 2) {
       const distance = getPinchDistance();
@@ -747,7 +808,10 @@ function enableCanvasInteractions(canvas, hooks){
       const selectionTab = latest.activeTab === "position" || latest.activeTab === "perspective";
       if (!gestureActive && !activeWarpHandle && selectionTab) {
         if (pressPhotoId) {
-          hooks.setState(togglePhotoChecked(latest, pressPhotoId), { fastPreview: false });
+          const toggle = latest.activeTab === "perspective"
+            ? togglePhotoCheckedExclusive
+            : togglePhotoChecked;
+          hooks.setState(toggle(latest, pressPhotoId), { fastPreview: false });
         } else {
           clearAllSelections(latest);
         }
@@ -757,6 +821,12 @@ function enableCanvasInteractions(canvas, hooks){
         gestureActive = false;
         hooks.endGesture?.();
       }
+
+      if (sessionHadPerspectiveEdit && latest.activeTab === "perspective") {
+        hooks.onPerspectiveCanvasChange?.();
+      }
+      sessionHadPerspectiveEdit = false;
+
       lastDrag = null;
       lastPinchDistance = 0;
       startScales = new Map();
