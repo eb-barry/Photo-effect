@@ -2,9 +2,11 @@
 
 export const WARP_GRID_COLS = 14;
 export const WARP_GRID_ROWS = 14;
-export const HANDLE_HIT_RADIUS = 36;
-export const HANDLE_VISUAL_RADIUS = 13;
-export const HANDLE_EDGE_VISUAL_RADIUS = 14;
+export const HANDLE_HIT_RADIUS = 52;
+export const HANDLE_VISUAL_RADIUS = 20;
+export const HANDLE_EDGE_VISUAL_RADIUS = 21;
+export const PERSPECTIVE_POINT_MAX_CORNER_OFFSET = 0.18;
+export const PERSPECTIVE_POINT_MAX_EDGE_OFFSET = 0.14;
 
 export const WARP_POINT_DEFS = [
   { id: "pointA", handle: "tl", kind: "corner", label: "A 左上角", letter: "A" },
@@ -84,26 +86,26 @@ export function getWarpPointDef(parameterId){
   return WARP_POINT_DEFS.find(item => item.id === parameterId) || WARP_POINT_DEFS[0];
 }
 
-export function getPerspectiveParameterValue(photo, parameterId, baseCorners){
+export function getPerspectivePointPolar(photo, parameterId, baseCorners){
   const def = getWarpPointDef(parameterId);
   const corners = mergeCornerRecord(photo.perspective?.corners, baseCorners);
-  if (def.kind === "corner") {
-    return getCornerPullValue(corners, baseCorners, def.handle);
-  }
   const edgeCurve = resolvePhotoEdgeCurve(photo);
-  return Math.round(edgeCurve[def.handle] || 0);
+  if (def.kind === "corner") {
+    return getCornerPointPolar(corners, baseCorners, def.handle);
+  }
+  return getEdgePointPolar(corners, edgeCurve, baseCorners, def.handle);
 }
 
-export function applyPerspectiveParameterValue(photo, parameterId, value, baseCorners){
+export function applyPerspectivePointPolar(photo, parameterId, angleRad, distancePercent, baseCorners){
   const def = getWarpPointDef(parameterId);
   const perspective = normalizePerspectiveRecord(photo.perspective, baseCorners);
   const corners = mergeCornerRecord(perspective.corners, baseCorners);
   const edgeCurve = { ...perspective.edgeCurve };
 
   if (def.kind === "corner") {
-    setCornerPullValue(corners, baseCorners, def.handle, value);
+    setCornerPointPolar(corners, baseCorners, def.handle, angleRad, distancePercent);
   } else {
-    edgeCurve[def.handle] = clamp(value, -100, 100);
+    applyEdgePointPolar(corners, edgeCurve, baseCorners, def.handle, angleRad, distancePercent);
   }
 
   return {
@@ -111,15 +113,6 @@ export function applyPerspectiveParameterValue(photo, parameterId, value, baseCo
     corners,
     edgeCurve
   };
-}
-
-export function applyPerspectiveParameterDelta(photo, parameterId, delta, baseCorners){
-  const current = getPerspectiveParameterValue(photo, parameterId, baseCorners);
-  const def = getWarpPointDef(parameterId);
-  const next = def.kind === "corner"
-    ? clamp(current + delta, -100, 100)
-    : clamp(current + delta, -100, 100);
-  return applyPerspectiveParameterValue(photo, parameterId, next, baseCorners);
 }
 
 export function cornersToCanvas(corners, canvasW, canvasH){
@@ -303,22 +296,31 @@ export function drawWarpHandles(ctx, handles, style = {}){
   const cornerRadius = style.radius || HANDLE_VISUAL_RADIUS;
   const edgeRadius = style.edgeRadius || HANDLE_EDGE_VISUAL_RADIUS;
   const showLabels = style.showLabels !== false;
+  const activeHandle = style.activeHandle || null;
 
   ctx.save();
   Object.entries(handles).forEach(([id, pt]) => {
     const isEdge = id === "top" || id === "right" || id === "bottom" || id === "left";
-    const radius = isEdge ? edgeRadius : cornerRadius;
+    const isActive = activeHandle === id;
+    const radius = (isEdge ? edgeRadius : cornerRadius) * (isActive ? 1.28 : 1);
     ctx.beginPath();
-    ctx.fillStyle = isEdge ? "#2f55d4" : "#0abab5";
-    ctx.strokeStyle = "#fff";
-    ctx.lineWidth = 2.5;
+    ctx.fillStyle = isActive
+      ? "#ff9500"
+      : (isEdge ? "#2f55d4" : "#0abab5");
+    ctx.strokeStyle = isActive ? "#fff4e5" : "#fff";
+    ctx.lineWidth = isActive ? 3.5 : 2.5;
+    if (isActive) {
+      ctx.shadowColor = "rgba(255, 149, 0, 0.55)";
+      ctx.shadowBlur = 10;
+    }
     ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    ctx.shadowBlur = 0;
 
     if (showLabels && HANDLE_LETTERS[id]) {
       ctx.fillStyle = "#fff";
-      ctx.font = `800 ${Math.max(11, radius + 1)}px system-ui, sans-serif`;
+      ctx.font = `800 ${Math.max(13, radius + 2)}px system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(HANDLE_LETTERS[id], pt.x, pt.y + 0.5);
@@ -388,31 +390,96 @@ export function normalizePerspectiveRecord(perspective, baseCorners){
   return next;
 }
 
-function getCornerPullValue(corners, baseCorners, cornerKey){
-  const center = quadCenter(baseCorners);
+function getCornerPointPolar(corners, baseCorners, cornerKey){
   const base = baseCorners[cornerKey];
   const current = corners[cornerKey];
-  const baseDist = Math.hypot(base.x - center.x, base.y - center.y);
-  if (baseDist < 0.0001) return 0;
-  const curDist = Math.hypot(current.x - center.x, current.y - center.y);
-  return Math.round(((curDist / baseDist) - 1) * 100);
+  return vectorToPolar(current.x - base.x, current.y - base.y, PERSPECTIVE_POINT_MAX_CORNER_OFFSET);
 }
 
-function setCornerPullValue(corners, baseCorners, cornerKey, pullPercent){
-  const center = quadCenter(baseCorners);
+function setCornerPointPolar(corners, baseCorners, cornerKey, angleRad, distancePercent){
   const base = baseCorners[cornerKey];
-  const dx = base.x - center.x;
-  const dy = base.y - center.y;
-  const dist = Math.hypot(dx, dy) * (1 + pullPercent / 100);
-  if (dist < 0.0001) {
-    corners[cornerKey] = { ...base };
-    return;
-  }
-  const angle = Math.atan2(dy, dx);
+  const dist = (clamp(distancePercent, 0, 100) / 100) * PERSPECTIVE_POINT_MAX_CORNER_OFFSET;
   corners[cornerKey] = {
-    x: clamp(center.x + Math.cos(angle) * dist, -0.25, 1.25),
-    y: clamp(center.y + Math.sin(angle) * dist, -0.25, 1.25)
+    x: clamp(base.x + Math.cos(angleRad) * dist, -0.25, 1.25),
+    y: clamp(base.y + Math.sin(angleRad) * dist, -0.25, 1.25)
   };
+}
+
+function getEdgePointPolar(corners, edgeCurve, baseCorners, handle){
+  const baseMid = getEdgeBaseMidpoint(baseCorners, handle);
+  const currentMid = getEdgeCurrentMidpoint(corners, edgeCurve, handle);
+  return vectorToPolar(currentMid.x - baseMid.x, currentMid.y - baseMid.y, PERSPECTIVE_POINT_MAX_EDGE_OFFSET);
+}
+
+function applyEdgePointPolar(corners, edgeCurve, baseCorners, handle, angleRad, distancePercent){
+  const baseMid = getEdgeBaseMidpoint(baseCorners, handle);
+  const dist = (clamp(distancePercent, 0, 100) / 100) * PERSPECTIVE_POINT_MAX_EDGE_OFFSET;
+  const target = {
+    x: baseMid.x + Math.cos(angleRad) * dist,
+    y: baseMid.y + Math.sin(angleRad) * dist
+  };
+  const offsetX = target.x - baseMid.x;
+  const offsetY = target.y - baseMid.y;
+  const { tangent, normal, len } = getEdgeAxes(baseCorners, handle);
+  const alongTangent = offsetX * tangent.x + offsetY * tangent.y;
+  const alongNormal = offsetX * normal.x + offsetY * normal.y;
+  const cornerKeys = getEdgeCornerKeys(handle);
+
+  cornerKeys.forEach(key => {
+    corners[key] = {
+      x: clamp(corners[key].x + tangent.x * alongTangent, -0.25, 1.25),
+      y: clamp(corners[key].y + tangent.y * alongTangent, -0.25, 1.25)
+    };
+  });
+
+  edgeCurve[handle] = clamp((alongNormal / Math.max(0.0001, len * 0.42)) * 100, -100, 100);
+}
+
+function getEdgeBaseMidpoint(baseCorners, handle){
+  const [startKey, endKey] = getEdgeCornerKeys(handle);
+  return {
+    x: (baseCorners[startKey].x + baseCorners[endKey].x) / 2,
+    y: (baseCorners[startKey].y + baseCorners[endKey].y) / 2
+  };
+}
+
+function getEdgeCurrentMidpoint(corners, edgeCurve, handle){
+  const [startKey, endKey] = getEdgeCornerKeys(handle);
+  return quadraticEdge(corners[startKey], corners[endKey], edgeCurve[handle] || 0, 0.5);
+}
+
+function getEdgeCornerKeys(handle){
+  if (handle === "top") return ["tl", "tr"];
+  if (handle === "right") return ["tr", "br"];
+  if (handle === "bottom") return ["bl", "br"];
+  return ["tl", "bl"];
+}
+
+function getEdgeAxes(baseCorners, handle){
+  const [startKey, endKey] = getEdgeCornerKeys(handle);
+  const start = baseCorners[startKey];
+  const end = baseCorners[endKey];
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const len = Math.hypot(dx, dy) || 0.0001;
+  const tangent = { x: dx / len, y: dy / len };
+  const normal = { x: -tangent.y, y: tangent.x };
+  return { tangent, normal, len };
+}
+
+function vectorToPolar(dx, dy, maxDistance){
+  const distancePx = Math.hypot(dx, dy);
+  const angle = Math.atan2(dy, dx);
+  return {
+    angle,
+    angleDeg: normalizeDegrees(angle * 180 / Math.PI),
+    distance: Math.min(100, (distancePx / Math.max(0.0001, maxDistance)) * 100)
+  };
+}
+
+function normalizeDegrees(degrees){
+  const wrapped = degrees % 360;
+  return wrapped < 0 ? wrapped + 360 : wrapped;
 }
 
 function bilinear(tl, tr, bl, br, u, v){

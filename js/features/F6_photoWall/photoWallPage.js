@@ -23,6 +23,7 @@ import {
   renderControlTabs,
   setupPhotoWallUI
 } from "./photoWallUI.js";
+import { getWarpPointDef } from "./photoWallWarp.js";
 
 export function initPhotoWallPage(root, shared = {}){
   return renderPhotoWallPage(root, shared.goHome || shared.navigate || (() => {}));
@@ -131,7 +132,10 @@ export async function renderPhotoWallPage(root, navigate){
       const overlays = await renderPhotoWall(ctx, state, {
         fastPreview,
         useOriginal,
-        showPerspectiveHandles: state.activeTab === "perspective"
+        showPerspectiveHandles: state.activeTab === "perspective",
+        activePerspectiveHandle: state.activeTab === "perspective"
+          ? getWarpPointDef(state.selectedPerspectiveParameter).handle
+          : null
       });
       if (serial !== renderSerial) return;
       wallUi?.setOverlays(overlays);

@@ -101,6 +101,7 @@ export async function renderPhotoWall(ctx, state, options = {}){
   const fastPreview = Boolean(options.fastPreview);
   const useOriginal = Boolean(options.useOriginal);
   const showPerspectiveHandles = Boolean(options.showPerspectiveHandles);
+  const activePerspectiveHandle = options.activePerspectiveHandle || null;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, width, height);
@@ -138,7 +139,10 @@ export async function renderPhotoWall(ctx, state, options = {}){
   if (showPerspectiveHandles) {
     overlays.forEach(entry => {
       if (!entry.photo.checked) return;
-      drawWarpHandles(ctx, entry.handles, { showLabels: true });
+      drawWarpHandles(ctx, entry.handles, {
+        showLabels: true,
+        activeHandle: activePerspectiveHandle
+      });
     });
   }
 
