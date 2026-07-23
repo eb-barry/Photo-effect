@@ -5,13 +5,13 @@ import {
   PHOTO_WALL_TABS,
   POSITION_PARAMETERS,
   PERSPECTIVE_PARAMETERS,
-  applyPerspectiveAdjustment,
+  applyPerspectivePolar,
   applyRelativeAdjustment,
   bringPhotoToFront,
   canEnableTab,
   clearCanvasForSceneChange,
   getParameterDisplayValue,
-  getPerspectiveDisplayValue,
+  getPerspectivePolar,
   resetCheckedPerspective,
   setPhotoCanvasVisibility,
   togglePhotoChecked,
@@ -28,6 +28,7 @@ import {
   computeEdgeCurveFromPoint,
   cornersToCanvas,
   buildCustomizedPerspective,
+  getWarpPointDef,
   transformCornersWithPosition
 } from "./photoWallWarp.js";
 
@@ -139,7 +140,8 @@ export function renderPerspectivePanel(state, overlays = []){
   `).join("");
 
   const config = PERSPECTIVE_PARAMETERS.find(item => item.id === state.selectedPerspectiveParameter) || PERSPECTIVE_PARAMETERS[0];
-  const displayValue = getPerspectiveDisplayValue(state, config.id, overlays);
+  const polar = getPerspectivePolar(state, config.id, overlays);
+  const def = getWarpPointDef(config.id);
 
   return `
     <div class="selection-row crystal-adjust-row">
@@ -149,19 +151,32 @@ export function renderPerspectivePanel(state, overlays = []){
       </select>
     </div>
 
-    <div class="slider-row" id="photoWallPerspectiveSliderRow">
-      <div class="slider-head">
-        <span id="photoWallPerspectiveSliderLabel">${config.label}</span>
-        <span id="photoWallPerspectiveSliderValue">${displayValue}${config.suffix || ""}</span>
+    <div class="photo-wall-polar-wrap" id="photoWallPolarWrap">
+      <div class="photo-wall-polar-head">
+        <span id="photoWallPolarLabel">${config.label}</span>
+        <span id="photoWallPolarValue">${Math.round(polar.distance)}% · ${Math.round(polar.angleDeg)}°</span>
       </div>
-      <input id="photoWallPerspectiveSlider" type="range" min="${config.min}" max="${config.max}" step="${config.step}" value="${displayValue}" ${disabled ? "disabled" : ""} />
+      <div
+        class="photo-wall-polar-pad${disabled ? " is-disabled" : ""}"
+        id="photoWallPolarPad"
+        role="application"
+        aria-label="${config.label} 方向距離調整"
+        ${disabled ? "aria-disabled=\"true\"" : ""}
+      >
+        <span class="photo-wall-polar-ring" aria-hidden="true"></span>
+        <span class="photo-wall-polar-crosshair photo-wall-polar-crosshair-h" aria-hidden="true"></span>
+        <span class="photo-wall-polar-crosshair photo-wall-polar-crosshair-v" aria-hidden="true"></span>
+        <span class="photo-wall-polar-center" id="photoWallPolarCenter" aria-hidden="true">${def.letter}</span>
+        <span class="photo-wall-polar-knob" id="photoWallPolarKnob" aria-hidden="true"></span>
+      </div>
+      <p class="note photo-wall-polar-hint">以選定點為中心，拖曳橘色圓鈕調整方向與距離。</p>
     </div>
 
     <div class="photo-wall-perspective-actions">
       <button type="button" class="photo-wall-reset-btn" data-photo-wall-reset-perspective ${disabled ? "disabled" : ""}>還原視角變形</button>
     </div>
 
-    <p class="note photo-wall-perspective-hint">A–D 四角延伸矩形、E–H 四邊弧形。紅框照片會顯示 A–H 定位點；可用滑桿精細調整，或拖曳畫布上的定位點與移動／縮放照片。</p>
+    <p class="note photo-wall-perspective-hint">A–D 四角、E–H 四邊中點皆可 360° 調整。紅框照片會顯示放大後的 A–H 定位點；目前選取的點會以橘色高亮。</p>
   `;
 }
 
@@ -181,9 +196,9 @@ export function setupPhotoWallUI(root, state, hooks){
   const canvas = root.querySelector("#editorCanvas");
 
   let sliderStartValue = 0;
-  let perspectiveSliderStartValue = 0;
   let lastOverlays = [];
   let gestureDepth = 0;
+  const POLAR_PAD_RATIO = 0.78;
 
   const applyState = (nextState, options = {}) => {
     const {
@@ -256,7 +271,7 @@ export function setupPhotoWallUI(root, state, hooks){
 
     mountSceneCarousel(root);
     bindSlider();
-    bindPerspectiveSlider();
+    bindPerspectivePolar();
     refreshGestureHint();
   };
 
@@ -268,7 +283,7 @@ export function setupPhotoWallUI(root, state, hooks){
     hint.textContent = state.activeTab === "position"
       ? "拖曳移動、雙指縮放手指下的照片；點選切換紅框，滑桿僅調整紅框照片"
       : state.activeTab === "perspective"
-        ? "A–D 四角延伸、E–H 四邊弧形；紅框照片顯示 A–H 定位點，可用滑桿或拖曳調整"
+        ? "以選定點為中心拖曳方向距離鈕調整；紅框照片顯示放大的 A–H 定位點"
         : "切換至位置或視角分頁後可操作畫布";
   };
 
@@ -295,20 +310,48 @@ export function setupPhotoWallUI(root, state, hooks){
     valueEl.textContent = `${displayValue}${config.suffix || ""}`;
   };
 
-  const bindPerspectiveSlider = () => {
-    const slider = root.querySelector("#photoWallPerspectiveSlider");
-    const label = root.querySelector("#photoWallPerspectiveSliderLabel");
-    const valueEl = root.querySelector("#photoWallPerspectiveSliderValue");
-    if (!slider || !label || !valueEl) return;
+  const polarFromClient = (pad, clientX, clientY) => {
+    const rect = pad.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const maxR = (rect.width / 2) * POLAR_PAD_RATIO;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxR) {
+      dx = (dx / dist) * maxR;
+      dy = (dy / dist) * maxR;
+    }
+    const angle = Math.atan2(dy, dx);
+    const distance = (Math.hypot(dx, dy) / Math.max(1, maxR)) * 100;
+    return { angle, distance, dx, dy };
+  };
+
+  const updatePolarKnobVisual = (pad, knob, dx, dy) => {
+    if (!pad || !knob) return;
+    knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+  };
+
+  const bindPerspectivePolar = () => {
+    const pad = root.querySelector("#photoWallPolarPad");
+    const knob = root.querySelector("#photoWallPolarKnob");
+    const label = root.querySelector("#photoWallPolarLabel");
+    const valueEl = root.querySelector("#photoWallPolarValue");
+    const center = root.querySelector("#photoWallPolarCenter");
+    if (!pad || !knob) return;
 
     const config = PERSPECTIVE_PARAMETERS.find(item => item.id === state.selectedPerspectiveParameter) || PERSPECTIVE_PARAMETERS[0];
-    const displayValue = getPerspectiveDisplayValue(state, config.id, lastOverlays);
-    slider.min = String(config.min);
-    slider.max = String(config.max);
-    slider.step = String(config.step);
-    slider.value = String(displayValue);
-    label.textContent = config.label;
-    valueEl.textContent = `${displayValue}${config.suffix || ""}`;
+    const def = getWarpPointDef(config.id);
+    const polar = getPerspectivePolar(state, config.id, lastOverlays);
+    const rect = pad.getBoundingClientRect();
+    const maxR = (rect.width / 2) * POLAR_PAD_RATIO;
+    const dx = Math.cos(polar.angle) * (polar.distance / 100) * maxR;
+    const dy = Math.sin(polar.angle) * (polar.distance / 100) * maxR;
+
+    updatePolarKnobVisual(pad, knob, dx, dy);
+    if (label) label.textContent = config.label;
+    if (valueEl) valueEl.textContent = `${Math.round(polar.distance)}% · ${Math.round(polar.angleDeg)}°`;
+    if (center) center.textContent = def.letter;
   };
 
   if (!root.dataset.photoWallUiBound) {
@@ -366,45 +409,58 @@ export function setupPhotoWallUI(root, state, hooks){
       patchState({ selectedPerspectiveParameter: select.value });
     });
 
-    let perspectiveSliderGesture = false;
+    let polarPadGesture = false;
 
     perspectiveHost?.addEventListener("pointerdown", event => {
-      const slider = event.target.closest("#photoWallPerspectiveSlider");
-      if (!slider) return;
-      perspectiveSliderStartValue = Number(slider.value);
-      perspectiveSliderGesture = true;
+      const pad = event.target.closest("#photoWallPolarPad");
+      if (!pad || pad.classList.contains("is-disabled")) return;
+      event.preventDefault();
+      polarPadGesture = true;
+      pad.setPointerCapture?.(event.pointerId);
       beginGesture();
-    });
-
-    perspectiveHost?.addEventListener("input", event => {
-      const slider = event.target.closest("#photoWallPerspectiveSlider");
-      if (!slider) return;
-      const valueEl = root.querySelector("#photoWallPerspectiveSliderValue");
-      const config = PERSPECTIVE_PARAMETERS.find(item => item.id === state.selectedPerspectiveParameter) || PERSPECTIVE_PARAMETERS[0];
-      const nextValue = Number(slider.value);
-      if (valueEl) valueEl.textContent = `${Math.round(nextValue)}${config.suffix || ""}`;
-      const delta = nextValue - perspectiveSliderStartValue;
-      if (!delta) return;
-      applyState(applyPerspectiveAdjustment(state, state.selectedPerspectiveParameter, delta, lastOverlays), {
+      const knob = root.querySelector("#photoWallPolarKnob");
+      const valueEl = root.querySelector("#photoWallPolarValue");
+      const { angle, distance, dx, dy } = polarFromClient(pad, event.clientX, event.clientY);
+      updatePolarKnobVisual(pad, knob, dx, dy);
+      if (valueEl) valueEl.textContent = `${Math.round(distance)}% · ${Math.round((angle * 180 / Math.PI + 360) % 360)}°`;
+      applyState(applyPerspectivePolar(state, state.selectedPerspectiveParameter, angle, distance, lastOverlays), {
         refreshUi: false,
         render: true,
         persist: false,
         fastPreview: true
       });
-      perspectiveSliderStartValue = nextValue;
     });
 
-    perspectiveHost?.addEventListener("pointerup", event => {
-      if (!perspectiveSliderGesture || !event.target.closest("#photoWallPerspectiveSlider")) return;
-      perspectiveSliderGesture = false;
-      endGesture();
+    perspectiveHost?.addEventListener("pointermove", event => {
+      if (!polarPadGesture) return;
+      const pad = root.querySelector("#photoWallPolarPad");
+      if (!pad) return;
+      event.preventDefault();
+      const knob = root.querySelector("#photoWallPolarKnob");
+      const valueEl = root.querySelector("#photoWallPolarValue");
+      const { angle, distance, dx, dy } = polarFromClient(pad, event.clientX, event.clientY);
+      updatePolarKnobVisual(pad, knob, dx, dy);
+      if (valueEl) valueEl.textContent = `${Math.round(distance)}% · ${Math.round((angle * 180 / Math.PI + 360) % 360)}°`;
+      applyState(applyPerspectivePolar(state, state.selectedPerspectiveParameter, angle, distance, lastOverlays), {
+        refreshUi: false,
+        render: true,
+        persist: false,
+        fastPreview: true
+      });
     });
 
-    perspectiveHost?.addEventListener("pointercancel", event => {
-      if (!perspectiveSliderGesture || !event.target.closest("#photoWallPerspectiveSlider")) return;
-      perspectiveSliderGesture = false;
+    const endPolarPadGesture = event => {
+      if (!polarPadGesture) return;
+      polarPadGesture = false;
+      const pad = root.querySelector("#photoWallPolarPad");
+      if (pad?.hasPointerCapture?.(event.pointerId)) {
+        pad.releasePointerCapture(event.pointerId);
+      }
       endGesture();
-    });
+    };
+
+    perspectiveHost?.addEventListener("pointerup", endPolarPadGesture);
+    perspectiveHost?.addEventListener("pointercancel", endPolarPadGesture);
 
     perspectiveHost?.addEventListener("click", event => {
       const resetButton = event.target.closest("[data-photo-wall-reset-perspective]");
@@ -458,7 +514,7 @@ export function setupPhotoWallUI(root, state, hooks){
     refreshAll,
     setOverlays: overlays => {
       lastOverlays = overlays;
-      bindPerspectiveSlider();
+      bindPerspectivePolar();
     },
     getOverlays: () => lastOverlays
   };

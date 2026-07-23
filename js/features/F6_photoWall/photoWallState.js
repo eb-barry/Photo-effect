@@ -2,18 +2,18 @@
 
 import { getPhotoWallScenes } from "./photoWallAssets.js";
 import {
-  applyPerspectiveParameterDelta,
+  applyPerspectivePointPolar,
   buildCustomizedPerspective,
   createDefaultEdgeCurve,
   createDefaultPerspective,
-  getPerspectiveParameterValue,
+  getPerspectivePointPolar,
   mergeCornerRecord,
   transformCornersWithPosition,
   WARP_POINT_DEFS
 } from "./photoWallWarp.js";
 
 export const PHOTO_WALL_FEATURE_ID = "F6_photoWall";
-export const PHOTO_WALL_FEATURE_VERSION = "0.2.3";
+export const PHOTO_WALL_FEATURE_VERSION = "0.2.4";
 export const PHOTO_WALL_DRAFT_KEY = "photoEffects.F6_photoWall.draft.v1";
 
 export const PHOTO_WALL_TABS = [
@@ -339,7 +339,7 @@ export function applyAbsoluteAdjustment(state, parameterId, value){
   });
 }
 
-export function applyPerspectiveAdjustment(state, parameterId, delta, overlays = []){
+export function applyPerspectivePolar(state, parameterId, angleRad, distancePercent, overlays = []){
   const config = PERSPECTIVE_PARAMETERS.find(item => item.id === parameterId);
   if (!config) return state;
 
@@ -355,19 +355,23 @@ export function applyPerspectiveAdjustment(state, parameterId, delta, overlays =
       if (!baseCorners) return photo;
       return {
         ...photo,
-        perspective: applyPerspectiveParameterDelta(photo, parameterId, delta, baseCorners)
+        perspective: applyPerspectivePointPolar(photo, parameterId, angleRad, distancePercent, baseCorners)
       };
     })
   });
 }
 
-export function getPerspectiveDisplayValue(state, parameterId, overlays = []){
+export function getPerspectivePolar(state, parameterId, overlays = []){
   const config = PERSPECTIVE_PARAMETERS.find(item => item.id === parameterId);
   const primary = getPrimaryCheckedPhoto(state);
-  if (!config || !primary) return 0;
+  if (!config || !primary) {
+    return { angle: 0, angleDeg: 0, distance: 0 };
+  }
   const baseCorners = (overlays || []).find(entry => entry.photo.id === primary.id)?.baseCorners;
-  if (!baseCorners) return 0;
-  return getPerspectiveParameterValue(primary, parameterId, baseCorners);
+  if (!baseCorners) {
+    return { angle: 0, angleDeg: 0, distance: 0 };
+  }
+  return getPerspectivePointPolar(primary, parameterId, baseCorners);
 }
 
 export function resetPhotoPerspective(state, photoId){
