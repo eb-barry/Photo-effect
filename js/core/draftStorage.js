@@ -14,7 +14,8 @@ const KNOWN_DRAFT_KEYS = [
   "photoEffects.F5_frame.draft.v8",
   "photoEffects.F5_frame.draft.v9",
   "photoEffects.F6_photoWall.draft.v1",
-  "photoEffects.F7_virtualGallery.draft.v1"
+  "photoEffects.F7_virtualGallery.draft.v1",
+  "photoEffects.F7_virtualGallery.draft.v2"
 ];
 
 /**

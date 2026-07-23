@@ -1,12 +1,13 @@
 // F7 3D 展館 - 狀態管理 v0.1.0
 
 export const GALLERY3D_FEATURE_ID = "F7_virtualGallery";
-export const GALLERY3D_FEATURE_VERSION = "0.1.0";
-export const GALLERY3D_DRAFT_KEY = "photoEffects.F7_virtualGallery.draft.v1";
+export const GALLERY3D_FEATURE_VERSION = "0.2.0";
+export const GALLERY3D_DRAFT_KEY = "photoEffects.F7_virtualGallery.draft.v2";
 export const GALLERY3D_MAX_PHOTOS = 30;
 
 export const GALLERY3D_TABS = [
   { id: "gallery", label: "展館" },
+  { id: "scene", label: "場景" },
   { id: "photos", label: "相片" }
 ];
 
@@ -20,6 +21,7 @@ export function createDefaultGallery3dState(){
     featureId: GALLERY3D_FEATURE_ID,
     featureVersion: GALLERY3D_FEATURE_VERSION,
     activeTab: "photos",
+    wallSceneId: "wall-3x4-1",
     photos: [],
     gyroEnabled: false,
     updatedAt: Date.now()
@@ -44,6 +46,9 @@ export function updateGallery3dState(currentState, partial){
     : [];
 
   next.gyroEnabled = Boolean(next.gyroEnabled);
+  next.wallSceneId = typeof next.wallSceneId === "string" && next.wallSceneId
+    ? next.wallSceneId
+    : createDefaultGallery3dState().wallSceneId;
   return next;
 }
 
@@ -63,6 +68,7 @@ export function saveGallery3dDraft(state){
       featureId: GALLERY3D_FEATURE_ID,
       featureVersion: GALLERY3D_FEATURE_VERSION,
       activeTab: state.activeTab,
+      wallSceneId: state.wallSceneId,
       gyroEnabled: state.gyroEnabled,
       photoMeta: state.photos.map(photo => ({
         id: photo.id,
@@ -84,6 +90,7 @@ export function loadGallery3dDraft(){
     if (parsed?.featureId !== GALLERY3D_FEATURE_ID) return null;
     return updateGallery3dState(createDefaultGallery3dState(), {
       activeTab: parsed.activeTab,
+      wallSceneId: parsed.wallSceneId,
       gyroEnabled: parsed.gyroEnabled,
       photos: []
     });

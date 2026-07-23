@@ -1,6 +1,11 @@
 // F7 3D 展館 - Page Controller v0.1.0
 
 import { iconButton } from "../../core/iconLoader.js";
+import {
+  loadGallery3dSceneCatalog,
+  pickDefaultGallery3dSceneId,
+  resolveGallery3dRoomTextures
+} from "./gallery3dAssets.js";
 import { Gallery3DScene } from "./gallery3dScene.js";
 import {
   GALLERY3D_FEATURE_VERSION,
@@ -52,6 +57,9 @@ export async function renderGallery3dPage(root, navigate){
           <div id="gallery3dGalleryPanel" class="crystal-tab-panel ${state.activeTab === "gallery" ? "" : "hidden"}" role="tabpanel" aria-label="展館">
             <p class="note gallery3d-gallery-note">轉動手機或拖曳畫面環顧四周，牆上會展示您上傳的畫作。</p>
           </div>
+          <div id="gallery3dScenePanel" class="crystal-tab-panel ${state.activeTab === "scene" ? "" : "hidden"}" role="tabpanel" aria-label="場景">
+            <div id="gallery3dSceneHost"></div>
+          </div>
           <div id="gallery3dPhotosPanel" class="crystal-tab-panel ${state.activeTab === "photos" ? "" : "hidden"}" role="tabpanel" aria-label="相片">
             <div id="gallery3dPhotoHost"></div>
           </div>
@@ -65,45 +73,61 @@ export async function renderGallery3dPage(root, navigate){
   const imageInput = root.querySelector("#gallery3dImageInput");
   const stage = root.querySelector("#gallery3dStage");
   let scene = null;
-  let sceneReady = false;
   let rebuildSerial = 0;
+  let wallScenes = [];
+
+  wallScenes = await loadGallery3dSceneCatalog();
+  Object.assign(state, updateGallery3dState(state, {
+    wallSceneId: pickDefaultGallery3dSceneId(state.wallSceneId)
+  }));
 
   const persistDraft = () => {
     saveGallery3dDraft(state);
   };
 
+  const shouldRender3d = () => state.activeTab === "gallery" || state.activeTab === "scene";
+
   const ensureScene = async () => {
     if (scene) return scene;
     scene = new Gallery3DScene(stage);
-    scene.start();
-    sceneReady = true;
     return scene;
+  };
+
+  const applyRoomMaterials = async () => {
+    if (!scene) return;
+    const roomTextures = await resolveGallery3dRoomTextures(state.wallSceneId);
+    scene.setRoomTextures(roomTextures);
   };
 
   const rebuildScene = async () => {
     const serial = ++rebuildSerial;
-    if (!state.photos.length) {
+
+    if (!shouldRender3d()) {
+      scene?.disableGyro();
       scene?.stop();
-      scene?.dispose();
-      scene = null;
-      sceneReady = false;
-      stage.innerHTML = "";
       return;
     }
 
     await ensureScene();
     if (serial !== rebuildSerial) return;
-    await scene.setPhotos(state.photos);
+
+    await applyRoomMaterials();
     if (serial !== rebuildSerial) return;
 
-    if (state.activeTab === "gallery") {
-      scene.start();
-      if (state.gyroEnabled) {
-        const enabled = await scene.enableGyro();
-        if (!enabled) {
-          Object.assign(state, updateGallery3dState(state, { gyroEnabled: false }));
-        }
+    await scene.setPhotos(state.activeTab === "gallery" ? state.photos : []);
+    if (serial !== rebuildSerial) return;
+
+    scene.resize();
+    scene.start();
+
+    if (state.activeTab === "gallery" && state.gyroEnabled) {
+      const enabled = await scene.enableGyro();
+      if (!enabled) {
+        Object.assign(state, updateGallery3dState(state, { gyroEnabled: false }));
+        ui.refreshOverlay();
       }
+    } else {
+      scene.disableGyro();
     }
   };
 
@@ -122,20 +146,20 @@ export async function renderGallery3dPage(root, navigate){
   };
 
   const ui = setupGallery3dUI(root, state, {
+    getScenes: () => wallScenes,
     onTabChange: async tab => {
       Object.assign(state, updateGallery3dState(state, { activeTab: tab }));
       ui.refreshAll();
       persistDraft();
-
-      if (tab === "gallery") {
-        await rebuildScene();
-        scene?.resize();
-        scene?.start();
-        await syncGyroState();
-      } else if (scene) {
-        scene.disableGyro();
-        scene.stop();
-      }
+      await rebuildScene();
+    },
+    onSceneChange: async sceneId => {
+      if (!sceneId || sceneId === state.wallSceneId) return;
+      Object.assign(state, updateGallery3dState(state, { wallSceneId: sceneId }));
+      ui.refreshScenePanel();
+      ui.refreshViewMode();
+      persistDraft();
+      await rebuildScene();
     },
     onUploadRequest: () => imageInput.click(),
     onRemovePhoto: async photoId => {
@@ -223,10 +247,9 @@ export async function renderGallery3dPage(root, navigate){
     imageInput.value = "";
   });
 
-  if (state.photos.length) {
+  if (state.photos.length || state.activeTab !== "photos") {
     await rebuildScene();
-    if (state.activeTab === "gallery") {
-      await syncGyroState();
-    }
+  } else {
+    ui.refreshAll();
   }
 }
