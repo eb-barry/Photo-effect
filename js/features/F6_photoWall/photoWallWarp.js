@@ -2,7 +2,9 @@
 
 export const WARP_GRID_COLS = 14;
 export const WARP_GRID_ROWS = 14;
-export const HANDLE_HIT_RADIUS = 22;
+export const HANDLE_HIT_RADIUS = 36;
+export const HANDLE_VISUAL_RADIUS = 13;
+export const HANDLE_EDGE_VISUAL_RADIUS = 14;
 
 const HANDLE_IDS = ["tl", "tr", "br", "bl", "top", "bottom"];
 
@@ -226,14 +228,16 @@ export function drawWarpOutline(ctx, corners, edgeCurve, canvasW, canvasH, style
 }
 
 export function drawWarpHandles(ctx, handles, style = {}){
-  const radius = style.radius || 7;
+  const cornerRadius = style.radius || HANDLE_VISUAL_RADIUS;
+  const edgeRadius = style.edgeRadius || HANDLE_EDGE_VISUAL_RADIUS;
   ctx.save();
   Object.entries(handles).forEach(([id, pt]) => {
     const isEdge = id === "top" || id === "bottom";
+    const radius = isEdge ? edgeRadius : cornerRadius;
     ctx.beginPath();
     ctx.fillStyle = isEdge ? "#2f55d4" : "#0abab5";
     ctx.strokeStyle = "#fff";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
     ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
