@@ -4,7 +4,7 @@ import { getPhotoWallScenes } from "./photoWallAssets.js";
 import { createDefaultPerspective, transformCornersWithPosition } from "./photoWallWarp.js";
 
 export const PHOTO_WALL_FEATURE_ID = "F6_photoWall";
-export const PHOTO_WALL_FEATURE_VERSION = "0.2.0";
+export const PHOTO_WALL_FEATURE_VERSION = "0.2.1";
 export const PHOTO_WALL_DRAFT_KEY = "photoEffects.F6_photoWall.draft.v1";
 
 export const PHOTO_WALL_TABS = [
@@ -428,8 +428,12 @@ function resolveEdgeCurve(perspective){
 
 function normalizePerspective(perspective){
   const base = createDefaultPerspective();
-  const next = { ...base, ...(perspective || {}) };
-  next.edgeCurve = resolveEdgeCurve(next);
+  const source = perspective || {};
+  const next = {
+    customized: Boolean(source.customized),
+    corners: source.corners || null,
+    edgeCurve: resolveEdgeCurve(source)
+  };
   if (next.corners) {
     const corners = {};
     ["tl", "tr", "br", "bl"].forEach(key => {
@@ -445,7 +449,7 @@ function normalizePerspective(perspective){
   } else {
     next.corners = null;
   }
-  next.customized = Boolean(next.customized);
+  if (!next.customized) next.corners = null;
   return next;
 }
 

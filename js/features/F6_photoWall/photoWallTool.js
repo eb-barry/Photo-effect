@@ -10,6 +10,7 @@ import {
   getWarpHandles,
   hitTestWarpHandle,
   hitTestWarpPhoto,
+  photoNeedsWarpDraw,
   resolvePhotoCorners,
   resolvePhotoEdgeCurve
 } from "./photoWallWarp.js";
@@ -113,7 +114,9 @@ export async function renderPhotoWall(ctx, state, options = {}){
     if (!image) continue;
     const corners = resolvePhotoCorners(photo, image, width, height);
     const edgeCurve = resolvePhotoEdgeCurve(photo);
-    const bounds = drawWarpedPhoto(ctx, image, corners, edgeCurve, width, height, { fastPreview });
+    const bounds = photoNeedsWarpDraw(photo)
+      ? drawWarpedPhoto(ctx, image, corners, edgeCurve, width, height, { fastPreview })
+      : drawPhotoFlat(ctx, image, photo, width, height, { fastPreview });
     const cornersPx = cornersToCanvas(corners, width, height);
     const handles = getWarpHandles(cornersPx, edgeCurve);
     overlays.push({ photo, bounds, corners, edgeCurve, handles, canvasW: width, canvasH: height });
@@ -207,6 +210,29 @@ export function fileToDataUrl(file){
     reader.onerror = () => reject(new Error("讀取照片失敗"));
     reader.readAsDataURL(file);
   });
+}
+
+function drawPhotoFlat(ctx, image, photo, canvasW, canvasH, options = {}){
+  const scale = photo.position.scale;
+  const drawW = canvasW * scale;
+  const drawH = drawW * (image.height / Math.max(1, image.width));
+  const centerX = photo.position.x * canvasW;
+  const centerY = photo.position.y * canvasH;
+  const drawX = centerX - drawW / 2;
+  const drawY = centerY - drawH / 2;
+
+  if (!options.fastPreview) {
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.32)";
+    ctx.shadowBlur = Math.max(6, drawW * 0.03);
+    ctx.shadowOffsetY = Math.max(3, drawH * 0.02);
+    drawCoverImage(ctx, image, drawX, drawY, drawW, drawH);
+    ctx.restore();
+  } else {
+    drawCoverImage(ctx, image, drawX, drawY, drawW, drawH);
+  }
+
+  return { x: drawX, y: drawY, w: drawW, h: drawH };
 }
 
 function coverImage(ctx, image, x, y, width, height){
