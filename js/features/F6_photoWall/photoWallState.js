@@ -13,7 +13,7 @@ import {
 } from "./photoWallWarp.js";
 
 export const PHOTO_WALL_FEATURE_ID = "F6_photoWall";
-export const PHOTO_WALL_FEATURE_VERSION = "0.2.10";
+export const PHOTO_WALL_FEATURE_VERSION = "0.2.11";
 export const PHOTO_WALL_DRAFT_KEY = "photoEffects.F6_photoWall.draft.v1";
 
 export const PHOTO_WALL_TABS = [
@@ -289,6 +289,14 @@ export function togglePhotoCheckedExclusive(state, photoId){
       checked: item.id === photoId ? willCheck : false
     }))
   });
+}
+
+export function ensurePrimaryPhotoSelected(state){
+  if (getCheckedCanvasPhotos(state).length) return state;
+  const onCanvas = getCanvasPhotos(state);
+  if (!onCanvas.length) return state;
+  const primary = onCanvas[onCanvas.length - 1];
+  return setPhotoChecked(state, primary.id, true);
 }
 
 export function enforceSingleCheckedPhoto(state, preferPhotoId = null){

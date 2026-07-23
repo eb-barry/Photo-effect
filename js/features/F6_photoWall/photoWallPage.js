@@ -82,7 +82,20 @@ export async function renderPhotoWallPage(root, navigate){
   `;
 
   const page = root.querySelector(".photo-wall-page");
+  const NATIVE_UI_INTERACTIVE = [
+    "input",
+    "select",
+    "button",
+    "textarea",
+    "label",
+    "option",
+    ".slider-row",
+    ".photo-wall-polar-wrap",
+    ".photo-wall-polar-pad"
+  ].join(", ");
   const blockNativeLongPressUi = event => {
+    const target = event.target;
+    if (target instanceof Element && target.closest(NATIVE_UI_INTERACTIVE)) return;
     event.preventDefault();
   };
   for (const type of ["contextmenu", "selectstart"]) {

@@ -1049,9 +1049,18 @@ body.magic-sky-scroll-locked {
   font-family: var(--frame-font-hand-cjk);
 }
 
-/* F6 Photo Wall */
-.photo-wall-page,
-.photo-wall-page * {
+/* F6 Photo Wall — block iOS long-press menus on static UI; keep sliders/knobs operable */
+.photo-wall-page .topbar,
+.photo-wall-page .topbar *,
+.photo-wall-page .photo-wall-canvas-wrap,
+.photo-wall-page .photo-wall-canvas-wrap *,
+.photo-wall-page .crystal-tab-bar,
+.photo-wall-page .crystal-tab-bar *,
+.photo-wall-page .photo-wall-thumb-strip,
+.photo-wall-page .photo-wall-thumb-strip *,
+.photo-wall-page .crystal-asset-carousel,
+.photo-wall-page .crystal-asset-carousel *,
+.photo-wall-page .note:not(.photo-wall-polar-hint):not(.photo-wall-position-hint):not(.photo-wall-perspective-hint) {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
@@ -1060,6 +1069,10 @@ body.magic-sky-scroll-locked {
 .photo-wall-page .photo-wall-canvas-wrap,
 .photo-wall-page .photo-wall-canvas {
   touch-action: none;
+}
+
+.photo-wall-page input[type="range"] {
+  touch-action: manipulation;
 }
 
 .photo-wall-page img {
