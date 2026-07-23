@@ -3,6 +3,7 @@
 import { getSceneById, getCanvasPhotos } from "./photoWallState.js";
 import { resolveSceneImage } from "./photoWallAssets.js";
 import {
+  computePlacementQuad,
   cornersToCanvas,
   drawWarpedPhoto,
   drawWarpHandles,
@@ -113,13 +114,14 @@ export async function renderPhotoWall(ctx, state, options = {}){
     const image = await loadPhotoImage(photo, { useOriginal });
     if (!image) continue;
     const corners = resolvePhotoCorners(photo, image, width, height);
+    const baseCorners = computePlacementQuad(photo, image, width, height);
     const edgeCurve = resolvePhotoEdgeCurve(photo);
     const bounds = photoNeedsWarpDraw(photo)
       ? drawWarpedPhoto(ctx, image, corners, edgeCurve, width, height, { fastPreview })
       : drawPhotoFlat(ctx, image, photo, width, height, { fastPreview });
     const cornersPx = cornersToCanvas(corners, width, height);
     const handles = getWarpHandles(cornersPx, edgeCurve);
-    overlays.push({ photo, bounds, corners, edgeCurve, handles, canvasW: width, canvasH: height });
+    overlays.push({ photo, bounds, corners, baseCorners, edgeCurve, handles, canvasW: width, canvasH: height });
   }
 
   if (!options.omitSelection) {
@@ -136,7 +138,7 @@ export async function renderPhotoWall(ctx, state, options = {}){
   if (showPerspectiveHandles) {
     overlays.forEach(entry => {
       if (!entry.photo.checked) return;
-      drawWarpHandles(ctx, entry.handles);
+      drawWarpHandles(ctx, entry.handles, { showLabels: true });
     });
   }
 

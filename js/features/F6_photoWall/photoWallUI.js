@@ -27,6 +27,7 @@ import {
   canvasPointToCorner,
   computeEdgeCurveFromPoint,
   cornersToCanvas,
+  buildCustomizedPerspective,
   transformCornersWithPosition
 } from "./photoWallWarp.js";
 
@@ -131,14 +132,14 @@ export function renderPositionPanel(state){
   `;
 }
 
-export function renderPerspectivePanel(state){
+export function renderPerspectivePanel(state, overlays = []){
   const disabled = !state.photos.some(photo => photo.onCanvas && photo.checked);
   const paramOptions = PERSPECTIVE_PARAMETERS.map(item => `
     <option value="${item.id}" ${state.selectedPerspectiveParameter === item.id ? "selected" : ""}>${item.label}</option>
   `).join("");
 
   const config = PERSPECTIVE_PARAMETERS.find(item => item.id === state.selectedPerspectiveParameter) || PERSPECTIVE_PARAMETERS[0];
-  const displayValue = getPerspectiveDisplayValue(state, config.id);
+  const displayValue = getPerspectiveDisplayValue(state, config.id, overlays);
 
   return `
     <div class="selection-row crystal-adjust-row">
@@ -160,7 +161,7 @@ export function renderPerspectivePanel(state){
       <button type="button" class="photo-wall-reset-btn" data-photo-wall-reset-perspective ${disabled ? "disabled" : ""}>還原視角變形</button>
     </div>
 
-    <p class="note photo-wall-perspective-hint">可拖曳移動、雙指縮放手指下的照片；拖曳四角與上下藍點調整視角。點選切換紅框，滑桿僅調整紅框照片。</p>
+    <p class="note photo-wall-perspective-hint">A–D 四角延伸矩形、E–H 四邊弧形。紅框照片會顯示 A–H 定位點；可用滑桿精細調整，或拖曳畫布上的定位點與移動／縮放照片。</p>
   `;
 }
 
@@ -251,7 +252,7 @@ export function setupPhotoWallUI(root, state, hooks){
     if (sceneHost) sceneHost.innerHTML = renderSceneCarousel(state);
     if (photoHost) photoHost.innerHTML = renderPhotoStrip(state);
     if (positionHost) positionHost.innerHTML = renderPositionPanel(state);
-    if (perspectiveHost) perspectiveHost.innerHTML = renderPerspectivePanel(state);
+    if (perspectiveHost) perspectiveHost.innerHTML = renderPerspectivePanel(state, lastOverlays);
 
     mountSceneCarousel(root);
     bindSlider();
@@ -267,7 +268,7 @@ export function setupPhotoWallUI(root, state, hooks){
     hint.textContent = state.activeTab === "position"
       ? "拖曳移動、雙指縮放手指下的照片；點選切換紅框，滑桿僅調整紅框照片"
       : state.activeTab === "perspective"
-        ? "拖曳移動、雙指縮放照片；拖曳定位點調整視角，點選切換紅框"
+        ? "A–D 四角延伸、E–H 四邊弧形；紅框照片顯示 A–H 定位點，可用滑桿或拖曳調整"
         : "切換至位置或視角分頁後可操作畫布";
   };
 
@@ -301,7 +302,7 @@ export function setupPhotoWallUI(root, state, hooks){
     if (!slider || !label || !valueEl) return;
 
     const config = PERSPECTIVE_PARAMETERS.find(item => item.id === state.selectedPerspectiveParameter) || PERSPECTIVE_PARAMETERS[0];
-    const displayValue = getPerspectiveDisplayValue(state, config.id);
+    const displayValue = getPerspectiveDisplayValue(state, config.id, lastOverlays);
     slider.min = String(config.min);
     slider.max = String(config.max);
     slider.step = String(config.step);
@@ -384,7 +385,7 @@ export function setupPhotoWallUI(root, state, hooks){
       if (valueEl) valueEl.textContent = `${Math.round(nextValue)}${config.suffix || ""}`;
       const delta = nextValue - perspectiveSliderStartValue;
       if (!delta) return;
-      applyState(applyPerspectiveAdjustment(state, state.selectedPerspectiveParameter, delta), {
+      applyState(applyPerspectiveAdjustment(state, state.selectedPerspectiveParameter, delta, lastOverlays), {
         refreshUi: false,
         render: true,
         persist: false,
@@ -455,7 +456,10 @@ export function setupPhotoWallUI(root, state, hooks){
 
   return {
     refreshAll,
-    setOverlays: overlays => { lastOverlays = overlays; },
+    setOverlays: overlays => {
+      lastOverlays = overlays;
+      bindPerspectiveSlider();
+    },
     getOverlays: () => lastOverlays
   };
 }
@@ -500,24 +504,18 @@ function enableCanvasInteractions(canvas, hooks){
 
   function ensureCustomizedPerspective(state, photoId){
     const entry = overlays().find(item => item.photo.id === photoId);
-    if (!entry) return state;
+    if (!entry?.baseCorners) return state;
     const photo = state.photos.find(item => item.id === photoId);
-    if (photo?.perspective?.customized && photo?.perspective?.corners) return state;
+    if (photo?.perspective?.customized) return state;
     return updatePhotoWallState(state, {
       photos: state.photos.map(item => (
         item.id === photoId
           ? {
             ...item,
-            perspective: {
-              customized: true,
-              corners: {
-                tl: { ...entry.corners.tl },
-                tr: { ...entry.corners.tr },
-                br: { ...entry.corners.br },
-                bl: { ...entry.corners.bl }
-              },
-              edgeCurve: { ...entry.edgeCurve }
-            }
+            perspective: buildCustomizedPerspective(item, entry.baseCorners, {
+              corners: entry.corners,
+              edgeCurve: entry.edgeCurve
+            })
           }
           : item
       ))
@@ -526,17 +524,17 @@ function enableCanvasInteractions(canvas, hooks){
 
   function applyWarpHandlePoint(state, photoId, handleId, canvasX, canvasY){
     const entry = overlays().find(item => item.photo.id === photoId);
-    if (!entry) return state;
-    const { canvasW, canvasH } = entry;
+    if (!entry?.baseCorners) return state;
+    const { canvasW, canvasH, baseCorners } = entry;
 
-    if (handleId === "top" || handleId === "bottom") {
-      const cornersPx = cornersToCanvas(entry.corners, canvasW, canvasH);
+    if (handleId === "top" || handleId === "right" || handleId === "bottom" || handleId === "left") {
+      const cornersPx = cornersToCanvas(baseCorners, canvasW, canvasH);
       const edgeCurve = computeEdgeCurveFromPoint(cornersPx, handleId, { x: canvasX, y: canvasY });
-      return updatePhotoPerspectiveCorner(state, photoId, handleId, { edgeCurve });
+      return updatePhotoPerspectiveCorner(state, photoId, handleId, { edgeCurve }, baseCorners);
     }
 
     const point = canvasPointToCorner(canvasX, canvasY, canvasW, canvasH);
-    return updatePhotoPerspectiveCorner(state, photoId, handleId, point);
+    return updatePhotoPerspectiveCorner(state, photoId, handleId, point, baseCorners);
   }
 
   function patchPhotoPosition(state, photoId, afterPosition){
@@ -571,9 +569,9 @@ function enableCanvasInteractions(canvas, hooks){
     if (state.activeTab === "perspective") {
       const handleHit = hitTestPerspectiveHandle(overlays(), point.x, point.y);
       if (!isSecondFinger && handleHit) {
-        let nextState = ensureCustomizedPerspective(state, handleHit.photo.id);
+        const nextState = ensureCustomizedPerspective(state, handleHit.photo.id);
         if (nextState !== state) {
-          Object.assign(state, nextState);
+          hooks.patchCanvasState({ photos: nextState.photos });
         }
         activeWarpHandle = { photoId: handleHit.photo.id, handleId: handleHit.handleId };
         pressPhotoId = handleHit.photo.id;

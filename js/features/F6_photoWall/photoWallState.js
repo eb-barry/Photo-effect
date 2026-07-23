@@ -1,10 +1,19 @@
 // F6 照片牆 - 狀態管理 v0.1.0 (Phase 1: 場景 + 多圖平面位置)
 
 import { getPhotoWallScenes } from "./photoWallAssets.js";
-import { createDefaultPerspective, transformCornersWithPosition } from "./photoWallWarp.js";
+import {
+  applyPerspectiveParameterDelta,
+  buildCustomizedPerspective,
+  createDefaultEdgeCurve,
+  createDefaultPerspective,
+  getPerspectiveParameterValue,
+  mergeCornerRecord,
+  transformCornersWithPosition,
+  WARP_POINT_DEFS
+} from "./photoWallWarp.js";
 
 export const PHOTO_WALL_FEATURE_ID = "F6_photoWall";
-export const PHOTO_WALL_FEATURE_VERSION = "0.2.2";
+export const PHOTO_WALL_FEATURE_VERSION = "0.2.3";
 export const PHOTO_WALL_DRAFT_KEY = "photoEffects.F6_photoWall.draft.v1";
 
 export const PHOTO_WALL_TABS = [
@@ -20,10 +29,17 @@ export const POSITION_PARAMETERS = [
   { id: "offsetY", label: "照片垂直移動", min: 0, max: 100, step: 1, suffix: "%", field: "y" }
 ];
 
-export const PERSPECTIVE_PARAMETERS = [
-  { id: "edgeCurveTop", label: "上緣弧形", min: -100, max: 100, step: 1, suffix: "", field: "top" },
-  { id: "edgeCurveBottom", label: "下緣弧形", min: -100, max: 100, step: 1, suffix: "", field: "bottom" }
-];
+export const PERSPECTIVE_PARAMETERS = WARP_POINT_DEFS.map(def => ({
+  id: def.id,
+  label: def.label,
+  min: -100,
+  max: 100,
+  step: 1,
+  suffix: "",
+  handle: def.handle,
+  kind: def.kind,
+  letter: def.letter
+}));
 
 export const DEFAULT_PERSPECTIVE = createDefaultPerspective();
 
@@ -45,7 +61,7 @@ export function createDefaultPhotoWallState(){
     activeTab: "scene",
     sceneId: null,
     selectedParameter: "scale",
-    selectedPerspectiveParameter: "edgeCurveTop",
+    selectedPerspectiveParameter: "pointA",
     sliderAlignMode: "relative",
     photos: [],
     updatedAt: Date.now()
@@ -323,37 +339,35 @@ export function applyAbsoluteAdjustment(state, parameterId, value){
   });
 }
 
-export function applyPerspectiveAdjustment(state, parameterId, delta){
+export function applyPerspectiveAdjustment(state, parameterId, delta, overlays = []){
   const config = PERSPECTIVE_PARAMETERS.find(item => item.id === parameterId);
   if (!config) return state;
 
   const targets = getCheckedCanvasPhotos(state);
   if (!targets.length) return state;
 
+  const overlayById = new Map((overlays || []).map(entry => [entry.photo.id, entry]));
+
   return updatePhotoWallState(state, {
     photos: state.photos.map(photo => {
       if (!photo.checked || !photo.onCanvas) return photo;
-      const edgeCurve = { ...resolveEdgeCurve(photo.perspective) };
-      const current = edgeCurve[config.field] || 0;
-      edgeCurve[config.field] = clamp(current + delta, -100, 100);
+      const baseCorners = overlayById.get(photo.id)?.baseCorners;
+      if (!baseCorners) return photo;
       return {
         ...photo,
-        perspective: {
-          ...normalizePerspective(photo.perspective),
-          customized: true,
-          edgeCurve
-        }
+        perspective: applyPerspectiveParameterDelta(photo, parameterId, delta, baseCorners)
       };
     })
   });
 }
 
-export function getPerspectiveDisplayValue(state, parameterId){
+export function getPerspectiveDisplayValue(state, parameterId, overlays = []){
   const config = PERSPECTIVE_PARAMETERS.find(item => item.id === parameterId);
   const primary = getPrimaryCheckedPhoto(state);
   if (!config || !primary) return 0;
-  const edgeCurve = resolveEdgeCurve(primary.perspective);
-  return Math.round(edgeCurve[config.field] || 0);
+  const baseCorners = (overlays || []).find(entry => entry.photo.id === primary.id)?.baseCorners;
+  if (!baseCorners) return 0;
+  return getPerspectiveParameterValue(primary, parameterId, baseCorners);
 }
 
 export function resetPhotoPerspective(state, photoId){
@@ -378,33 +392,29 @@ export function resetCheckedPerspective(state){
   });
 }
 
-export function updatePhotoPerspectiveCorner(state, photoId, handleId, point){
+export function updatePhotoPerspectiveCorner(state, photoId, handleId, point, baseCorners = null){
   return updatePhotoWallState(state, {
     photos: state.photos.map(photo => {
       if (photo.id !== photoId) return photo;
-      const perspective = normalizePerspective(photo.perspective);
-      const corners = { ...(perspective.corners || {}) };
-      if (handleId === "top" || handleId === "bottom") {
-        const edgeCurve = { ...perspective.edgeCurve };
-        const field = handleId === "top" ? "top" : "bottom";
-        edgeCurve[field] = clamp(point.edgeCurve ?? edgeCurve[field], -100, 100);
+      if (!baseCorners) return photo;
+
+      if (handleId === "top" || handleId === "right" || handleId === "bottom" || handleId === "left") {
+        const edgeCurve = { ...resolveEdgeCurve(photo.perspective) };
+        edgeCurve[handleId] = clamp(point.edgeCurve ?? edgeCurve[handleId], -100, 100);
         return {
           ...photo,
-          perspective: {
-            ...perspective,
-            customized: true,
-            edgeCurve
-          }
+          perspective: buildCustomizedPerspective(photo, baseCorners, { edgeCurve })
         };
       }
-      corners[handleId] = { x: point.x, y: point.y };
+
+      const corners = mergeCornerRecord(photo.perspective?.corners, baseCorners);
+      corners[handleId] = {
+        x: clamp(Number(point.x) || 0, -0.25, 1.25),
+        y: clamp(Number(point.y) || 0, -0.25, 1.25)
+      };
       return {
         ...photo,
-        perspective: {
-          ...perspective,
-          customized: true,
-          corners
-        }
+        perspective: buildCustomizedPerspective(photo, baseCorners, { corners })
       };
     })
   });
@@ -422,34 +432,38 @@ function resolveEdgeCurve(perspective){
   const curve = perspective?.edgeCurve || {};
   return {
     top: clamp(Number(curve.top) || 0, -100, 100),
-    bottom: clamp(Number(curve.bottom) || 0, -100, 100)
+    right: clamp(Number(curve.right) || 0, -100, 100),
+    bottom: clamp(Number(curve.bottom) || 0, -100, 100),
+    left: clamp(Number(curve.left) || 0, -100, 100)
   };
 }
 
 function normalizePerspective(perspective){
-  const base = createDefaultPerspective();
   const source = perspective || {};
   const next = {
     customized: Boolean(source.customized),
-    corners: source.corners || null,
+    corners: null,
     edgeCurve: resolveEdgeCurve(source)
   };
-  if (next.corners) {
+
+  if (source.customized && source.corners && typeof source.corners === "object") {
     const corners = {};
     ["tl", "tr", "br", "bl"].forEach(key => {
-      const point = next.corners[key];
-      if (point) {
-        corners[key] = {
-          x: clamp(Number(point.x) || 0, -0.25, 1.25),
-          y: clamp(Number(point.y) || 0, -0.25, 1.25)
-        };
-      }
+      const point = source.corners[key];
+      if (!point) return;
+      corners[key] = {
+        x: clamp(Number(point.x) || 0, -0.25, 1.25),
+        y: clamp(Number(point.y) || 0, -0.25, 1.25)
+      };
     });
-    next.corners = Object.keys(corners).length === 4 ? corners : null;
-  } else {
-    next.corners = null;
+    next.corners = Object.keys(corners).length ? corners : null;
   }
-  if (!next.customized) next.corners = null;
+
+  if (!next.customized) {
+    next.corners = null;
+    next.edgeCurve = createDefaultEdgeCurve();
+  }
+
   return next;
 }
 
@@ -479,7 +493,7 @@ export function updatePhotoWallState(currentState, partial){
     : "scale";
   next.selectedPerspectiveParameter = PERSPECTIVE_PARAMETERS.some(item => item.id === next.selectedPerspectiveParameter)
     ? next.selectedPerspectiveParameter
-    : "edgeCurveTop";
+    : "pointA";
   next.sliderAlignMode = next.sliderAlignMode === "absolute" ? "absolute" : "relative";
 
   if (next.sceneId) {
