@@ -1,0 +1,81 @@
+# Sync F6 photo-wall scene manifest and carousel thumbnails from scene *.webp files.
+# GitHub → Actions → "Sync F6 photo wall scenes" → Run workflow
+#
+# 1. Add scene-3x4-*.webp / scene-4x3-*.webp under assets/features/F6_photoWall/scenes/
+# 2. Commit & push (or run this workflow on a branch that already has the new files)
+# 3. Workflow regenerates manifest.json and thumbs/*.webp
+
+name: Sync F6 photo wall scenes
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_changes:
+        description: "Commit and push updated manifest.json and thumbnails to this branch"
+        type: boolean
+        default: true
+      generate_thumbnails:
+        description: "Generate carousel thumbnails (thumbs/*.webp)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-f6-photo-wall-scenes
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install sharp
+        if: inputs.generate_thumbnails == true || inputs.generate_thumbnails == 'true'
+        run: npm install --no-save sharp
+
+      - name: Regenerate scene manifest and thumbnails
+        run: |
+          if [ "${{ inputs.generate_thumbnails }}" = "true" ]; then
+            node scripts/sync-photo-wall-scene-manifest.mjs
+          else
+            node scripts/sync-photo-wall-scene-manifest.mjs --no-thumbs
+          fi
+
+      - name: Detect changes
+        id: changes
+        run: |
+          if git diff --quiet -- \
+            'assets/features/F6_photoWall/scenes/manifest.json' \
+            'assets/features/F6_photoWall/scenes/thumbs'; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No scene manifest or thumbnail changes."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git status --short -- \
+              'assets/features/F6_photoWall/scenes/manifest.json' \
+              'assets/features/F6_photoWall/scenes/thumbs'
+          fi
+
+      - name: Commit and push
+        if: >-
+          steps.changes.outputs.changed == 'true' &&
+          (inputs.commit_changes == true || inputs.commit_changes == 'true')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/features/F6_photoWall/scenes/manifest.json
+          git add assets/features/F6_photoWall/scenes/thumbs 2>/dev/null || true
+          git commit -m "chore(F6): sync photo wall scene manifest and thumbnails"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
