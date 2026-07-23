@@ -160,7 +160,7 @@ export function renderPerspectivePanel(state){
       <button type="button" class="photo-wall-reset-btn" data-photo-wall-reset-perspective ${disabled ? "disabled" : ""}>還原視角變形</button>
     </div>
 
-    <p class="note photo-wall-perspective-hint">拖曳四角做透視變形；拖曳上下藍點做弧形。點選照片切換紅框，滑桿僅作用於紅框照片。</p>
+    <p class="note photo-wall-perspective-hint">可拖曳移動、雙指縮放手指下的照片；拖曳四角與上下藍點調整視角。點選切換紅框，滑桿僅調整紅框照片。</p>
   `;
 }
 
@@ -267,7 +267,7 @@ export function setupPhotoWallUI(root, state, hooks){
     hint.textContent = state.activeTab === "position"
       ? "拖曳移動、雙指縮放手指下的照片；點選切換紅框，滑桿僅調整紅框照片"
       : state.activeTab === "perspective"
-        ? "拖曳四角與上下藍點調整視角；點選切換紅框，滑桿僅調整紅框照片"
+        ? "拖曳移動、雙指縮放照片；拖曳定位點調整視角，點選切換紅框"
         : "切換至位置或視角分頁後可操作畫布";
   };
 
@@ -477,6 +477,10 @@ function enableCanvasInteractions(canvas, hooks){
   const getState = () => hooks.getState();
   const overlays = () => hooks.getOverlays();
 
+  function allowsPhotoManipulation(tab){
+    return tab === "position" || tab === "perspective";
+  }
+
   function rememberStartScales(state, photoId){
     startScales = new Map();
     const photo = state.photos.find(item => item.id === photoId);
@@ -580,7 +584,7 @@ function enableCanvasInteractions(canvas, hooks){
     }
 
     if (isSecondFinger) {
-      if (state.activeTab === "position" && manipulatePhotoId) {
+      if (allowsPhotoManipulation(state.activeTab) && manipulatePhotoId) {
         if (!gestureActive) {
           gestureActive = true;
           hooks.beginGesture?.();
@@ -596,11 +600,11 @@ function enableCanvasInteractions(canvas, hooks){
 
     if (hit) {
       pressPhotoId = hit.id;
-      manipulatePhotoId = state.activeTab === "position" ? hit.id : null;
+      manipulatePhotoId = allowsPhotoManipulation(state.activeTab) ? hit.id : null;
       const next = bringPhotoToFront(state, hit.id);
       hooks.patchCanvasState({ photos: next.photos });
 
-      if (state.activeTab === "position") {
+      if (allowsPhotoManipulation(state.activeTab)) {
         lastDrag = { x: event.clientX, y: event.clientY };
       }
     } else {
@@ -628,7 +632,7 @@ function enableCanvasInteractions(canvas, hooks){
       return;
     }
 
-    if (state.activeTab !== "position" || !manipulatePhotoId) return;
+    if (!allowsPhotoManipulation(state.activeTab) || !manipulatePhotoId) return;
 
     if (!gestureActive) {
       const moved = Math.abs(event.movementX) > 2 || Math.abs(event.movementY) > 2;
