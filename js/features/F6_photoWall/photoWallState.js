@@ -3,7 +3,7 @@
 import { getPhotoWallScenes } from "./photoWallAssets.js";
 
 export const PHOTO_WALL_FEATURE_ID = "F6_photoWall";
-export const PHOTO_WALL_FEATURE_VERSION = "0.1.3";
+export const PHOTO_WALL_FEATURE_VERSION = "0.1.4";
 export const PHOTO_WALL_DRAFT_KEY = "photoEffects.F6_photoWall.draft.v1";
 
 export const PHOTO_WALL_TABS = [
