@@ -1,13 +1,15 @@
 # Sync F6 photo-wall scene manifest and carousel thumbnails from scene *.webp files.
-# GitHub → Actions → "Sync F6 photo wall scenes" → Run workflow
 #
-# 1. Add scene-3x4-*.webp / scene-4x3-*.webp under assets/features/F6_photoWall/scenes/
-# 2. Commit & push (or run this workflow on a branch that already has the new files)
-# 3. Workflow regenerates manifest.json and thumbs/*.webp
+# Automatic: push a new scene-3x4-*.webp or scene-4x3-*.webp → manifest + thumbs update.
+# Manual: GitHub → Actions → "Sync F6 photo wall scenes" → Run workflow
 
 name: Sync F6 photo wall scenes
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "assets/features/F6_photoWall/scenes/scene-*.webp"
   workflow_dispatch:
     inputs:
       commit_changes:
@@ -23,7 +25,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: sync-f6-photo-wall-scenes
+  group: sync-f6-photo-wall-scenes-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -42,12 +44,12 @@ jobs:
           node-version: "20"
 
       - name: Install sharp
-        if: inputs.generate_thumbnails == true || inputs.generate_thumbnails == 'true'
+        if: github.event_name == 'push' || inputs.generate_thumbnails != false
         run: npm install --no-save sharp
 
       - name: Regenerate scene manifest and thumbnails
         run: |
-          if [ "${{ inputs.generate_thumbnails }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.generate_thumbnails }}" != "false" ]; then
             node scripts/sync-photo-wall-scene-manifest.mjs
           else
             node scripts/sync-photo-wall-scene-manifest.mjs --no-thumbs
@@ -71,7 +73,7 @@ jobs:
       - name: Commit and push
         if: >-
           steps.changes.outputs.changed == 'true' &&
-          (inputs.commit_changes == true || inputs.commit_changes == 'true')
+          (github.event_name == 'push' || inputs.commit_changes != false)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
