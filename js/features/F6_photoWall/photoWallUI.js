@@ -22,7 +22,6 @@ import {
 } from "./photoWallState.js";
 import {
   clientToCanvasPoint,
-  hitTestCanvasPhoto,
   hitTestPerspectiveHandle,
   pickCanvasPhotoAtPoint
 } from "./photoWallTool.js";
@@ -161,15 +160,16 @@ export function renderPerspectivePanel(state, overlays = [], polarKnob = { dista
       <div
         class="photo-wall-polar-pad${disabled ? " is-disabled" : ""}"
         id="photoWallPolarPad"
-        role="application"
         aria-label="${config.label} 方向距離調整"
         ${disabled ? "aria-disabled=\"true\"" : ""}
       >
         <span class="photo-wall-polar-ring" aria-hidden="true"></span>
-        <span class="photo-wall-polar-crosshair photo-wall-polar-crosshair-h" aria-hidden="true"></span>
-        <span class="photo-wall-polar-crosshair photo-wall-polar-crosshair-v" aria-hidden="true"></span>
-        <span class="photo-wall-polar-center" id="photoWallPolarCenter" aria-hidden="true">${def.letter}</span>
-        <span class="photo-wall-polar-knob" id="photoWallPolarKnob" aria-hidden="true"></span>
+        <span class="photo-wall-polar-center" id="photoWallPolarCenter" aria-hidden="true">
+          <span class="photo-wall-polar-center-letter">${def.letter}</span>
+        </span>
+        <span class="photo-wall-polar-knob" id="photoWallPolarKnob" aria-hidden="true">
+          <span class="photo-wall-polar-sphere-shine" aria-hidden="true"></span>
+        </span>
       </div>
       <p class="note photo-wall-polar-hint">以選定點為中心微調；畫布調整後旋鈕會自動歸正，可再進一步細調。</p>
     </div>
@@ -204,7 +204,7 @@ export function setupPhotoWallUI(root, state, hooks){
   let polarBaselines = new Map();
   let perspectiveTabWasActive = false;
   let lastCheckedPhotoKey = "";
-  const POLAR_PAD_RATIO = 0.78;
+  const POLAR_PAD_RATIO = 0.88;
 
   const applyState = (nextState, options = {}) => {
     const {
@@ -422,7 +422,10 @@ export function setupPhotoWallUI(root, state, hooks){
     updatePolarKnobVisual(pad, knob, dx, dy);
     if (label) label.textContent = config.label;
     if (valueEl) valueEl.textContent = `${Math.round(polarKnob.distance)}% · ${Math.round(polarKnob.angleDeg)}°`;
-    if (center) center.textContent = def.letter;
+    if (center) {
+      const letter = center.querySelector(".photo-wall-polar-center-letter");
+      if (letter) letter.textContent = def.letter;
+    }
   };
 
   if (!root.dataset.photoWallUiBound) {
@@ -483,11 +486,27 @@ export function setupPhotoWallUI(root, state, hooks){
 
     let polarPadGesture = false;
 
+    const blockPolarNativeUi = event => {
+      if (!event.target.closest("#photoWallPolarWrap")) return;
+      event.preventDefault();
+    };
+
+    perspectiveHost?.addEventListener("contextmenu", blockPolarNativeUi);
+    perspectiveHost?.addEventListener("selectstart", blockPolarNativeUi);
+    perspectiveHost?.addEventListener("gesturestart", blockPolarNativeUi);
+
+    perspectiveHost?.addEventListener("touchstart", event => {
+      const pad = event.target.closest("#photoWallPolarPad");
+      if (!pad || pad.classList.contains("is-disabled")) return;
+      event.preventDefault();
+    }, { passive: false });
+
     perspectiveHost?.addEventListener("pointerdown", event => {
       const pad = event.target.closest("#photoWallPolarPad");
       if (!pad || pad.classList.contains("is-disabled")) return;
       event.preventDefault();
       polarPadGesture = true;
+      pad.classList.add("is-active");
       pad.setPointerCapture?.(event.pointerId);
       beginGesture();
       ensurePolarBaselines();
@@ -508,6 +527,7 @@ export function setupPhotoWallUI(root, state, hooks){
       if (!polarPadGesture) return;
       polarPadGesture = false;
       const pad = root.querySelector("#photoWallPolarPad");
+      pad?.classList.remove("is-active");
       if (pad?.hasPointerCapture?.(event.pointerId)) {
         pad.releasePointerCapture(event.pointerId);
       }
