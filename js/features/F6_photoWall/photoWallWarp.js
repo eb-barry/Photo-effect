@@ -6,14 +6,33 @@ export const HANDLE_HIT_RADIUS = 36;
 export const HANDLE_VISUAL_RADIUS = 13;
 export const HANDLE_EDGE_VISUAL_RADIUS = 14;
 
-const HANDLE_IDS = ["tl", "tr", "br", "bl", "top", "bottom"];
+export const WARP_POINT_DEFS = [
+  { id: "pointA", handle: "tl", kind: "corner", label: "A 左上角", letter: "A" },
+  { id: "pointB", handle: "tr", kind: "corner", label: "B 右上角", letter: "B" },
+  { id: "pointC", handle: "br", kind: "corner", label: "C 右下角", letter: "C" },
+  { id: "pointD", handle: "bl", kind: "corner", label: "D 左下角", letter: "D" },
+  { id: "pointE", handle: "top", kind: "edge", label: "E 上緣弧形", letter: "E" },
+  { id: "pointF", handle: "right", kind: "edge", label: "F 右緣弧形", letter: "F" },
+  { id: "pointG", handle: "bottom", kind: "edge", label: "G 下緣弧形", letter: "G" },
+  { id: "pointH", handle: "left", kind: "edge", label: "H 左緣弧形", letter: "H" }
+];
+
+export const HANDLE_LETTERS = Object.fromEntries(
+  WARP_POINT_DEFS.map(item => [item.handle, item.letter])
+);
+
+const HANDLE_IDS = WARP_POINT_DEFS.map(item => item.handle);
 
 export function createDefaultPerspective(){
   return {
     customized: false,
     corners: null,
-    edgeCurve: { top: 0, bottom: 0 }
+    edgeCurve: { top: 0, right: 0, bottom: 0, left: 0 }
   };
+}
+
+export function createDefaultEdgeCurve(){
+  return { top: 0, right: 0, bottom: 0, left: 0 };
 }
 
 export function computePlacementQuad(photo, image, canvasW, canvasH){
@@ -33,20 +52,74 @@ export function computePlacementQuad(photo, image, canvasW, canvasH){
   };
 }
 
+export function mergeCornerRecord(perspectiveCorners, baseCorners){
+  const source = perspectiveCorners || {};
+  return {
+    tl: { ...(source.tl || baseCorners.tl) },
+    tr: { ...(source.tr || baseCorners.tr) },
+    br: { ...(source.br || baseCorners.br) },
+    bl: { ...(source.bl || baseCorners.bl) }
+  };
+}
+
 export function resolvePhotoCorners(photo, image, canvasW, canvasH){
   const placement = computePlacementQuad(photo, image, canvasW, canvasH);
-  if (!photo.perspective?.customized || !photo.perspective?.corners) {
+  if (!photo.perspective?.customized) {
     return cloneCorners(placement);
   }
-  return normalizeCornerRecord(photo.perspective.corners, placement);
+  return normalizeCornerRecord(mergeCornerRecord(photo.perspective.corners, placement), placement);
 }
 
 export function resolvePhotoEdgeCurve(photo){
   const curve = photo.perspective?.edgeCurve || {};
   return {
     top: clamp(Number(curve.top) || 0, -100, 100),
-    bottom: clamp(Number(curve.bottom) || 0, -100, 100)
+    right: clamp(Number(curve.right) || 0, -100, 100),
+    bottom: clamp(Number(curve.bottom) || 0, -100, 100),
+    left: clamp(Number(curve.left) || 0, -100, 100)
   };
+}
+
+export function getWarpPointDef(parameterId){
+  return WARP_POINT_DEFS.find(item => item.id === parameterId) || WARP_POINT_DEFS[0];
+}
+
+export function getPerspectiveParameterValue(photo, parameterId, baseCorners){
+  const def = getWarpPointDef(parameterId);
+  const corners = mergeCornerRecord(photo.perspective?.corners, baseCorners);
+  if (def.kind === "corner") {
+    return getCornerPullValue(corners, baseCorners, def.handle);
+  }
+  const edgeCurve = resolvePhotoEdgeCurve(photo);
+  return Math.round(edgeCurve[def.handle] || 0);
+}
+
+export function applyPerspectiveParameterValue(photo, parameterId, value, baseCorners){
+  const def = getWarpPointDef(parameterId);
+  const perspective = normalizePerspectiveRecord(photo.perspective, baseCorners);
+  const corners = mergeCornerRecord(perspective.corners, baseCorners);
+  const edgeCurve = { ...perspective.edgeCurve };
+
+  if (def.kind === "corner") {
+    setCornerPullValue(corners, baseCorners, def.handle, value);
+  } else {
+    edgeCurve[def.handle] = clamp(value, -100, 100);
+  }
+
+  return {
+    customized: true,
+    corners,
+    edgeCurve
+  };
+}
+
+export function applyPerspectiveParameterDelta(photo, parameterId, delta, baseCorners){
+  const current = getPerspectiveParameterValue(photo, parameterId, baseCorners);
+  const def = getWarpPointDef(parameterId);
+  const next = def.kind === "corner"
+    ? clamp(current + delta, -100, 100)
+    : clamp(current + delta, -100, 100);
+  return applyPerspectiveParameterValue(photo, parameterId, next, baseCorners);
 }
 
 export function cornersToCanvas(corners, canvasW, canvasH){
@@ -69,9 +142,14 @@ export function mapWarpPoint(u, v, cornersPx, edgeCurve){
   const { tl, tr, br, bl } = cornersPx;
   const top = quadraticEdge(tl, tr, edgeCurve.top, u);
   const bottom = quadraticEdge(bl, br, edgeCurve.bottom, u);
+  const left = quadraticEdge(tl, bl, edgeCurve.left, v);
+  const right = quadraticEdge(tr, br, edgeCurve.right, v);
+  const topLine = bilinear(tl, tr, bl, br, u, 0);
+  const bottomLine = bilinear(tl, tr, bl, br, u, 1);
+
   return {
-    x: top.x + (bottom.x - top.x) * v,
-    y: top.y + (bottom.y - top.y) * v
+    x: (1 - v) * top.x + v * bottom.x + (1 - u) * left.x + u * right.x - ((1 - v) * topLine.x + v * bottomLine.x),
+    y: (1 - v) * top.y + v * bottom.y + (1 - u) * left.y + u * right.y - ((1 - v) * topLine.y + v * bottomLine.y)
   };
 }
 
@@ -97,11 +175,6 @@ export function getWarpBounds(cornersPx, edgeCurve){
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY, points };
 }
 
-export function pointInWarp(u, v, cornersPx, edgeCurve){
-  const pt = mapWarpPoint(u, v, cornersPx, edgeCurve);
-  return pt;
-}
-
 export function hitTestWarpPhoto(cornersPx, edgeCurve, canvasX, canvasY){
   if (pointInPolygon(canvasX, canvasY, getWarpBoundaryPolygon(cornersPx, edgeCurve))) {
     return true;
@@ -122,15 +195,15 @@ export function getWarpBoundaryPolygon(cornersPx, edgeCurve){
 }
 
 export function getWarpHandles(cornersPx, edgeCurve){
-  const topMid = quadraticEdge(cornersPx.tl, cornersPx.tr, edgeCurve.top, 0.5);
-  const bottomMid = quadraticEdge(cornersPx.bl, cornersPx.br, edgeCurve.bottom, 0.5);
   return {
     tl: cornersPx.tl,
     tr: cornersPx.tr,
     br: cornersPx.br,
     bl: cornersPx.bl,
-    top: topMid,
-    bottom: bottomMid
+    top: quadraticEdge(cornersPx.tl, cornersPx.tr, edgeCurve.top, 0.5),
+    right: quadraticEdge(cornersPx.tr, cornersPx.br, edgeCurve.right, 0.5),
+    bottom: quadraticEdge(cornersPx.bl, cornersPx.br, edgeCurve.bottom, 0.5),
+    left: quadraticEdge(cornersPx.tl, cornersPx.bl, edgeCurve.left, 0.5)
   };
 }
 
@@ -146,16 +219,18 @@ export function hitTestWarpHandle(handles, canvasX, canvasY, radius = HANDLE_HIT
 }
 
 export function photoNeedsWarpDraw(photo){
+  if (photo.perspective?.customized) return true;
   const curve = resolvePhotoEdgeCurve(photo);
-  if (curve.top !== 0 || curve.bottom !== 0) return true;
-  return Boolean(photo.perspective?.customized && photo.perspective?.corners);
+  return curve.top !== 0 || curve.right !== 0 || curve.bottom !== 0 || curve.left !== 0;
 }
 
 export function drawWarpedPhoto(ctx, image, corners, edgeCurve, canvasW, canvasH, options = {}){
   const cornersPx = cornersToCanvas(corners, canvasW, canvasH);
   const curve = {
     top: edgeCurve?.top || 0,
-    bottom: edgeCurve?.bottom || 0
+    right: edgeCurve?.right || 0,
+    bottom: edgeCurve?.bottom || 0,
+    left: edgeCurve?.left || 0
   };
 
   const cols = options.gridCols || WARP_GRID_COLS;
@@ -205,10 +280,7 @@ export function drawWarpedPhoto(ctx, image, corners, edgeCurve, canvasW, canvasH
 
 export function drawWarpOutline(ctx, corners, edgeCurve, canvasW, canvasH, style = {}){
   const cornersPx = cornersToCanvas(corners, canvasW, canvasH);
-  const curve = {
-    top: edgeCurve?.top || 0,
-    bottom: edgeCurve?.bottom || 0
-  };
+  const curve = resolvePhotoEdgeCurve({ perspective: { edgeCurve } });
   const poly = getWarpBoundaryPolygon(cornersPx, curve);
   if (!poly.length) return;
 
@@ -230,9 +302,11 @@ export function drawWarpOutline(ctx, corners, edgeCurve, canvasW, canvasH, style
 export function drawWarpHandles(ctx, handles, style = {}){
   const cornerRadius = style.radius || HANDLE_VISUAL_RADIUS;
   const edgeRadius = style.edgeRadius || HANDLE_EDGE_VISUAL_RADIUS;
+  const showLabels = style.showLabels !== false;
+
   ctx.save();
   Object.entries(handles).forEach(([id, pt]) => {
-    const isEdge = id === "top" || id === "bottom";
+    const isEdge = id === "top" || id === "right" || id === "bottom" || id === "left";
     const radius = isEdge ? edgeRadius : cornerRadius;
     ctx.beginPath();
     ctx.fillStyle = isEdge ? "#2f55d4" : "#0abab5";
@@ -241,13 +315,26 @@ export function drawWarpHandles(ctx, handles, style = {}){
     ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+
+    if (showLabels && HANDLE_LETTERS[id]) {
+      ctx.fillStyle = "#fff";
+      ctx.font = `800 ${Math.max(11, radius + 1)}px system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(HANDLE_LETTERS[id], pt.x, pt.y + 0.5);
+    }
   });
   ctx.restore();
 }
 
 export function computeEdgeCurveFromPoint(cornersPx, handleId, pointPx){
-  const start = handleId === "top" ? cornersPx.tl : cornersPx.bl;
-  const end = handleId === "top" ? cornersPx.tr : cornersPx.br;
+  const pairs = {
+    top: [cornersPx.tl, cornersPx.tr],
+    right: [cornersPx.tr, cornersPx.br],
+    bottom: [cornersPx.bl, cornersPx.br],
+    left: [cornersPx.tl, cornersPx.bl]
+  };
+  const [start, end] = pairs[handleId] || pairs.top;
   const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
   const len = Math.hypot(end.x - start.x, end.y - start.y);
   if (len < 1) return 0;
@@ -255,6 +342,16 @@ export function computeEdgeCurveFromPoint(cornersPx, handleId, pointPx){
   const ny = (end.x - start.x) / len;
   const offset = (pointPx.x - mid.x) * nx + (pointPx.y - mid.y) * ny;
   return clamp((offset / (len * 0.42)) * 100, -100, 100);
+}
+
+export function buildCustomizedPerspective(photo, baseCorners, partial = {}){
+  const corners = mergeCornerRecord(partial.corners || photo.perspective?.corners, baseCorners);
+  const edgeCurve = {
+    ...createDefaultEdgeCurve(),
+    ...resolvePhotoEdgeCurve(photo),
+    ...(partial.edgeCurve || {})
+  };
+  return normalizePerspectiveRecord({ customized: true, corners, edgeCurve }, baseCorners);
 }
 
 export function transformCornersWithPosition(corners, before, after){
@@ -273,6 +370,56 @@ export function transformCornersWithPosition(corners, before, after){
     };
   });
   return next;
+}
+
+export function normalizePerspectiveRecord(perspective, baseCorners){
+  const source = perspective || {};
+  const next = {
+    customized: Boolean(source.customized),
+    corners: null,
+    edgeCurve: {
+      ...createDefaultEdgeCurve(),
+      ...resolvePhotoEdgeCurve({ perspective: source })
+    }
+  };
+  if (next.customized && baseCorners) {
+    next.corners = normalizeCornerRecord(mergeCornerRecord(source.corners, baseCorners), baseCorners);
+  }
+  return next;
+}
+
+function getCornerPullValue(corners, baseCorners, cornerKey){
+  const center = quadCenter(baseCorners);
+  const base = baseCorners[cornerKey];
+  const current = corners[cornerKey];
+  const baseDist = Math.hypot(base.x - center.x, base.y - center.y);
+  if (baseDist < 0.0001) return 0;
+  const curDist = Math.hypot(current.x - center.x, current.y - center.y);
+  return Math.round(((curDist / baseDist) - 1) * 100);
+}
+
+function setCornerPullValue(corners, baseCorners, cornerKey, pullPercent){
+  const center = quadCenter(baseCorners);
+  const base = baseCorners[cornerKey];
+  const dx = base.x - center.x;
+  const dy = base.y - center.y;
+  const dist = Math.hypot(dx, dy) * (1 + pullPercent / 100);
+  if (dist < 0.0001) {
+    corners[cornerKey] = { ...base };
+    return;
+  }
+  const angle = Math.atan2(dy, dx);
+  corners[cornerKey] = {
+    x: clamp(center.x + Math.cos(angle) * dist, -0.25, 1.25),
+    y: clamp(center.y + Math.sin(angle) * dist, -0.25, 1.25)
+  };
+}
+
+function bilinear(tl, tr, bl, br, u, v){
+  return {
+    x: (1 - u) * (1 - v) * tl.x + u * (1 - v) * tr.x + (1 - u) * v * bl.x + u * v * br.x,
+    y: (1 - u) * (1 - v) * tl.y + u * (1 - v) * tr.y + (1 - u) * v * bl.y + u * v * br.y
+  };
 }
 
 function drawTexturedTriangle(ctx, image, s0, s1, s2, d0, d1, d2){
