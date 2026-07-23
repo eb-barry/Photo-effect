@@ -4,19 +4,31 @@ import { getPhotoWallScenes } from "./photoWallAssets.js";
 import {
   PHOTO_WALL_TABS,
   POSITION_PARAMETERS,
+  PERSPECTIVE_PARAMETERS,
+  applyPerspectiveAdjustment,
   applyRelativeAdjustment,
   bringPhotoToFront,
   canEnableTab,
   clearCanvasForSceneChange,
   getParameterDisplayValue,
+  getPerspectiveDisplayValue,
+  resetCheckedPerspective,
   setPhotoCanvasVisibility,
   togglePhotoChecked,
+  updatePhotoPerspectiveCorner,
   updatePhotoWallState
 } from "./photoWallState.js";
 import {
   clientToCanvasPoint,
-  hitTestCanvasPhoto
+  hitTestCanvasPhoto,
+  hitTestPerspectiveHandle
 } from "./photoWallTool.js";
+import {
+  canvasPointToCorner,
+  computeEdgeCurveFromPoint,
+  cornersToCanvas,
+  transformCornersWithPosition
+} from "./photoWallWarp.js";
 
 export function renderControlTabs(state){
   return PHOTO_WALL_TABS.map(tab => {
@@ -119,9 +131,36 @@ export function renderPositionPanel(state){
   `;
 }
 
-export function renderPerspectivePanel(){
+export function renderPerspectivePanel(state){
+  const disabled = !state.photos.some(photo => photo.onCanvas && photo.checked);
+  const paramOptions = PERSPECTIVE_PARAMETERS.map(item => `
+    <option value="${item.id}" ${state.selectedPerspectiveParameter === item.id ? "selected" : ""}>${item.label}</option>
+  `).join("");
+
+  const config = PERSPECTIVE_PARAMETERS.find(item => item.id === state.selectedPerspectiveParameter) || PERSPECTIVE_PARAMETERS[0];
+  const displayValue = getPerspectiveDisplayValue(state, config.id);
+
   return `
-    <p class="note photo-wall-perspective-hint">視角調整將於 Phase 2 開放（六軸透視 + Slider）。</p>
+    <div class="selection-row crystal-adjust-row">
+      <label for="photoWallPerspectiveParamTarget" class="selection-label">調整項目</label>
+      <select id="photoWallPerspectiveParamTarget" class="select-control" aria-label="視角調整項目" ${disabled ? "disabled" : ""}>
+        ${paramOptions}
+      </select>
+    </div>
+
+    <div class="slider-row" id="photoWallPerspectiveSliderRow">
+      <div class="slider-head">
+        <span id="photoWallPerspectiveSliderLabel">${config.label}</span>
+        <span id="photoWallPerspectiveSliderValue">${displayValue}${config.suffix || ""}</span>
+      </div>
+      <input id="photoWallPerspectiveSlider" type="range" min="${config.min}" max="${config.max}" step="${config.step}" value="${displayValue}" ${disabled ? "disabled" : ""} />
+    </div>
+
+    <div class="photo-wall-perspective-actions">
+      <button type="button" class="photo-wall-reset-btn" data-photo-wall-reset-perspective ${disabled ? "disabled" : ""}>還原視角變形</button>
+    </div>
+
+    <p class="note photo-wall-perspective-hint">拖曳四角做透視變形；拖曳上下藍點做弧形。點選照片切換紅框，滑桿僅作用於紅框照片。</p>
   `;
 }
 
@@ -141,6 +180,7 @@ export function setupPhotoWallUI(root, state, hooks){
   const canvas = root.querySelector("#editorCanvas");
 
   let sliderStartValue = 0;
+  let perspectiveSliderStartValue = 0;
   let lastOverlays = [];
   let gestureDepth = 0;
 
@@ -211,10 +251,11 @@ export function setupPhotoWallUI(root, state, hooks){
     if (sceneHost) sceneHost.innerHTML = renderSceneCarousel(state);
     if (photoHost) photoHost.innerHTML = renderPhotoStrip(state);
     if (positionHost) positionHost.innerHTML = renderPositionPanel(state);
-    if (perspectiveHost) perspectiveHost.innerHTML = renderPerspectivePanel();
+    if (perspectiveHost) perspectiveHost.innerHTML = renderPerspectivePanel(state);
 
     mountSceneCarousel(root);
     bindSlider();
+    bindPerspectiveSlider();
     refreshGestureHint();
   };
 
@@ -225,7 +266,9 @@ export function setupPhotoWallUI(root, state, hooks){
     hint.classList.toggle("hidden", !show);
     hint.textContent = state.activeTab === "position"
       ? "拖曳移動、雙指縮放手指下的照片；點選切換紅框，滑桿僅調整紅框照片"
-      : "切換至位置分頁後，可直接拖曳縮放照片，點選可選取供滑桿調整";
+      : state.activeTab === "perspective"
+        ? "拖曳四角與上下藍點調整視角；點選切換紅框，滑桿僅調整紅框照片"
+        : "切換至位置或視角分頁後可操作畫布";
   };
 
   const refreshAll = () => {
@@ -243,6 +286,22 @@ export function setupPhotoWallUI(root, state, hooks){
 
     const config = POSITION_PARAMETERS.find(item => item.id === state.selectedParameter) || POSITION_PARAMETERS[0];
     const displayValue = getParameterDisplayValue(state, config.id);
+    slider.min = String(config.min);
+    slider.max = String(config.max);
+    slider.step = String(config.step);
+    slider.value = String(displayValue);
+    label.textContent = config.label;
+    valueEl.textContent = `${displayValue}${config.suffix || ""}`;
+  };
+
+  const bindPerspectiveSlider = () => {
+    const slider = root.querySelector("#photoWallPerspectiveSlider");
+    const label = root.querySelector("#photoWallPerspectiveSliderLabel");
+    const valueEl = root.querySelector("#photoWallPerspectiveSliderValue");
+    if (!slider || !label || !valueEl) return;
+
+    const config = PERSPECTIVE_PARAMETERS.find(item => item.id === state.selectedPerspectiveParameter) || PERSPECTIVE_PARAMETERS[0];
+    const displayValue = getPerspectiveDisplayValue(state, config.id);
     slider.min = String(config.min);
     slider.max = String(config.max);
     slider.step = String(config.step);
@@ -298,6 +357,58 @@ export function setupPhotoWallUI(root, state, hooks){
       if (!sliderGesture || !event.target.closest("#photoWallSlider")) return;
       sliderGesture = false;
       endGesture();
+    });
+
+    perspectiveHost?.addEventListener("change", event => {
+      const select = event.target.closest("#photoWallPerspectiveParamTarget");
+      if (!select) return;
+      patchState({ selectedPerspectiveParameter: select.value });
+    });
+
+    let perspectiveSliderGesture = false;
+
+    perspectiveHost?.addEventListener("pointerdown", event => {
+      const slider = event.target.closest("#photoWallPerspectiveSlider");
+      if (!slider) return;
+      perspectiveSliderStartValue = Number(slider.value);
+      perspectiveSliderGesture = true;
+      beginGesture();
+    });
+
+    perspectiveHost?.addEventListener("input", event => {
+      const slider = event.target.closest("#photoWallPerspectiveSlider");
+      if (!slider) return;
+      const valueEl = root.querySelector("#photoWallPerspectiveSliderValue");
+      const config = PERSPECTIVE_PARAMETERS.find(item => item.id === state.selectedPerspectiveParameter) || PERSPECTIVE_PARAMETERS[0];
+      const nextValue = Number(slider.value);
+      if (valueEl) valueEl.textContent = `${Math.round(nextValue)}${config.suffix || ""}`;
+      const delta = nextValue - perspectiveSliderStartValue;
+      if (!delta) return;
+      applyState(applyPerspectiveAdjustment(state, state.selectedPerspectiveParameter, delta), {
+        refreshUi: false,
+        render: true,
+        persist: false,
+        fastPreview: true
+      });
+      perspectiveSliderStartValue = nextValue;
+    });
+
+    perspectiveHost?.addEventListener("pointerup", event => {
+      if (!perspectiveSliderGesture || !event.target.closest("#photoWallPerspectiveSlider")) return;
+      perspectiveSliderGesture = false;
+      endGesture();
+    });
+
+    perspectiveHost?.addEventListener("pointercancel", event => {
+      if (!perspectiveSliderGesture || !event.target.closest("#photoWallPerspectiveSlider")) return;
+      perspectiveSliderGesture = false;
+      endGesture();
+    });
+
+    perspectiveHost?.addEventListener("click", event => {
+      const resetButton = event.target.closest("[data-photo-wall-reset-perspective]");
+      if (!resetButton || resetButton.disabled) return;
+      setState(resetCheckedPerspective(state));
     });
   }
 
@@ -358,6 +469,7 @@ function enableCanvasInteractions(canvas, hooks){
   let startScales = new Map();
   let pressPhotoId = null;
   let manipulatePhotoId = null;
+  let activeWarpHandle = null;
   let gestureActive = false;
 
   canvas.style.touchAction = "none";
@@ -382,6 +494,65 @@ function enableCanvasInteractions(canvas, hooks){
     }), { fastPreview: false });
   }
 
+  function ensureCustomizedPerspective(state, photoId){
+    const entry = overlays().find(item => item.photo.id === photoId);
+    if (!entry) return state;
+    const photo = state.photos.find(item => item.id === photoId);
+    if (photo?.perspective?.customized && photo?.perspective?.corners) return state;
+    return updatePhotoWallState(state, {
+      photos: state.photos.map(item => (
+        item.id === photoId
+          ? {
+            ...item,
+            perspective: {
+              customized: true,
+              corners: {
+                tl: { ...entry.corners.tl },
+                tr: { ...entry.corners.tr },
+                br: { ...entry.corners.br },
+                bl: { ...entry.corners.bl }
+              },
+              edgeCurve: { ...entry.edgeCurve }
+            }
+          }
+          : item
+      ))
+    });
+  }
+
+  function applyWarpHandlePoint(state, photoId, handleId, canvasX, canvasY){
+    const entry = overlays().find(item => item.photo.id === photoId);
+    if (!entry) return state;
+    const { canvasW, canvasH } = entry;
+
+    if (handleId === "top" || handleId === "bottom") {
+      const cornersPx = cornersToCanvas(entry.corners, canvasW, canvasH);
+      const edgeCurve = computeEdgeCurveFromPoint(cornersPx, handleId, { x: canvasX, y: canvasY });
+      return updatePhotoPerspectiveCorner(state, photoId, handleId, { edgeCurve });
+    }
+
+    const point = canvasPointToCorner(canvasX, canvasY, canvasW, canvasH);
+    return updatePhotoPerspectiveCorner(state, photoId, handleId, point);
+  }
+
+  function patchPhotoPosition(state, photoId, afterPosition){
+    hooks.patchCanvasState({
+      photos: state.photos.map(item => {
+        if (item.id !== photoId) return item;
+        const before = { ...item.position };
+        const position = { ...afterPosition };
+        let perspective = item.perspective;
+        if (perspective?.customized && perspective.corners) {
+          perspective = {
+            ...perspective,
+            corners: transformCornersWithPosition(perspective.corners, before, position)
+          };
+        }
+        return { ...item, position, perspective };
+      })
+    });
+  }
+
   canvas.addEventListener("pointerdown", event => {
     const state = getState();
     if (!state.sceneId) return;
@@ -390,6 +561,23 @@ function enableCanvasInteractions(canvas, hooks){
     const isSecondFinger = pointers.size >= 1;
     canvas.setPointerCapture?.(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+    const point = clientToCanvasPoint(canvas, event.clientX, event.clientY);
+
+    if (state.activeTab === "perspective") {
+      const handleHit = hitTestPerspectiveHandle(overlays(), point.x, point.y);
+      if (!isSecondFinger && handleHit) {
+        let nextState = ensureCustomizedPerspective(state, handleHit.photo.id);
+        if (nextState !== state) {
+          Object.assign(state, nextState);
+        }
+        activeWarpHandle = { photoId: handleHit.photo.id, handleId: handleHit.handleId };
+        pressPhotoId = handleHit.photo.id;
+        gestureActive = true;
+        hooks.beginGesture?.();
+        return;
+      }
+    }
 
     if (isSecondFinger) {
       if (state.activeTab === "position" && manipulatePhotoId) {
@@ -404,7 +592,6 @@ function enableCanvasInteractions(canvas, hooks){
       return;
     }
 
-    const point = clientToCanvasPoint(canvas, event.clientX, event.clientY);
     const hit = hitTestCanvasPhoto(overlays(), point.x, point.y);
 
     if (hit) {
@@ -426,6 +613,20 @@ function enableCanvasInteractions(canvas, hooks){
     if (!pointers.has(event.pointerId)) return;
     const state = getState();
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const point = clientToCanvasPoint(canvas, event.clientX, event.clientY);
+
+    if (state.activeTab === "perspective" && activeWarpHandle) {
+      event.preventDefault();
+      const nextState = applyWarpHandlePoint(
+        state,
+        activeWarpHandle.photoId,
+        activeWarpHandle.handleId,
+        point.x,
+        point.y
+      );
+      hooks.patchCanvasState({ photos: nextState.photos });
+      return;
+    }
 
     if (state.activeTab !== "position" || !manipulatePhotoId) return;
 
@@ -447,18 +648,13 @@ function enableCanvasInteractions(canvas, hooks){
       if (lastPinchDistance > 0 && distance > 0) {
         const ratio = distance / lastPinchDistance;
         const targetId = manipulatePhotoId;
-        hooks.patchCanvasState({
-          photos: state.photos.map(item => {
-            if (item.id !== targetId) return item;
-            const baseScale = startScales.get(item.id) ?? item.position.scale;
-            return {
-              ...item,
-              position: {
-                ...item.position,
-                scale: clamp(baseScale * ratio, 0.08, 0.85)
-              }
-            };
-          })
+        const photo = state.photos.find(item => item.id === targetId);
+        if (!photo) return;
+        const baseScale = startScales.get(targetId) ?? photo.position.scale;
+        const nextScale = clamp(baseScale * ratio, 0.08, 0.85);
+        patchPhotoPosition(state, targetId, {
+          ...photo.position,
+          scale: nextScale
         });
       }
       return;
@@ -474,19 +670,12 @@ function enableCanvasInteractions(canvas, hooks){
     const dy = (event.clientY - lastDrag.y) / Math.max(1, rect.height);
     lastDrag = { x: event.clientX, y: event.clientY };
     const targetId = manipulatePhotoId;
-
-    hooks.patchCanvasState({
-      photos: state.photos.map(item => {
-        if (item.id !== targetId) return item;
-        return {
-          ...item,
-          position: {
-            ...item.position,
-            x: clamp(item.position.x + dx, 0, 1),
-            y: clamp(item.position.y + dy, 0, 1)
-          }
-        };
-      })
+    const photo = state.photos.find(item => item.id === targetId);
+    if (!photo) return;
+    patchPhotoPosition(state, targetId, {
+      ...photo.position,
+      x: clamp(photo.position.x + dx, 0, 1),
+      y: clamp(photo.position.y + dy, 0, 1)
     });
   });
 
@@ -497,7 +686,8 @@ function enableCanvasInteractions(canvas, hooks){
 
     if (pointers.size === 0) {
       const latest = getState();
-      if (!gestureActive && latest.activeTab === "position") {
+      const selectionTab = latest.activeTab === "position" || latest.activeTab === "perspective";
+      if (!gestureActive && !activeWarpHandle && selectionTab) {
         if (pressPhotoId) {
           hooks.setState(togglePhotoChecked(latest, pressPhotoId), { fastPreview: false });
         } else {
@@ -514,6 +704,7 @@ function enableCanvasInteractions(canvas, hooks){
       startScales = new Map();
       pressPhotoId = null;
       manipulatePhotoId = null;
+      activeWarpHandle = null;
     } else if (pointers.size === 1 && gestureActive) {
       lastPinchDistance = 0;
       const latest = getState();

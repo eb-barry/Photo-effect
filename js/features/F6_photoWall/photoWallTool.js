@@ -1,7 +1,18 @@
-// F6 照片牆 - 繪製與幾何 (Phase 1: 平面合成)
+// F6 照片牆 - 繪製與幾何 (Phase 2: 透視／弧形合成)
 
 import { getSceneById, getCanvasPhotos } from "./photoWallState.js";
 import { resolveSceneImage } from "./photoWallAssets.js";
+import {
+  cornersToCanvas,
+  drawWarpedPhoto,
+  drawWarpHandles,
+  drawWarpOutline,
+  getWarpHandles,
+  hitTestWarpHandle,
+  hitTestWarpPhoto,
+  resolvePhotoCorners,
+  resolvePhotoEdgeCurve
+} from "./photoWallWarp.js";
 
 export const WORK_IMAGE_MAX_EDGE = 1024;
 export const THUMB_IMAGE_MAX_EDGE = 256;
@@ -87,6 +98,7 @@ export async function renderPhotoWall(ctx, state, options = {}){
   const { width, height } = ctx.canvas;
   const fastPreview = Boolean(options.fastPreview);
   const useOriginal = Boolean(options.useOriginal);
+  const showPerspectiveHandles = Boolean(options.showPerspectiveHandles);
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, width, height);
@@ -99,17 +111,29 @@ export async function renderPhotoWall(ctx, state, options = {}){
   for (const photo of canvasPhotos) {
     const image = await loadPhotoImage(photo, { useOriginal });
     if (!image) continue;
-    const bounds = drawPhotoOnWall(ctx, image, photo, width, height, { fastPreview });
-    overlays.push({ photo, bounds });
+    const corners = resolvePhotoCorners(photo, image, width, height);
+    const edgeCurve = resolvePhotoEdgeCurve(photo);
+    const bounds = drawWarpedPhoto(ctx, image, corners, edgeCurve, width, height, { fastPreview });
+    const cornersPx = cornersToCanvas(corners, width, height);
+    const handles = getWarpHandles(cornersPx, edgeCurve);
+    overlays.push({ photo, bounds, corners, edgeCurve, handles, canvasW: width, canvasH: height });
   }
 
-  if (!fastPreview && !options.omitSelection) {
-    overlays.forEach(({ photo, bounds }) => {
-      if (photo.checked) drawSelectionGlow(ctx, bounds);
+  if (!options.omitSelection) {
+    overlays.forEach(entry => {
+      if (!entry.photo.checked) return;
+      drawWarpOutline(ctx, entry.corners, entry.edgeCurve, width, height, {
+        color: "#ff3b30",
+        lineWidth: fastPreview ? 2 : 2.5,
+        glow: fastPreview ? 0 : Math.max(8, Math.min(entry.bounds.w, entry.bounds.h) * 0.08)
+      });
     });
-  } else if (fastPreview && !options.omitSelection) {
-    overlays.forEach(({ photo, bounds }) => {
-      if (photo.checked) drawSelectionGlowFast(ctx, bounds);
+  }
+
+  if (showPerspectiveHandles) {
+    overlays.forEach(entry => {
+      if (!entry.photo.checked) return;
+      drawWarpHandles(ctx, entry.handles);
     });
   }
 
@@ -140,8 +164,20 @@ async function drawSceneLayer(ctx, state, width, height){
 
 export function hitTestCanvasPhoto(overlays, canvasX, canvasY){
   for (let i = overlays.length - 1; i >= 0; i--) {
-    const { photo, bounds } = overlays[i];
-    if (pointInRect(canvasX, canvasY, bounds)) return photo;
+    const { photo, corners, edgeCurve, bounds, canvasW, canvasH } = overlays[i];
+    const cornersPx = cornersToCanvas(corners, canvasW, canvasH);
+    if (hitTestWarpPhoto(cornersPx, edgeCurve, canvasX, canvasY)) return photo;
+    if (bounds && pointInRect(canvasX, canvasY, bounds)) return photo;
+  }
+  return null;
+}
+
+export function hitTestPerspectiveHandle(overlays, canvasX, canvasY){
+  for (let i = overlays.length - 1; i >= 0; i--) {
+    const { photo, handles } = overlays[i];
+    if (!photo.checked || !handles) continue;
+    const handleId = hitTestWarpHandle(handles, canvasX, canvasY);
+    if (handleId) return { photo, handleId };
   }
   return null;
 }
@@ -173,57 +209,8 @@ export function fileToDataUrl(file){
   });
 }
 
-function drawPhotoOnWall(ctx, image, photo, canvasW, canvasH, options = {}){
-  const scale = photo.position.scale;
-  const drawW = canvasW * scale;
-  const drawH = drawW * (image.height / Math.max(1, image.width));
-  const centerX = photo.position.x * canvasW;
-  const centerY = photo.position.y * canvasH;
-  const drawX = centerX - drawW / 2;
-  const drawY = centerY - drawH / 2;
-
-  if (!options.fastPreview) {
-    ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.32)";
-    ctx.shadowBlur = Math.max(6, drawW * 0.03);
-    ctx.shadowOffsetY = Math.max(3, drawH * 0.02);
-    drawCoverImage(ctx, image, drawX, drawY, drawW, drawH);
-    ctx.restore();
-  } else {
-    drawCoverImage(ctx, image, drawX, drawY, drawW, drawH);
-  }
-
-  return { x: drawX, y: drawY, w: drawW, h: drawH };
-}
-
-function drawSelectionGlow(ctx, bounds){
-  const pad = Math.max(3, Math.min(bounds.w, bounds.h) * 0.02);
-  ctx.save();
-  ctx.strokeStyle = "#ff3b30";
-  ctx.lineWidth = Math.max(2.5, Math.min(bounds.w, bounds.h) * 0.012);
-  ctx.shadowColor = "rgba(255, 59, 48, 0.85)";
-  ctx.shadowBlur = Math.max(8, Math.min(bounds.w, bounds.h) * 0.08);
-  ctx.strokeRect(
-    bounds.x - pad,
-    bounds.y - pad,
-    bounds.w + pad * 2,
-    bounds.h + pad * 2
-  );
-  ctx.restore();
-}
-
-function drawSelectionGlowFast(ctx, bounds){
-  const pad = Math.max(2, Math.min(bounds.w, bounds.h) * 0.015);
-  ctx.save();
-  ctx.strokeStyle = "#ff3b30";
-  ctx.lineWidth = Math.max(2, Math.min(bounds.w, bounds.h) * 0.01);
-  ctx.strokeRect(
-    bounds.x - pad,
-    bounds.y - pad,
-    bounds.w + pad * 2,
-    bounds.h + pad * 2
-  );
-  ctx.restore();
+function coverImage(ctx, image, x, y, width, height){
+  drawCoverImage(ctx, image, x, y, width, height);
 }
 
 function drawCoverImage(ctx, image, x, y, width, height){
@@ -243,10 +230,6 @@ function drawCoverImage(ctx, image, x, y, width, height){
   }
 
   ctx.drawImage(image, sx, sy, sw, sh, x, y, width, height);
-}
-
-function coverImage(ctx, image, x, y, width, height){
-  drawCoverImage(ctx, image, x, y, width, height);
 }
 
 function drawProceduralScene(ctx, width, height, aspect){

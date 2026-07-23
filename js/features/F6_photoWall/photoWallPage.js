@@ -128,7 +128,11 @@ export async function renderPhotoWallPage(root, navigate){
     const useOriginal = Boolean(options.useOriginal);
 
     try {
-      const overlays = await renderPhotoWall(ctx, state, { fastPreview, useOriginal });
+      const overlays = await renderPhotoWall(ctx, state, {
+        fastPreview,
+        useOriginal,
+        showPerspectiveHandles: state.activeTab === "perspective"
+      });
       if (serial !== renderSerial) return;
       wallUi?.setOverlays(overlays);
     } catch (error) {
