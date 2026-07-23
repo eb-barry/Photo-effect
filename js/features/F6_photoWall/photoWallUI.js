@@ -63,7 +63,7 @@ export function renderSceneCarousel(state){
     >
       <span class="crystal-scene-thumb photo-wall-scene-thumb">
         <span class="photo-wall-scene-aspect">${item.aspect === "4x3" ? "4:3" : "3:4"}</span>
-        <img src="${item.thumb}" alt="" loading="lazy" decoding="async" />
+        <img src="${item.thumb}" alt="" loading="lazy" decoding="async" draggable="false" />
       </span>
       <span class="photo-wall-scene-label">${item.label}</span>
     </button>
@@ -89,7 +89,7 @@ export function renderPhotoStrip(state){
       class="photo-wall-thumb${photo.onCanvas ? " is-on-canvas" : " is-off-canvas"}"
       data-photo-wall-thumb="${photo.id}"
     >
-      <img src="${photo.thumbDataUrl || photo.workDataUrl || photo.dataUrl}" alt="" loading="lazy" decoding="async" />
+      <img src="${photo.thumbDataUrl || photo.workDataUrl || photo.dataUrl}" alt="" loading="lazy" decoding="async" draggable="false" />
       <label class="photo-wall-thumb-check" aria-label="顯示於畫布 ${photo.label}">
         <input type="checkbox" data-photo-wall-check="${photo.id}" ${photo.onCanvas ? "checked" : ""} />
         <span class="photo-wall-thumb-check-box" aria-hidden="true"></span>
@@ -485,15 +485,6 @@ export function setupPhotoWallUI(root, state, hooks){
     });
 
     let polarPadGesture = false;
-
-    const blockPolarNativeUi = event => {
-      if (!event.target.closest("#photoWallPolarWrap")) return;
-      event.preventDefault();
-    };
-
-    perspectiveHost?.addEventListener("contextmenu", blockPolarNativeUi);
-    perspectiveHost?.addEventListener("selectstart", blockPolarNativeUi);
-    perspectiveHost?.addEventListener("gesturestart", blockPolarNativeUi);
 
     perspectiveHost?.addEventListener("touchstart", event => {
       const pad = event.target.closest("#photoWallPolarPad");
