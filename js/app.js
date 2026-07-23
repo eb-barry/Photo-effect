@@ -27,6 +27,9 @@ const routeLoaders = {
   })),
   F6_photoWall: () => import("./features/F6_photoWall/photoWallPage.js").then(mod => ({
     run: (root, navigate) => mod.initPhotoWallPage(root, { goHome: () => navigate("home") })
+  })),
+  F7_virtualGallery: () => import("./features/F7_virtualGallery/gallery3dPage.js").then(mod => ({
+    run: (root, navigate) => mod.initGallery3dPage(root, { goHome: () => navigate("home") })
   }))
 };
 

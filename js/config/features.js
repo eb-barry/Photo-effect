@@ -5,7 +5,7 @@ export const FEATURE_FILES = [
   "F4-星芒鏡.webp",
   "F5-畫框.webp",
   "F6-照片牆.webp",
-  "F7-浮水印.webp"
+  "F7-3D展館.webp"
 ];
 
 const FEATURE_ROUTES = {
@@ -14,12 +14,14 @@ const FEATURE_ROUTES = {
   F3: "F3_magicSky",
   F4: "F4_starburst",
   F5: "F5_frame",
-  F6: "F6_photoWall"
+  F6: "F6_photoWall",
+  F7: "F7_virtualGallery"
 };
 
 /** Override display labels when filename label differs from product name. */
 const FEATURE_LABELS = {
-  F5: "畫框"
+  F5: "畫框",
+  F7: "3D 展館"
 };
 
 export function buildFeatures(){
