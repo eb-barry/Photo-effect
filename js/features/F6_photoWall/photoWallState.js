@@ -13,7 +13,7 @@ import {
 } from "./photoWallWarp.js";
 
 export const PHOTO_WALL_FEATURE_ID = "F6_photoWall";
-export const PHOTO_WALL_FEATURE_VERSION = "0.2.6";
+export const PHOTO_WALL_FEATURE_VERSION = "0.2.7";
 export const PHOTO_WALL_DRAFT_KEY = "photoEffects.F6_photoWall.draft.v1";
 
 export const PHOTO_WALL_TABS = [
@@ -163,7 +163,7 @@ export function computeSequentialLayout(count, sceneAspect = "3x4"){
   const availableH = 1 - marginY * 2;
   const cellW = (availableW - gapX * Math.max(0, cols - 1)) / cols;
   const cellH = (availableH - gapY * Math.max(0, rows - 1)) / rows;
-  const scale = clamp(Math.min(cellW * 0.94, cellH * 1.1), 0.12, 0.42);
+  const scale = clamp(Math.min(cellW * 0.9, cellH * 0.9), 0.12, 0.42);
 
   return Array.from({ length: count }, (_, index) => {
     const col = index % cols;
