@@ -9,7 +9,6 @@ import {
   canEnableTab,
   clearCanvasForSceneChange,
   getParameterDisplayValue,
-  getCheckedCanvasPhotos,
   setPhotoCanvasVisibility,
   togglePhotoChecked,
   updatePhotoWallState
@@ -74,11 +73,11 @@ export function renderPhotoStrip(state){
       class="photo-wall-thumb${photo.onCanvas ? " is-on-canvas" : " is-off-canvas"}"
       data-photo-wall-thumb="${photo.id}"
     >
+      <img src="${photo.thumbDataUrl || photo.workDataUrl || photo.dataUrl}" alt="" loading="lazy" decoding="async" />
       <label class="photo-wall-thumb-check" aria-label="顯示於畫布 ${photo.label}">
         <input type="checkbox" data-photo-wall-check="${photo.id}" ${photo.onCanvas ? "checked" : ""} />
-        <span aria-hidden="true"></span>
+        <span class="photo-wall-thumb-check-box" aria-hidden="true"></span>
       </label>
-      <img src="${photo.thumbDataUrl || photo.workDataUrl || photo.dataUrl}" alt="" loading="lazy" decoding="async" />
       <span class="photo-wall-thumb-label">照片 ${index + 1}</span>
     </div>
   `).join("");
