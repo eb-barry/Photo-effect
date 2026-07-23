@@ -1205,6 +1205,27 @@ body.magic-sky-scroll-locked {
   flex: 0 0 auto;
 }
 
+.photo-wall-perspective-actions {
+  margin: 4px 0 8px;
+}
+
+.photo-wall-reset-btn {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--base-dark);
+  font: inherit;
+  font-weight: 800;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+}
+
+.photo-wall-reset-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
 .photo-wall-layer-row,
 .photo-wall-align-row {
   display: grid;
