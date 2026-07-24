@@ -41,15 +41,16 @@ export async function renderGallery3dPage(root, navigate){
       <nav class="topbar crystal-topbar gallery3d-topbar">
         <div class="gallery3d-topbar-leading">
           ${iconButton({ icon: "home", label: "首頁", id: "homeBtn", className: "feature-home" })}
-          <div class="gallery3d-gallery-top-controls hidden" id="gallery3dGalleryTopControls" aria-label="展館控制">
-            ${iconButton({ icon: "compass", label: "重設視角", id: "gallery3dResetViewBtn", ext: "webp" })}
-            ${iconButton({ icon: "backward", label: "離開全螢幕", id: "gallery3dExitFullscreenBtn", ext: "webp" })}
-          </div>
         </div>
 
         <div class="topbar-title gallery3d-topbar-title">
           <h1>3D 展館</h1>
           <p class="crystal-version" aria-hidden="true">v${GALLERY3D_FEATURE_VERSION}</p>
+        </div>
+
+        <div class="gallery3d-gallery-top-controls hidden" id="gallery3dGalleryTopControls" aria-label="展館控制">
+          ${iconButton({ icon: "compass", label: "重設視角", id: "gallery3dResetViewBtn", ext: "webp" })}
+          ${iconButton({ icon: "backward", label: "離開全螢幕", id: "gallery3dExitFullscreenBtn", ext: "webp" })}
         </div>
 
         <div class="topbar-actions gallery3d-photo-actions" id="gallery3dPhotoActions" aria-label="照片操作">
@@ -319,10 +320,11 @@ export async function renderGallery3dPage(root, navigate){
       await enterGallerySession();
     },
     onExitGallery: async () => {
-      Object.assign(state, updateGallery3dState(state, { activeTab: "photos" }));
+      Object.assign(state, updateGallery3dState(state, { activeTab: "scene" }));
       await exitGallerySession();
       ui.refreshAll();
       persistDraft();
+      await rebuildScene();
     },
     onToggleGyro: async () => {
       Object.assign(state, updateGallery3dState(state, { gyroEnabled: !state.gyroEnabled }));
@@ -377,10 +379,11 @@ export async function renderGallery3dPage(root, navigate){
 
   root.querySelector("#gallery3dExitFullscreenBtn")?.addEventListener("click", async event => {
     event.preventDefault();
-    Object.assign(state, updateGallery3dState(state, { activeTab: "photos" }));
+    Object.assign(state, updateGallery3dState(state, { activeTab: "scene" }));
     await exitGallerySession();
     ui.refreshAll();
     persistDraft();
+    await rebuildScene();
   });
 
   document.addEventListener("fullscreenchange", () => {

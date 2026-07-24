@@ -1712,6 +1712,8 @@ body.magic-sky-scroll-locked {
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
+  margin-left: auto;
+  pointer-events: auto;
 }
 
 .gallery3d-gallery-top-controls.hidden {
@@ -1734,14 +1736,20 @@ body.magic-sky-scroll-locked {
   min-height: 60px;
 }
 
+.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-gallery-top-controls {
+  margin-left: auto;
+}
+
 .gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar-leading .icon-button,
-.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar-leading .feature-home {
+.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar-leading .feature-home,
+.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-gallery-top-controls .icon-button {
   width: 48px;
   height: 48px;
 }
 
 .gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar-leading .icon-button img,
-.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar-leading .feature-home img {
+.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar-leading .feature-home img,
+.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-gallery-top-controls .icon-button img {
   width: 40px;
   height: 40px;
 }
