@@ -1,106 +1,158 @@
-// F7 3D 展館 - 重用 F5 畫框展場材質
+// F7 3D 展館 - F7 專用牆面／地板材質載入
 
-import { loadGalleryWallCatalog, resolveGallerySceneImage } from "../F5_frame/galleryAssets.js";
-import {
-  DEFAULT_MOUNT_RECT,
-  getGallerySceneById,
-  getGallerySceneCatalog
-} from "../F5_frame/frameState.js";
+const WALL_ROOT = "./assets/features/F7_virtualGallery/textures/walls/";
+const FLOOR_ROOT = "./assets/features/F7_virtualGallery/textures/floors/";
 
-const FLOOR_BAND_RATIO = 0.14;
-const textureCache = new Map();
+const imageCache = new Map();
+const catalogs = { walls: [], floors: [] };
+let catalogPromise = null;
 
-export async function loadGallery3dSceneCatalog(){
-  await loadGalleryWallCatalog();
-  return getGallerySceneCatalog();
+export async function loadGallery3dTextureCatalogs(){
+  if (!catalogPromise) {
+    catalogPromise = Promise.all([
+      loadManifest(`${WALL_ROOT}manifest.json`, WALL_ROOT, "walls"),
+      loadManifest(`${FLOOR_ROOT}manifest.json`, FLOOR_ROOT, "floors")
+    ]).then(([walls, floors]) => {
+      catalogs.walls = walls;
+      catalogs.floors = floors;
+      return { ...catalogs };
+    });
+  }
+  return catalogPromise;
 }
 
-export function getGallery3dSceneById(sceneId){
-  return getGallerySceneById(sceneId);
+export function getWallTextureCatalog(){
+  return catalogs.walls;
 }
 
-export function pickDefaultGallery3dSceneId(preferredId = null){
-  const scenes = getGallerySceneCatalog();
-  if (preferredId && scenes.some(scene => scene.id === preferredId)) return preferredId;
-  return scenes[0]?.id || "wall-3x4-1";
+export function getFloorTextureCatalog(){
+  return catalogs.floors;
 }
 
-export async function resolveGallery3dRoomTextures(sceneId){
-  if (!sceneId) return null;
-  if (textureCache.has(sceneId)) return textureCache.get(sceneId);
-
-  const scene = getGallerySceneById(sceneId);
-  const image = await resolveGallerySceneImage(sceneId);
-  if (!image) return null;
-
-  const textures = buildRoomTexturesFromSceneImage(image, scene?.mount || DEFAULT_MOUNT_RECT);
-  const payload = { sceneId, scene, ...textures };
-  textureCache.set(sceneId, payload);
-  return payload;
+export function pickDefaultTextureId(catalog, preferredId = null){
+  if (preferredId && catalog.some(item => item.id === preferredId)) return preferredId;
+  return catalog[0]?.id || null;
 }
 
-function buildRoomTexturesFromSceneImage(image, mount){
-  const width = image.naturalWidth || image.width;
-  const height = image.naturalHeight || image.height;
-  const wallHeight = Math.max(1, Math.round(height * (1 - FLOOR_BAND_RATIO)));
-  const floorHeight = Math.max(1, height - wallHeight);
+export async function loadGallery3dTextureImage(textureId, kind){
+  const key = `${kind}:${textureId}`;
+  if (imageCache.has(key)) return imageCache.get(key);
 
-  const floorCanvas = document.createElement("canvas");
-  floorCanvas.width = width;
-  floorCanvas.height = floorHeight;
-  floorCanvas.getContext("2d").drawImage(
-    image,
-    0, wallHeight, width, floorHeight,
-    0, 0, width, floorHeight
-  );
-
-  const wallCanvas = document.createElement("canvas");
-  wallCanvas.width = width;
-  wallCanvas.height = wallHeight;
-  const wallCtx = wallCanvas.getContext("2d");
-  wallCtx.drawImage(image, 0, 0, width, wallHeight, 0, 0, width, wallHeight);
-
-  const mountLeft = Math.round(mount.x * width);
-  const mountTop = Math.round(mount.y * height);
-  const mountWidth = Math.round(mount.w * width);
-  const mountHeight = Math.round(mount.h * height);
-  const mountRight = Math.min(width, mountLeft + mountWidth);
-  const mountBottom = Math.min(wallHeight, mountTop + mountHeight);
-
-  if (mountRight > mountLeft + 8 && mountBottom > mountTop + 8 && mountLeft > 4) {
-    const stripWidth = Math.max(8, mountLeft);
-    const stripHeight = mountBottom - mountTop;
-    const stripCanvas = document.createElement("canvas");
-    stripCanvas.width = stripWidth;
-    stripCanvas.height = stripHeight;
-    stripCanvas.getContext("2d").drawImage(
-      wallCanvas,
-      0, mountTop, stripWidth, stripHeight,
-      0, 0, stripWidth, stripHeight
-    );
-
-    for (let x = mountLeft; x < mountRight; x += stripWidth) {
-      const drawWidth = Math.min(stripWidth, mountRight - x);
-      wallCtx.drawImage(
-        stripCanvas,
-        0, 0, drawWidth, stripHeight,
-        x, mountTop, drawWidth, stripHeight
-      );
-    }
+  await loadGallery3dTextureCatalogs();
+  const catalog = kind === "floor" ? catalogs.floors : catalogs.walls;
+  const entry = catalog.find(item => item.id === textureId) || catalog[0];
+  if (!entry?.asset) {
+    const fallback = createProceduralTextureCanvas(kind, textureId || "default");
+    imageCache.set(key, fallback);
+    return fallback;
   }
 
+  try {
+    const image = await loadImage(entry.asset);
+    imageCache.set(key, image);
+    return image;
+  } catch (error) {
+    console.warn(`[F7 3D 展館] 材質載入失敗：${entry.asset}`, error);
+    const fallback = createProceduralTextureCanvas(kind, entry.id);
+    imageCache.set(key, fallback);
+    return fallback;
+  }
+}
+
+export async function resolveGallery3dRoomSurfaceTextures({ wallTextureId, floorTextureId }){
+  const [wallImage, floorImage] = await Promise.all([
+    loadGallery3dTextureImage(wallTextureId, "wall"),
+    loadGallery3dTextureImage(floorTextureId, "floor")
+  ]);
+
   return {
-    wallCanvas,
-    floorCanvas,
-    wallAspect: width / wallHeight,
-    floorAspect: width / floorHeight
+    wallCanvas: imageToCanvas(wallImage),
+    floorCanvas: imageToCanvas(floorImage),
+    wallAspect: (wallImage.width || 1) / (wallImage.height || 1),
+    floorAspect: (floorImage.width || 1) / (floorImage.height || 1)
   };
 }
 
-export function invalidateGallery3dRoomTextureCache(sceneId = null){
-  if (!sceneId) {
-    textureCache.clear();
-    return;
+async function loadManifest(url, basePath, kind){
+  const fallback = [createFallbackEntry(kind, 1, basePath)];
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return fallback;
+    const data = await response.json();
+    const items = Array.isArray(data?.items) ? data.items : [];
+    const normalized = items
+      .map((item, index) => normalizeManifestItem(item, basePath, kind, index))
+      .filter(Boolean);
+    return normalized.length ? normalized : fallback;
+  } catch (error) {
+    console.warn(`[F7 3D 展館] 無法載入清單：${url}`, error);
+    return fallback;
   }
-  textureCache.delete(sceneId);
+}
+
+function normalizeManifestItem(item, basePath, kind, index){
+  if (typeof item === "string") item = { file: item };
+  if (!item || typeof item !== "object") return null;
+  const file = item.file || `${kind}-${String(index + 1).padStart(2, "0")}.webp`;
+  const id = item.id || file.replace(/\.webp$/i, "");
+  const label = item.label || (kind === "floor" ? `地板 ${index + 1}` : `牆面 ${index + 1}`);
+  const encoded = String(file).split("/").map(encodeURIComponent).join("/");
+  const asset = item.asset || `${basePath}${encoded}`;
+  return { id, label, file, asset, thumb: item.thumb || asset, kind };
+}
+
+function createFallbackEntry(kind, number, basePath){
+  const id = `${kind === "floor" ? "floor" : "wall"}-0${number}`;
+  return {
+    id,
+    label: kind === "floor" ? `地板 ${number}` : `牆面 ${number}`,
+    file: `${id}.webp`,
+    asset: `${basePath}${encodeURIComponent(`${id}.webp`)}`,
+    thumb: `${basePath}${encodeURIComponent(`${id}.webp`)}`,
+    kind
+  };
+}
+
+function loadImage(url){
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Image load failed: ${url}`));
+    image.src = url;
+  });
+}
+
+function imageToCanvas(image){
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width || image.naturalWidth || 512;
+  canvas.height = image.height || image.naturalHeight || 512;
+  const ctx = canvas.getContext("2d");
+  if (image instanceof HTMLCanvasElement) {
+    ctx.drawImage(image, 0, 0);
+  } else {
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  }
+  return canvas;
+}
+
+function createProceduralTextureCanvas(kind, seed){
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const hash = String(seed).split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+  const base = kind === "floor"
+    ? `hsl(${24 + (hash % 18)}, 24%, ${34 + (hash % 8)}%)`
+    : `hsl(${38 + (hash % 20)}, 18%, ${78 + (hash % 6)}%)`;
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 80; i += 1) {
+    ctx.fillStyle = `rgba(255,255,255,${0.02 + (i % 5) * 0.01})`;
+    const w = 12 + (i * 17) % 80;
+    const h = 6 + (i * 11) % 40;
+    ctx.fillRect((i * 53) % size, (i * 29) % size, w, h);
+  }
+  return canvas;
 }

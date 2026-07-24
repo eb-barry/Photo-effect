@@ -1,10 +1,12 @@
-// F7 3D 展館 - Page Controller v0.1.0
+// F7 3D 展館 - Page Controller v0.3.0
 
 import { iconButton } from "../../core/iconLoader.js";
 import {
-  loadGallery3dSceneCatalog,
-  pickDefaultGallery3dSceneId,
-  resolveGallery3dRoomTextures
+  getFloorTextureCatalog,
+  getWallTextureCatalog,
+  loadGallery3dTextureCatalogs,
+  pickDefaultTextureId,
+  resolveGallery3dRoomSurfaceTextures
 } from "./gallery3dAssets.js";
 import { Gallery3DScene } from "./gallery3dScene.js";
 import {
@@ -12,11 +14,14 @@ import {
   GALLERY3D_MAX_PHOTOS,
   createDefaultGallery3dState,
   createPhotoId,
+  getRoomSettings,
   loadGallery3dDraft,
   saveGallery3dDraft,
-  updateGallery3dState
+  toggleSceneMaterialTarget,
+  updateGallery3dState,
+  updateRoomSettings
 } from "./gallery3dState.js";
-import { prepareGalleryPhoto } from "./gallery3dTool.js";
+import { prepareGalleryPhoto, canUseDeviceOrientation, isLikelyMobileDevice } from "./gallery3dTool.js";
 import { renderControlTabs, setupGallery3dUI } from "./gallery3dUI.js";
 
 export function initGallery3dPage(root, shared = {}){
@@ -26,10 +31,11 @@ export function initGallery3dPage(root, shared = {}){
 export async function renderGallery3dPage(root, navigate){
   const savedState = loadGallery3dDraft() || createDefaultGallery3dState();
   const state = { ...savedState };
+  let zoomedPhotoId = null;
 
   root.innerHTML = `
     <main class="app-shell page crystal-page gallery3d-page">
-      <nav class="topbar crystal-topbar">
+      <nav class="topbar crystal-topbar gallery3d-topbar">
         ${iconButton({ icon: "home", label: "首頁", id: "homeBtn", className: "feature-home" })}
 
         <div class="topbar-title">
@@ -42,12 +48,14 @@ export async function renderGallery3dPage(root, navigate){
         </div>
       </nav>
 
-      <section class="panel">
+      <section class="panel gallery3d-panel">
         <div class="canvas-wrap crystal-canvas-wrap gallery3d-canvas-wrap" id="gallery3dCanvasWrap">
-          <div class="empty-canvas" id="gallery3dEmptyCanvas">請先上傳 4:3 或 3:4 照片</div>
+          <div class="empty-canvas" id="gallery3dEmptyCanvas">請點下方「進入展館」</div>
           <div class="gallery3d-stage" id="gallery3dStage"></div>
           <div id="gallery3dOverlayHost"></div>
         </div>
+
+        <div id="gallery3dGalleryGateHost"></div>
 
         <div class="crystal-tab-bar gallery3d-tab-bar" id="gallery3dTabBar" role="tablist" aria-label="3D 展館功能">
           ${renderControlTabs(state.activeTab)}
@@ -55,7 +63,7 @@ export async function renderGallery3dPage(root, navigate){
 
         <div class="crystal-tab-panels gallery3d-tab-panels" id="gallery3dTabPanels">
           <div id="gallery3dGalleryPanel" class="crystal-tab-panel ${state.activeTab === "gallery" ? "" : "hidden"}" role="tabpanel" aria-label="展館">
-            <p class="note gallery3d-gallery-note">轉動手機或拖曳畫面環顧四周，牆上會展示您上傳的畫作。</p>
+            <p class="note gallery3d-gallery-note">點「進入展館」後會進入全螢幕 3D 模式，並在手機上請求陀螺儀權限。</p>
           </div>
           <div id="gallery3dScenePanel" class="crystal-tab-panel ${state.activeTab === "scene" ? "" : "hidden"}" role="tabpanel" aria-label="場景">
             <div id="gallery3dSceneHost"></div>
@@ -72,94 +80,189 @@ export async function renderGallery3dPage(root, navigate){
 
   const imageInput = root.querySelector("#gallery3dImageInput");
   const stage = root.querySelector("#gallery3dStage");
+  const page = root.querySelector(".gallery3d-page");
   let scene = null;
   let rebuildSerial = 0;
-  let wallScenes = [];
 
-  wallScenes = await loadGallery3dSceneCatalog();
+  await loadGallery3dTextureCatalogs();
   Object.assign(state, updateGallery3dState(state, {
-    wallSceneId: pickDefaultGallery3dSceneId(state.wallSceneId)
+    rooms: state.rooms.map(room => ({
+      ...room,
+      wallTextureId: pickDefaultTextureId(getWallTextureCatalog(), room.wallTextureId),
+      floorTextureId: pickDefaultTextureId(getFloorTextureCatalog(), room.floorTextureId)
+    }))
   }));
 
-  const persistDraft = () => {
-    saveGallery3dDraft(state);
-  };
+  const persistDraft = () => saveGallery3dDraft(state);
 
-  const shouldRender3d = () => state.activeTab === "gallery" || state.activeTab === "scene";
+  const shouldRender3d = () => (
+    state.activeTab === "scene"
+    || (state.activeTab === "gallery" && state.gallerySessionReady)
+  );
 
   const ensureScene = async () => {
     if (scene) return scene;
-    scene = new Gallery3DScene(stage);
+    scene = new Gallery3DScene(stage, {
+      onDoorwaySelected: async ({ targetRoomId }) => {
+        if (!targetRoomId || targetRoomId === state.currentRoomId) return;
+        const fromRoomId = state.currentRoomId;
+        Object.assign(state, updateGallery3dState(state, { currentRoomId: targetRoomId }));
+        zoomedPhotoId = null;
+        ui.refreshOverlay();
+        persistDraft();
+        await loadActiveRoom(targetRoomId, fromRoomId);
+      },
+      onArtworkZoomChange: photoId => {
+        zoomedPhotoId = photoId;
+        ui.refreshOverlay();
+      }
+    });
     return scene;
   };
 
-  const applyRoomMaterials = async () => {
-    if (!scene) return;
-    const roomTextures = await resolveGallery3dRoomTextures(state.wallSceneId);
-    scene.setRoomTextures(roomTextures);
+  const getPhotosForRoom = roomId => state.photos.filter(photo => photo.roomId === Number(roomId));
+
+  const loadActiveRoom = async (roomId, fromRoomId = null) => {
+    const serial = ++rebuildSerial;
+    if (!shouldRender3d()) return;
+
+    await ensureScene();
+    if (serial !== rebuildSerial) return;
+
+    const roomSettings = getRoomSettings(state, roomId);
+    const surfaceTextures = await resolveGallery3dRoomSurfaceTextures({
+      wallTextureId: roomSettings.wallTextureId,
+      floorTextureId: roomSettings.floorTextureId
+    });
+    if (serial !== rebuildSerial) return;
+
+    const photos = state.activeTab === "gallery" ? getPhotosForRoom(roomId) : [];
+    await scene.loadRoom({
+      roomId,
+      surfaceTextures,
+      photos,
+      fromRoomId,
+      interactionEnabled: state.activeTab === "gallery" && state.gallerySessionReady
+    });
+    if (serial !== rebuildSerial) return;
+
+    scene.resize();
+    scene.start();
   };
 
-  const rebuildScene = async () => {
-    const serial = ++rebuildSerial;
-
+  const rebuildScene = async (fromRoomId = null) => {
     if (!shouldRender3d()) {
       scene?.disableGyro();
       scene?.stop();
       return;
     }
-
-    await ensureScene();
-    if (serial !== rebuildSerial) return;
-
-    await applyRoomMaterials();
-    if (serial !== rebuildSerial) return;
-
-    await scene.setPhotos(state.activeTab === "gallery" ? state.photos : []);
-    if (serial !== rebuildSerial) return;
-
-    scene.resize();
-    scene.start();
-
-    if (state.activeTab === "gallery" && state.gyroEnabled) {
-      const enabled = await scene.enableGyro();
-      if (!enabled) {
-        Object.assign(state, updateGallery3dState(state, { gyroEnabled: false }));
-        ui.refreshOverlay();
-      }
+    await loadActiveRoom(state.currentRoomId, fromRoomId);
+    if (state.activeTab === "gallery" && state.gallerySessionReady && state.gyroEnabled) {
+      await scene?.enableGyro();
     } else {
-      scene.disableGyro();
+      scene?.disableGyro();
     }
   };
 
-  const syncGyroState = async () => {
-    if (!scene) return;
-    if (state.gyroEnabled) {
-      const enabled = await scene.enableGyro();
-      if (!enabled) {
-        Object.assign(state, updateGallery3dState(state, { gyroEnabled: false }));
-        ui.refreshOverlay();
-        alert("無法啟用陀螺儀，請確認已允許動作與方向權限。");
-      }
-    } else {
-      scene.disableGyro();
+  const requestFullscreen = async () => {
+    const target = page;
+    if (!target) return false;
+    if (document.fullscreenElement) return true;
+    try {
+      await target.requestFullscreen?.();
+      return true;
+    } catch (error) {
+      console.warn("[F7 3D 展館] 無法進入全螢幕：", error);
+      return false;
     }
+  };
+
+  const exitFullscreen = async () => {
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+      } catch (error) {
+        console.warn("[F7 3D 展館] 無法離開全螢幕：", error);
+      }
+    }
+  };
+
+  const enterGallerySession = async () => {
+    await ensureScene();
+    Object.assign(state, updateGallery3dState(state, { gallerySessionReady: true }));
+    ui.refreshAll();
+    await rebuildScene();
+    const gyroOk = await scene.enableGyro();
+    Object.assign(state, updateGallery3dState(state, { gyroEnabled: gyroOk }));
+    await requestFullscreen();
+    ui.refreshOverlay();
+    persistDraft();
+    if (!gyroOk && isGyroDevice()) {
+      alert("陀螺儀未授權，您仍可使用拖曳與點擊操作。");
+    }
+  };
+
+  const exitGallerySession = async () => {
+    scene?.disableGyro();
+    await exitFullscreen();
+    Object.assign(state, updateGallery3dState(state, {
+      gallerySessionReady: false,
+      gyroEnabled: false
+    }));
+    zoomedPhotoId = null;
+    ui.refreshAll();
+    scene?.stop();
   };
 
   const ui = setupGallery3dUI(root, state, {
-    getScenes: () => wallScenes,
+    getWallTextures: () => getWallTextureCatalog(),
+    getFloorTextures: () => getFloorTextureCatalog(),
+    getZoomedPhotoId: () => zoomedPhotoId,
     onTabChange: async tab => {
+      if (tab !== "gallery" && state.gallerySessionReady) {
+        await exitGallerySession();
+      }
       Object.assign(state, updateGallery3dState(state, { activeTab: tab }));
       ui.refreshAll();
       persistDraft();
       await rebuildScene();
     },
-    onSceneChange: async sceneId => {
-      if (!sceneId || sceneId === state.wallSceneId) return;
-      Object.assign(state, updateGallery3dState(state, { wallSceneId: sceneId }));
+    onRoomNumberChange: async roomNumber => {
+      Object.assign(state, updateGallery3dState(state, { selectedRoomNumber: roomNumber }));
       ui.refreshScenePanel();
-      ui.refreshViewMode();
       persistDraft();
-      await rebuildScene();
+      if (state.activeTab === "scene") {
+        Object.assign(state, updateGallery3dState(state, { currentRoomId: roomNumber }));
+        await rebuildScene();
+      }
+    },
+    onMaterialTargetToggle: async target => {
+      Object.assign(state, updateGallery3dState(state, {
+        sceneMaterialTarget: toggleSceneMaterialTarget(state.sceneMaterialTarget, target)
+      }));
+      ui.refreshScenePanel();
+      persistDraft();
+    },
+    onTextureChange: async (kind, textureId) => {
+      const roomId = state.selectedRoomNumber;
+      const patch = kind === "floor"
+        ? { floorTextureId: textureId }
+        : { wallTextureId: textureId };
+      Object.assign(state, updateRoomSettings(state, roomId, patch));
+      ui.refreshScenePanel();
+      persistDraft();
+      if (state.activeTab === "scene" && state.currentRoomId === roomId) {
+        await rebuildScene();
+      }
+    },
+    onEnterGallery: async () => {
+      Object.assign(state, updateGallery3dState(state, { activeTab: "gallery" }));
+      ui.refreshAll();
+      await ensureScene();
+      await enterGallerySession();
+    },
+    onExitGallery: async () => {
+      await exitGallerySession();
     },
     onUploadRequest: () => imageInput.click(),
     onRemovePhoto: async photoId => {
@@ -170,19 +273,22 @@ export async function renderGallery3dPage(root, navigate){
       persistDraft();
       await rebuildScene();
     },
-    onToggleGyro: async () => {
-      Object.assign(state, updateGallery3dState(state, { gyroEnabled: !state.gyroEnabled }));
-      ui.refreshOverlay();
-      persistDraft();
-      await syncGyroState();
-    },
     onResetView: () => {
+      zoomedPhotoId = null;
       scene?.resetView();
+      ui.refreshOverlay();
     }
   });
 
-  root.querySelector("#homeBtn")?.addEventListener("click", event => {
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && state.gallerySessionReady) {
+      exitGallerySession().catch(console.error);
+    }
+  });
+
+  root.querySelector("#homeBtn")?.addEventListener("click", async event => {
     event.preventDefault();
+    await exitGallerySession();
     persistDraft();
     scene?.stop();
     scene?.dispose();
@@ -233,9 +339,6 @@ export async function renderGallery3dPage(root, navigate){
     }
 
     Object.assign(state, updateGallery3dState(state, { photos: nextPhotos }));
-    if (state.photos.length && state.activeTab === "photos") {
-      Object.assign(state, updateGallery3dState(state, { activeTab: "gallery" }));
-    }
     ui.refreshAll();
     persistDraft();
     await rebuildScene();
@@ -243,13 +346,16 @@ export async function renderGallery3dPage(root, navigate){
     if (errors.length) {
       alert(`部分照片未加入：\n${errors.join("\n")}`);
     }
-
     imageInput.value = "";
   });
 
-  if (state.photos.length || state.activeTab !== "photos") {
+  if (state.activeTab === "scene") {
     await rebuildScene();
   } else {
     ui.refreshAll();
+  }
+
+  function isGyroDevice(){
+    return isLikelyMobileDevice() && canUseDeviceOrientation();
   }
 }

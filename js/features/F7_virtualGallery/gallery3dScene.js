@@ -1,78 +1,24 @@
-// F7 3D 展館 - Three.js 場景與陀螺儀環視
+// F7 3D 展館 - Three.js 多房間場景、行走、畫作縮放、門口切換
 
 import * as THREE from "https://esm.sh/three@0.170.0";
+import {
+  DOOR_HEIGHT,
+  DOOR_WIDTH,
+  EYE_HEIGHT,
+  ROUND_ROOM_RADIUS,
+  ROOM_WALL_HEIGHT,
+  SQUARE_ROOM_SIZE,
+  findDoorwayTarget,
+  getRoomDefinition,
+  getSpawnPose
+} from "./gallery3dRooms.js";
 
-const ROOM_SIZE = 22;
-const WALL_HALF = ROOM_SIZE / 2;
-const EYE_HEIGHT = 1.65;
-const WALL_USABLE_WIDTH = ROOM_SIZE - 2.4;
-const WALL_USABLE_HEIGHT = 3.6;
 const FRAME_DEPTH = 0.06;
 const FRAME_BORDER = 0.08;
 
-const WALL_DEFS = [
-  { id: "north", axis: "z", sign: -1, rotY: 0 },
-  { id: "east", axis: "x", sign: 1, rotY: -Math.PI / 2 },
-  { id: "south", axis: "z", sign: 1, rotY: Math.PI },
-  { id: "west", axis: "x", sign: -1, rotY: Math.PI / 2 }
-];
-
 function frameSizeForAspect(aspect){
-  if (aspect === "4x3") return { width: 1.55, height: 1.16 };
-  return { width: 0.92, height: 1.16 };
-}
-
-function packWallPlacements(photos){
-  const gap = 0.34;
-  const placements = [];
-  let row = [];
-  let rowWidth = 0;
-  let rowCenterY = 3.35;
-
-  const flushRow = () => {
-    if (!row.length) return;
-    const totalWidth = row.reduce((sum, item, index) => sum + item.width + (index ? gap : 0), 0);
-    let cursor = -totalWidth / 2;
-    row.forEach(item => {
-      placements.push({
-        photo: item.photo,
-        width: item.width,
-        height: item.height,
-        x: cursor + item.width / 2,
-        y: rowCenterY
-      });
-      cursor += item.width + gap;
-    });
-    row = [];
-    rowWidth = 0;
-    rowCenterY -= 1.42;
-  };
-
-  photos.forEach(photo => {
-    const size = frameSizeForAspect(photo.aspect);
-    const needed = row.length ? gap + size.width : size.width;
-    if (rowWidth + needed > WALL_USABLE_WIDTH && row.length) flushRow();
-    row.push({ photo, width: size.width, height: size.height });
-    rowWidth += needed;
-  });
-  flushRow();
-  return placements;
-}
-
-function splitPhotosAcrossWalls(photos){
-  const chunks = [[], [], [], []];
-  photos.forEach((photo, index) => {
-    chunks[index % 4].push(photo);
-  });
-  return chunks;
-}
-
-function createWallMaterial(){
-  return new THREE.MeshStandardMaterial({
-    color: 0xf4f1ea,
-    roughness: 0.92,
-    metalness: 0.02
-  });
+  if (aspect === "4x3") return { width: 1.35, height: 1.02 };
+  return { width: 0.82, height: 1.02 };
 }
 
 function createSurfaceTexture(sourceCanvas, repeatX, repeatY){
@@ -87,45 +33,43 @@ function createSurfaceTexture(sourceCanvas, repeatX, repeatY){
   return texture;
 }
 
-function createFrameMesh(width, height, texture){
+function createFrameMesh(width, height, texture, photoId){
   const group = new THREE.Group();
+  group.userData = { type: "artwork", photoId, zoomed: false };
 
   const frameMaterial = new THREE.MeshStandardMaterial({
     color: 0x2a2118,
     roughness: 0.55,
     metalness: 0.08
   });
-
-  const outer = new THREE.Mesh(
+  group.add(new THREE.Mesh(
     new THREE.BoxGeometry(width + FRAME_BORDER * 2, height + FRAME_BORDER * 2, FRAME_DEPTH),
     frameMaterial
-  );
-  group.add(outer);
+  ));
 
   const picture = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
     new THREE.MeshBasicMaterial({ map: texture, toneMapped: false })
   );
   picture.position.z = FRAME_DEPTH * 0.51;
+  picture.userData = { type: "artwork", photoId };
   group.add(picture);
 
   return group;
 }
 
-class LookControls {
+class RoomControls {
   constructor(camera, domElement){
     this.camera = camera;
     this.domElement = domElement;
     this.enabled = true;
     this.gyroEnabled = false;
-    this.smoothing = 0.08;
-    this.pointerSensitivity = 0.0032;
-
+    this.smoothing = 0.1;
+    this.pointerSensitivity = 0.003;
     this.yaw = 0;
     this.pitch = 0;
     this.targetYaw = 0;
     this.targetPitch = 0;
-
     this._pointerActive = false;
     this._lastX = 0;
     this._lastY = 0;
@@ -133,12 +77,10 @@ class LookControls {
     this._quat = new THREE.Quaternion();
     this._orientQuat = new THREE.Quaternion();
     this._orientBaseline = null;
-
     this._onPointerDown = this._onPointerDown.bind(this);
     this._onPointerMove = this._onPointerMove.bind(this);
     this._onPointerUp = this._onPointerUp.bind(this);
     this._onOrient = this._onOrient.bind(this);
-
     domElement.addEventListener("pointerdown", this._onPointerDown);
     window.addEventListener("pointerup", this._onPointerUp);
     window.addEventListener("pointercancel", this._onPointerUp);
@@ -148,8 +90,7 @@ class LookControls {
   async requestGyroPermission(){
     if (typeof DeviceOrientationEvent !== "undefined"
       && typeof DeviceOrientationEvent.requestPermission === "function") {
-      const permission = await DeviceOrientationEvent.requestPermission();
-      return permission === "granted";
+      return (await DeviceOrientationEvent.requestPermission()) === "granted";
     }
     return true;
   }
@@ -167,8 +108,14 @@ class LookControls {
     window.removeEventListener("deviceorientation", this._onOrient, true);
     this.gyroEnabled = false;
     this._orientBaseline = null;
-    this.targetYaw = this.yaw;
-    this.targetPitch = this.pitch;
+  }
+
+  setOrientation(yaw, pitch){
+    this.yaw = yaw;
+    this.pitch = pitch;
+    this.targetYaw = yaw;
+    this.targetPitch = pitch;
+    this._applyCameraRotation();
   }
 
   resetView(){
@@ -177,8 +124,7 @@ class LookControls {
     this.targetYaw = 0;
     this.targetPitch = 0;
     this._orientBaseline = null;
-    this.camera.rotation.set(0, 0, 0);
-    this.camera.quaternion.set(0, 0, 0, 1);
+    this._applyCameraRotation();
   }
 
   dispose(){
@@ -187,6 +133,12 @@ class LookControls {
     window.removeEventListener("pointerup", this._onPointerUp);
     window.removeEventListener("pointercancel", this._onPointerUp);
     window.removeEventListener("pointermove", this._onPointerMove);
+  }
+
+  _applyCameraRotation(){
+    this._euler.set(this.pitch, this.yaw, 0, "YXZ");
+    this._quat.setFromEuler(this._euler);
+    this.camera.quaternion.copy(this._quat);
   }
 
   _onPointerDown(event){
@@ -209,7 +161,7 @@ class LookControls {
     this._lastY = event.clientY;
     this.targetYaw -= dx * this.pointerSensitivity;
     this.targetPitch -= dy * this.pointerSensitivity;
-    this.targetPitch = THREE.MathUtils.clamp(this.targetPitch, -0.75, 0.75);
+    this.targetPitch = THREE.MathUtils.clamp(this.targetPitch, -0.65, 0.65);
   }
 
   _onOrient(event){
@@ -222,17 +174,15 @@ class LookControls {
       };
       return;
     }
-
     const alpha = THREE.MathUtils.degToRad((event.alpha || 0) - this._orientBaseline.alpha);
     const beta = THREE.MathUtils.degToRad(
-      THREE.MathUtils.clamp((event.beta || 0) - this._orientBaseline.beta, -35, 35)
+      THREE.MathUtils.clamp((event.beta || 0) - this._orientBaseline.beta, -30, 30)
     );
     const gamma = THREE.MathUtils.degToRad((event.gamma || 0) - this._orientBaseline.gamma);
-
     this._euler.set(
-      THREE.MathUtils.clamp(beta, -0.7, 0.7),
+      THREE.MathUtils.clamp(beta, -0.55, 0.55),
       alpha,
-      THREE.MathUtils.clamp(-gamma, -0.45, 0.45),
+      THREE.MathUtils.clamp(-gamma, -0.35, 0.35),
       "YXZ"
     );
     this._orientQuat.setFromEuler(this._euler);
@@ -240,26 +190,30 @@ class LookControls {
   }
 
   update(){
-    if (!this.enabled) return;
-    if (this.gyroEnabled) return;
-
+    if (!this.enabled || this.gyroEnabled) return;
     this.yaw = THREE.MathUtils.lerp(this.yaw, this.targetYaw, this.smoothing);
     this.pitch = THREE.MathUtils.lerp(this.pitch, this.targetPitch, this.smoothing);
-    this._euler.set(this.pitch, this.yaw, 0, "YXZ");
-    this._quat.setFromEuler(this._euler);
-    this.camera.quaternion.slerp(this._quat, this.smoothing);
+    this._applyCameraRotation();
   }
 }
 
 export class Gallery3DScene {
-  constructor(container){
+  constructor(container, callbacks = {}){
     this.container = container;
-    this.photos = [];
+    this.callbacks = callbacks;
+    this.currentRoomId = 1;
+    this.interactionEnabled = false;
     this._textures = [];
     this._roomTextures = [];
-    this._frameGroups = [];
-    this._roomMeshes = { floor: null, ceiling: null, walls: [] };
+    this._roomGroup = new THREE.Group();
+    this._artworkGroups = [];
+    this._clickables = [];
     this._animationId = 0;
+    this._cameraTween = null;
+    this._zoomedArtworkId = null;
+    this._returnPose = null;
+    this._raycaster = new THREE.Raycaster();
+    this._pointer = new THREE.Vector2();
     this._resizeObserver = null;
 
     this.renderer = new THREE.WebGLRenderer({
@@ -268,68 +222,52 @@ export class Gallery3DScene {
       powerPreference: "high-performance"
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.setClearColor(0x0d1218, 1);
+    this.renderer.setClearColor(0x10141a, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.domElement.className = "gallery3d-canvas";
     this.container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0x0d1218, 14, 34);
+    this.scene.fog = new THREE.Fog(0x10141a, 10, 28);
+    this.scene.add(this._roomGroup);
 
-    this.camera = new THREE.PerspectiveCamera(68, 1, 0.1, 80);
-    this.camera.position.set(0, EYE_HEIGHT, 0);
-
-    this.controls = new LookControls(this.camera, this.renderer.domElement);
-    this._buildRoom();
+    this.camera = new THREE.PerspectiveCamera(68, 1, 0.1, 60);
+    this.controls = new RoomControls(this.camera, this.renderer.domElement);
     this._buildLights();
+    this._bindInteraction();
     this.resize();
     this._resizeObserver = new ResizeObserver(() => this.resize());
     this._resizeObserver.observe(this.container);
   }
 
-  _buildRoom(){
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(ROOM_SIZE + 2, ROOM_SIZE + 2),
-      new THREE.MeshStandardMaterial({ color: 0x6f5848, roughness: 0.88, metalness: 0.04 })
-    );
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = 0;
-    this.scene.add(floor);
-    this._roomMeshes.floor = floor;
+  _buildLights(){
+    this.scene.add(new THREE.HemisphereLight(0xfff4e8, 0x4a4038, 0.7));
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.2));
+    const spot = new THREE.PointLight(0xfff1dd, 24, 16, 2);
+    spot.position.set(0, ROOM_WALL_HEIGHT - 0.4, 0);
+    this.scene.add(spot);
+  }
 
-    const ceiling = new THREE.Mesh(
-      new THREE.PlaneGeometry(ROOM_SIZE + 2, ROOM_SIZE + 2),
-      new THREE.MeshStandardMaterial({ color: 0xece7de, roughness: 0.95, metalness: 0 })
-    );
-    ceiling.rotation.x = Math.PI / 2;
-    ceiling.position.y = 4.8;
-    this.scene.add(ceiling);
-    this._roomMeshes.ceiling = ceiling;
+  _bindInteraction(){
+    this._onCanvasClick = this._onCanvasClick.bind(this);
+    this.renderer.domElement.addEventListener("click", this._onCanvasClick);
+  }
 
-    const wallMaterial = createWallMaterial();
-    WALL_DEFS.forEach(wall => {
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_SIZE, 4.8), wallMaterial.clone());
-      if (wall.axis === "z") {
-        mesh.position.set(0, 2.4, wall.sign * WALL_HALF);
-        mesh.rotation.y = wall.rotY;
-      } else {
-        mesh.position.set(wall.sign * WALL_HALF, 2.4, 0);
-        mesh.rotation.y = wall.rotY;
-      }
-      this.scene.add(mesh);
-      this._roomMeshes.walls.push(mesh);
-    });
-
-    const baseboard = new THREE.MeshStandardMaterial({ color: 0xd9d2c6, roughness: 0.8 });
-    WALL_DEFS.forEach(wall => {
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(ROOM_SIZE, 0.18, 0.08), baseboard);
-      if (wall.axis === "z") {
-        strip.position.set(0, 0.09, wall.sign * (WALL_HALF - 0.05));
-      } else {
-        strip.position.set(wall.sign * (WALL_HALF - 0.05), 0.09, 0);
-      }
-      this.scene.add(strip);
-    });
+  _disposeRoom(){
+    this._clearArtworks();
+    this._disposeRoomTextures();
+    while (this._roomGroup.children.length) {
+      const child = this._roomGroup.children[0];
+      this._roomGroup.remove(child);
+      child.traverse(node => {
+        if (node.geometry) node.geometry.dispose();
+        if (node.material) {
+          if (Array.isArray(node.material)) node.material.forEach(mat => mat.dispose());
+          else node.material.dispose();
+        }
+      });
+    }
+    this._clickables = [];
   }
 
   _disposeRoomTextures(){
@@ -337,17 +275,52 @@ export class Gallery3DScene {
     this._roomTextures = [];
   }
 
-  setRoomTextures(roomTextures){
-    this._disposeRoomTextures();
-    if (!roomTextures) return;
+  _clearArtworks(){
+    this._artworkGroups = [];
+    this._textures.forEach(texture => texture.dispose());
+    this._textures = [];
+    this._zoomedArtworkId = null;
+    this._returnPose = null;
+  }
 
-    const { wallCanvas, floorCanvas, wallAspect, floorAspect } = roomTextures;
-    const wallRepeatX = Math.max(1.5, ROOM_SIZE / Math.max(wallAspect * 2.2, 1));
-    const wallRepeatY = Math.max(1, 4.8 / 2.4);
-    const floorRepeat = Math.max(2, ROOM_SIZE / Math.max((floorAspect || 1) * 2.5, 1));
+  async loadRoom({
+    roomId,
+    surfaceTextures,
+    photos = [],
+    fromRoomId = null,
+    interactionEnabled = true
+  }){
+    this._disposeRoom();
+    this.currentRoomId = Number(roomId);
+    this.interactionEnabled = interactionEnabled;
+    const room = getRoomDefinition(roomId);
 
-    const wallTexture = createSurfaceTexture(wallCanvas, wallRepeatX, wallRepeatY);
-    const floorTexture = createSurfaceTexture(floorCanvas, floorRepeat, floorRepeat);
+    if (room.shape === "round") {
+      this._buildRoundRoom(surfaceTextures, room);
+      await this._hangPhotosOnRoundWall(photos);
+    } else {
+      this._buildSquareRoom(surfaceTextures, room);
+      await this._hangPhotosOnSquareWalls(photos, room);
+    }
+
+    const spawn = getSpawnPose(roomId, fromRoomId);
+    this.camera.position.set(spawn.x, spawn.y, spawn.z);
+    this.controls.setOrientation(spawn.yaw, 0);
+  }
+
+  _applySurfaceMaterials(surfaceTextures, wallMeshes, floorMesh, wallRepeatScale = 1){
+    if (!surfaceTextures) return;
+    const { wallCanvas, floorCanvas, wallAspect, floorAspect } = surfaceTextures;
+    const wallTexture = createSurfaceTexture(
+      wallCanvas,
+      Math.max(1.5, 4 * wallRepeatScale),
+      Math.max(1, ROOM_WALL_HEIGHT / 2.2)
+    );
+    const floorTexture = createSurfaceTexture(
+      floorCanvas,
+      Math.max(2, 6 * wallRepeatScale),
+      Math.max(2, 6 * wallRepeatScale)
+    );
     this._roomTextures.push(wallTexture, floorTexture);
 
     const wallMaterial = new THREE.MeshStandardMaterial({
@@ -355,108 +328,336 @@ export class Gallery3DScene {
       roughness: 0.9,
       metalness: 0.02
     });
-    const floorMaterial = new THREE.MeshStandardMaterial({
-      map: floorTexture,
-      roughness: 0.82,
-      metalness: 0.04
-    });
-
-    this._roomMeshes.walls.forEach(mesh => {
-      mesh.material.dispose();
+    wallMeshes.forEach(mesh => {
       mesh.material = wallMaterial.clone();
       mesh.material.map = wallTexture;
     });
 
-    if (this._roomMeshes.floor) {
-      this._roomMeshes.floor.material.dispose();
-      this._roomMeshes.floor.material = floorMaterial;
-    }
-
-    if (this.scene.fog) {
-      const sample = floorCanvas.getContext("2d")?.getImageData(0, 0, 1, 1)?.data;
-      if (sample) {
-        const fogColor = new THREE.Color(
-          sample[0] / 255,
-          sample[1] / 255,
-          sample[2] / 255
-        ).multiplyScalar(0.42);
-        this.scene.fog.color.copy(fogColor);
-        this.renderer.setClearColor(fogColor, 1);
-      }
-    }
-  }
-
-  _buildLights(){
-    this.scene.add(new THREE.HemisphereLight(0xfff4e8, 0x4a4038, 0.72));
-    const ambient = new THREE.AmbientLight(0xffffff, 0.22);
-    this.scene.add(ambient);
-
-    const spots = [
-      [0, 3.8, -6],
-      [6, 3.8, 0],
-      [0, 3.8, 6],
-      [-6, 3.8, 0]
-    ];
-    spots.forEach(([x, y, z]) => {
-      const light = new THREE.PointLight(0xfff1dd, 28, 18, 2);
-      light.position.set(x, y, z);
-      this.scene.add(light);
-    });
-  }
-
-  _clearFrames(){
-    this._frameGroups.forEach(group => {
-      this.scene.remove(group);
-      group.traverse(node => {
-        if (node.geometry) node.geometry.dispose();
-        if (node.material) {
-          if (Array.isArray(node.material)) node.material.forEach(mat => mat.dispose());
-          else node.material.dispose();
-        }
+    if (floorMesh) {
+      floorMesh.material = new THREE.MeshStandardMaterial({
+        map: floorTexture,
+        roughness: 0.84,
+        metalness: 0.04
       });
-    });
-    this._frameGroups = [];
+    }
 
-    this._textures.forEach(texture => texture.dispose());
-    this._textures = [];
+    void wallAspect;
+    void floorAspect;
   }
 
-  async setPhotos(photos){
-    this.photos = photos;
-    this._clearFrames();
+  _buildSquareRoom(surfaceTextures, room){
+    const size = SQUARE_ROOM_SIZE;
+    const half = size / 2;
+    const wallMeshes = [];
+
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(size, size),
+      new THREE.MeshStandardMaterial({ color: 0x6f5848 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.userData = { type: "floor" };
+    this._roomGroup.add(floor);
+    this._clickables.push(floor);
+
+    const ceiling = new THREE.Mesh(
+      new THREE.PlaneGeometry(size, size),
+      new THREE.MeshStandardMaterial({ color: 0xece7de, roughness: 0.95 })
+    );
+    ceiling.rotation.x = Math.PI / 2;
+    ceiling.position.y = ROOM_WALL_HEIGHT;
+    this._roomGroup.add(ceiling);
+
+    const wallDefs = [
+      { side: "north", pos: [0, ROOM_WALL_HEIGHT / 2, -half], rotY: 0, skipDoor: false },
+      { side: "south", pos: [0, ROOM_WALL_HEIGHT / 2, half], rotY: Math.PI, skipDoor: false },
+      { side: "west", pos: [-half, ROOM_WALL_HEIGHT / 2, 0], rotY: -Math.PI / 2, skipDoor: false },
+      { side: "east", pos: [half, ROOM_WALL_HEIGHT / 2, 0], rotY: Math.PI / 2, skipDoor: false }
+    ];
+
+    wallDefs.forEach(def => {
+      const doorway = room.doorways.find(item => item.side === def.side);
+      if (doorway) {
+        this._addWallWithDoor(def, size, doorway, wallMeshes);
+      } else {
+        const wall = new THREE.Mesh(
+          new THREE.PlaneGeometry(size, ROOM_WALL_HEIGHT),
+          new THREE.MeshStandardMaterial({ color: 0xf4f1ea })
+        );
+        wall.position.set(...def.pos);
+        wall.rotation.y = def.rotY;
+        this._roomGroup.add(wall);
+        wallMeshes.push(wall);
+      }
+    });
+
+    this._applySurfaceMaterials(surfaceTextures, wallMeshes, floor, 1);
+  }
+
+  _addWallWithDoor(def, roomSize, doorway, wallMeshes){
+    const half = roomSize / 2;
+    const segmentWidth = (roomSize - DOOR_WIDTH) / 2;
+    const y = ROOM_WALL_HEIGHT / 2;
+
+    const left = new THREE.Mesh(
+      new THREE.PlaneGeometry(segmentWidth, ROOM_WALL_HEIGHT),
+      new THREE.MeshStandardMaterial({ color: 0xf4f1ea })
+    );
+    const right = new THREE.Mesh(
+      new THREE.PlaneGeometry(segmentWidth, ROOM_WALL_HEIGHT),
+      new THREE.MeshStandardMaterial({ color: 0xf4f1ea })
+    );
+
+    if (def.side === "east") {
+      left.position.set(half, y, -segmentWidth / 2 - DOOR_WIDTH / 2);
+      right.position.set(half, y, segmentWidth / 2 + DOOR_WIDTH / 2);
+      left.rotation.y = Math.PI / 2;
+      right.rotation.y = Math.PI / 2;
+    } else if (def.side === "west") {
+      left.position.set(-half, y, segmentWidth / 2 + DOOR_WIDTH / 2);
+      right.position.set(-half, y, -segmentWidth / 2 - DOOR_WIDTH / 2);
+      left.rotation.y = -Math.PI / 2;
+      right.rotation.y = -Math.PI / 2;
+    }
+
+    this._roomGroup.add(left, right);
+    wallMeshes.push(left, right);
+
+    const door = new THREE.Mesh(
+      new THREE.PlaneGeometry(DOOR_WIDTH, DOOR_HEIGHT),
+      new THREE.MeshBasicMaterial({ color: 0x0f1418, transparent: true, opacity: 0.18 })
+    );
+    if (def.side === "east") {
+      door.position.set(half - 0.04, DOOR_HEIGHT / 2, 0);
+      door.rotation.y = Math.PI / 2;
+    } else {
+      door.position.set(-half + 0.04, DOOR_HEIGHT / 2, 0);
+      door.rotation.y = -Math.PI / 2;
+    }
+    door.userData = { type: "door", doorwayId: doorway.id, targetRoomId: doorway.targetRoomId };
+    this._roomGroup.add(door);
+    this._clickables.push(door);
+  }
+
+  _buildRoundRoom(surfaceTextures, room){
+    const radius = ROUND_ROOM_RADIUS;
+    const wall = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius, radius, ROOM_WALL_HEIGHT, 48, 1, true),
+      new THREE.MeshStandardMaterial({ color: 0xf4f1ea, side: THREE.BackSide })
+    );
+    wall.position.y = ROOM_WALL_HEIGHT / 2;
+    this._roomGroup.add(wall);
+
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(radius, 48),
+      new THREE.MeshStandardMaterial({ color: 0x6f5848 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.userData = { type: "floor" };
+    this._roomGroup.add(floor);
+    this._clickables.push(floor);
+
+    const ceiling = new THREE.Mesh(
+      new THREE.CircleGeometry(radius, 48),
+      new THREE.MeshStandardMaterial({ color: 0xece7de, roughness: 0.95 })
+    );
+    ceiling.rotation.x = Math.PI / 2;
+    ceiling.position.y = ROOM_WALL_HEIGHT;
+    this._roomGroup.add(ceiling);
+
+    room.doorways.forEach(doorway => {
+      const angle = doorway.angle || 0;
+      const x = Math.sin(angle) * (radius - 0.05);
+      const z = Math.cos(angle) * (radius - 0.05);
+      const door = new THREE.Mesh(
+        new THREE.PlaneGeometry(DOOR_WIDTH, DOOR_HEIGHT),
+        new THREE.MeshBasicMaterial({ color: 0x0f1418, transparent: true, opacity: 0.2 })
+      );
+      door.position.set(x, DOOR_HEIGHT / 2, z);
+      door.rotation.y = angle;
+      door.userData = { type: "door", doorwayId: doorway.id, targetRoomId: doorway.targetRoomId };
+      this._roomGroup.add(door);
+      this._clickables.push(door);
+    });
+
+    this._applySurfaceMaterials(surfaceTextures, [wall], floor, 1.2);
+  }
+
+  async _hangPhotosOnSquareWalls(photos, room){
     if (!photos.length) return;
-
     const loader = new THREE.TextureLoader();
-    const wallChunks = splitPhotosAcrossWalls(photos);
+    const walls = [
+      { rotY: 0, z: -(SQUARE_ROOM_SIZE / 2 - 0.08), axis: "x" },
+      { rotY: Math.PI, z: SQUARE_ROOM_SIZE / 2 - 0.08, axis: "x" },
+      { rotY: -Math.PI / 2, x: -(SQUARE_ROOM_SIZE / 2 - 0.08), axis: "z" }
+    ].filter(wall => !room.doorways.some(door => (
+      (door.side === "east" && wall.rotY === Math.PI / 2)
+      || (door.side === "west" && wall.rotY === -Math.PI / 2)
+    )));
 
-    for (let wallIndex = 0; wallIndex < WALL_DEFS.length; wallIndex += 1) {
-      const wall = WALL_DEFS[wallIndex];
-      const chunk = wallChunks[wallIndex];
-      if (!chunk.length) continue;
+    const chunks = walls.map(() => []);
+    photos.forEach((photo, index) => {
+      chunks[index % walls.length].push(photo);
+    });
 
-      const placements = packWallPlacements(chunk);
-      for (const placement of placements) {
-        const texture = await loader.loadAsync(placement.photo.textureDataUrl);
+    for (let wallIndex = 0; wallIndex < walls.length; wallIndex += 1) {
+      const wall = walls[wallIndex];
+      const chunk = chunks[wallIndex];
+      let cursor = -((chunk.length - 1) * 1.2) / 2;
+      for (const photo of chunk) {
+        const size = frameSizeForAspect(photo.aspect);
+        const texture = await loader.loadAsync(photo.textureDataUrl);
         texture.colorSpace = THREE.SRGBColorSpace;
-        texture.minFilter = THREE.LinearMipmapLinearFilter;
-        texture.magFilter = THREE.LinearFilter;
         this._textures.push(texture);
-
-        const frame = createFrameMesh(placement.width, placement.height, texture);
-        const inset = WALL_HALF - FRAME_DEPTH;
-
-        if (wall.axis === "z") {
-          frame.position.set(placement.x, placement.y, wall.sign * inset);
+        const frame = createFrameMesh(size.width, size.height, texture, photo.id);
+        if (wall.axis === "x") {
+          frame.position.set(cursor, 2.2, wall.z);
           frame.rotation.y = wall.rotY;
         } else {
-          frame.position.set(wall.sign * inset, placement.y, placement.x);
+          frame.position.set(wall.x, 2.2, cursor);
           frame.rotation.y = wall.rotY;
         }
-
-        this.scene.add(frame);
-        this._frameGroups.push(frame);
+        this._roomGroup.add(frame);
+        this._artworkGroups.push(frame);
+        this._clickables.push(frame, ...frame.children);
+        cursor += size.width + 0.35;
       }
     }
+  }
+
+  async _hangPhotosOnRoundWall(photos){
+    if (!photos.length) return;
+    const loader = new THREE.TextureLoader();
+    const radius = ROUND_ROOM_RADIUS - 0.1;
+    const span = Math.PI * 1.35;
+    const start = -span / 2;
+
+    for (let index = 0; index < photos.length; index += 1) {
+      const photo = photos[index];
+      const angle = start + (span * index) / Math.max(photos.length - 1, 1);
+      const size = frameSizeForAspect(photo.aspect);
+      const texture = await loader.loadAsync(photo.textureDataUrl);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      this._textures.push(texture);
+      const frame = createFrameMesh(size.width, size.height, texture, photo.id);
+      frame.position.set(Math.sin(angle) * radius, 2.2, Math.cos(angle) * radius);
+      frame.rotation.y = angle;
+      this._roomGroup.add(frame);
+      this._artworkGroups.push(frame);
+      this._clickables.push(frame, ...frame.children);
+    }
+  }
+
+  _onCanvasClick(event){
+    if (!this.interactionEnabled) return;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this._pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this._pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this._raycaster.setFromCamera(this._pointer, this.camera);
+    const hits = this._raycaster.intersectObjects(this._clickables, false);
+    if (!hits.length) return;
+
+    const target = hits[0].object;
+    const data = target.userData || {};
+    if (data.type === "floor") {
+      this._walkToward(hits[0].point);
+      return;
+    }
+    if (data.type === "door") {
+      this.callbacks.onDoorwaySelected?.({
+        doorwayId: data.doorwayId,
+        targetRoomId: data.targetRoomId
+      });
+      return;
+    }
+    if (data.type === "artwork") {
+      const photoId = data.photoId;
+      const group = this._artworkGroups.find(item => item.userData.photoId === photoId);
+      if (group) this._toggleArtworkZoom(group);
+    }
+  }
+
+  _walkToward(point){
+    if (this._zoomedArtworkId) return;
+    const next = point.clone();
+    next.y = EYE_HEIGHT;
+    const dx = next.x - this.camera.position.x;
+    const dz = next.z - this.camera.position.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance < 0.2) return;
+    const maxStep = 1.8;
+    const scale = Math.min(1, maxStep / distance);
+    const target = new THREE.Vector3(
+      this.camera.position.x + dx * scale,
+      EYE_HEIGHT,
+      this.camera.position.z + dz * scale
+    );
+    this._animateCameraPosition(target, 500);
+  }
+
+  _toggleArtworkZoom(group){
+    const photoId = group.userData.photoId;
+    if (this._zoomedArtworkId === photoId) {
+      if (this._returnPose) {
+        this._animateCameraPose(this._returnPose.position, this._returnPose.yaw, this._returnPose.pitch, 550);
+      }
+      this._zoomedArtworkId = null;
+      this._returnPose = null;
+      group.userData.zoomed = false;
+      this.callbacks.onArtworkZoomChange?.(null);
+      return;
+    }
+
+    if (!this._returnPose) {
+      this._returnPose = {
+        position: this.camera.position.clone(),
+        yaw: this.controls.yaw,
+        pitch: this.controls.pitch
+      };
+    }
+
+    const worldPos = new THREE.Vector3();
+    group.getWorldPosition(worldPos);
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(group.quaternion);
+    const targetPos = worldPos.clone().add(forward.multiplyScalar(1.35));
+    targetPos.y = EYE_HEIGHT;
+    const yaw = Math.atan2(worldPos.x - targetPos.x, worldPos.z - targetPos.z);
+    this._zoomedArtworkId = photoId;
+    group.userData.zoomed = true;
+    this.callbacks.onArtworkZoomChange?.(photoId);
+    this._animateCameraPose(targetPos, yaw, 0, 600);
+  }
+
+  _animateCameraPosition(targetPosition, duration){
+    const start = this.camera.position.clone();
+    const startTime = performance.now();
+    const step = now => {
+      const t = Math.min(1, (now - startTime) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      this.camera.position.lerpVectors(start, targetPosition, eased);
+      if (t < 1) this._cameraTween = requestAnimationFrame(step);
+      else this._cameraTween = null;
+    };
+    if (this._cameraTween) cancelAnimationFrame(this._cameraTween);
+    this._cameraTween = requestAnimationFrame(step);
+  }
+
+  _animateCameraPose(targetPosition, yaw, pitch, duration){
+    const startPos = this.camera.position.clone();
+    const startYaw = this.controls.yaw;
+    const startPitch = this.controls.pitch;
+    const startTime = performance.now();
+    const step = now => {
+      const t = Math.min(1, (now - startTime) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      this.camera.position.lerpVectors(startPos, targetPosition, eased);
+      const nextYaw = THREE.MathUtils.lerp(startYaw, yaw, eased);
+      const nextPitch = THREE.MathUtils.lerp(startPitch, pitch, eased);
+      this.controls.setOrientation(nextYaw, nextPitch);
+      if (t < 1) this._cameraTween = requestAnimationFrame(step);
+      else this._cameraTween = null;
+    };
+    if (this._cameraTween) cancelAnimationFrame(this._cameraTween);
+    this._cameraTween = requestAnimationFrame(step);
   }
 
   async enableGyro(){
@@ -468,6 +669,10 @@ export class Gallery3DScene {
   }
 
   resetView(){
+    this._zoomedArtworkId = null;
+    this._returnPose = null;
+    const spawn = getSpawnPose(this.currentRoomId);
+    this.camera.position.set(spawn.x, spawn.y, spawn.z);
     this.controls.resetView();
   }
 
@@ -497,11 +702,14 @@ export class Gallery3DScene {
 
   dispose(){
     this.stop();
+    if (this._cameraTween) cancelAnimationFrame(this._cameraTween);
+    this.renderer.domElement.removeEventListener("click", this._onCanvasClick);
     this._resizeObserver?.disconnect();
-    this._clearFrames();
-    this._disposeRoomTextures();
+    this._disposeRoom();
     this.controls.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
 }
+
+export { findDoorwayTarget };
