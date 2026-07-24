@@ -215,6 +215,7 @@ export class Gallery3DScene {
     this._zoomedArtworkId = null;
     this._returnPose = null;
     this._zoomAnimating = false;
+    this._hadGyroBeforeZoom = false;
     this._raycaster = new THREE.Raycaster();
     this._pointer = new THREE.Vector2();
     this._resizeObserver = null;
