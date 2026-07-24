@@ -23,7 +23,7 @@ import {
   updateGallery3dState,
   updateRoomSettings
 } from "./gallery3dState.js";
-import { prepareGalleryPhoto, canUseDeviceOrientation, isLikelyMobileDevice } from "./gallery3dTool.js";
+import { prepareGalleryPhoto, shouldOfferGyro } from "./gallery3dTool.js";
 import { renderControlTabs, setupGallery3dUI } from "./gallery3dUI.js";
 
 export function initGallery3dPage(root, shared = {}){
@@ -73,7 +73,7 @@ export async function renderGallery3dPage(root, navigate){
 
         <div class="crystal-tab-panels gallery3d-tab-panels" id="gallery3dTabPanels">
           <div id="gallery3dGalleryPanel" class="crystal-tab-panel ${state.activeTab === "gallery" ? "" : "hidden"}" role="tabpanel" aria-label="展館">
-            <p class="note gallery3d-gallery-note">點「展館」分頁即進入全螢幕 3D 模式；手機上會請求陀螺儀權限。</p>
+            <p class="note gallery3d-gallery-note">點「展館」分頁即進入全螢幕 3D 模式；手機上會請您同意啟用陀螺儀。</p>
           </div>
           <div id="gallery3dScenePanel" class="crystal-tab-panel ${state.activeTab === "scene" ? "" : "hidden"}" role="tabpanel" aria-label="場景">
             <div id="gallery3dSceneHost"></div>
@@ -95,7 +95,11 @@ export async function renderGallery3dPage(root, navigate){
   let rebuildSerial = 0;
   let ui = null;
 
-  const isGyroDevice = () => isLikelyMobileDevice() && canUseDeviceOrientation();
+  const isGyroDevice = () => shouldOfferGyro();
+
+  const maybeShowTutorial = () => {
+    if (!hasSeenGalleryTutorial()) ui.showTutorial(true);
+  };
 
   await loadGallery3dTextureCatalogs();
   Object.assign(state, updateGallery3dState(state, {
@@ -228,15 +232,26 @@ export async function renderGallery3dPage(root, navigate){
     Object.assign(state, updateGallery3dState(state, { gallerySessionReady: true }));
     ui.refreshAll();
     await rebuildScene();
+    await requestFullscreen();
+
+    if (isGyroDevice() && !state.gyroEnabled) {
+      ui.showGyroPrompt(true);
+      return;
+    }
+
+    maybeShowTutorial();
+  };
+
+  const grantGyroAccess = async () => {
+    if (!scene) return false;
     const gyroOk = await scene.enableGyro();
     Object.assign(state, updateGallery3dState(state, { gyroEnabled: gyroOk }));
-    await requestFullscreen();
-    uiNotice = !gyroOk && isGyroDevice()
-      ? "陀螺儀未授權，您仍可使用拖曳與點擊操作。"
-      : "";
+    uiNotice = gyroOk ? "" : "陀螺儀未授權，您仍可使用拖曳與點擊操作。";
+    ui.showGyroPrompt(false);
     ui.refreshOverlay();
     persistDraft();
-    if (!hasSeenGalleryTutorial()) ui.showTutorial(true);
+    maybeShowTutorial();
+    return gyroOk;
   };
 
   const exitGallerySession = async () => {
@@ -248,6 +263,7 @@ export async function renderGallery3dPage(root, navigate){
     }));
     zoomedPhotoId = null;
     uiNotice = "";
+    ui.showGyroPrompt(false);
     ui.showTutorial(false);
     ui.refreshAll();
     scene?.stop();
@@ -324,6 +340,17 @@ export async function renderGallery3dPage(root, navigate){
     onDismissTutorial: () => {
       markGalleryTutorialSeen();
       ui.showTutorial(false);
+    },
+    onGyroAgree: async () => {
+      await grantGyroAccess();
+    },
+    onGyroSkip: () => {
+      Object.assign(state, updateGallery3dState(state, { gyroEnabled: false }));
+      uiNotice = "";
+      ui.showGyroPrompt(false);
+      ui.refreshOverlay();
+      persistDraft();
+      maybeShowTutorial();
     },
     onUploadRequest: () => imageInput.click(),
     onRemovePhoto: async photoId => {
