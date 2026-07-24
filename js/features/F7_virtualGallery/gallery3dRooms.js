@@ -62,6 +62,24 @@ export function getSpawnPose(roomId, fromRoomId = null){
   return { x: 0, y: EYE_HEIGHT, z: -radius, yaw: 0 };
 }
 
+export function getWallInwardNormal(side){
+  switch (side) {
+    case "north": return { x: 0, y: 0, z: 1 };
+    case "south": return { x: 0, y: 0, z: -1 };
+    case "east": return { x: -1, y: 0, z: 0 };
+    case "west": return { x: 1, y: 0, z: 0 };
+    default: return { x: 0, y: 0, z: 1 };
+  }
+}
+
+export function getRoundWallInwardNormal(angle = 0){
+  return {
+    x: -Math.sin(angle),
+    y: 0,
+    z: -Math.cos(angle)
+  };
+}
+
 export function findDoorwayTarget(roomId, doorwayId){
   const room = getRoomDefinition(roomId);
   const doorway = room.doorways.find(item => item.id === doorwayId);
