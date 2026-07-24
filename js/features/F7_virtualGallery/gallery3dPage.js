@@ -388,6 +388,7 @@ export async function renderGallery3dPage(root, navigate){
 
   document.addEventListener("fullscreenchange", () => {
     if (!document.fullscreenElement && state.gallerySessionReady) {
+      Object.assign(state, updateGallery3dState(state, { activeTab: "scene" }));
       exitGallerySession().catch(console.error);
     }
   });
