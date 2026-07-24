@@ -1,4 +1,4 @@
-// F7 3D 展館 - Page Controller v0.3.2
+// F7 3D 展館 - Page Controller v0.3.3
 
 import { iconButton } from "../../core/iconLoader.js";
 import {
@@ -39,14 +39,20 @@ export async function renderGallery3dPage(root, navigate){
   root.innerHTML = `
     <main class="app-shell page crystal-page gallery3d-page">
       <nav class="topbar crystal-topbar gallery3d-topbar">
-        ${iconButton({ icon: "home", label: "首頁", id: "homeBtn", className: "feature-home" })}
+        <div class="gallery3d-topbar-leading">
+          ${iconButton({ icon: "home", label: "首頁", id: "homeBtn", className: "feature-home" })}
+          <div class="gallery3d-gallery-top-controls hidden" id="gallery3dGalleryTopControls" aria-label="展館控制">
+            ${iconButton({ icon: "compass", label: "重設視角", id: "gallery3dResetViewBtn", ext: "webp" })}
+            ${iconButton({ icon: "backward", label: "離開全螢幕", id: "gallery3dExitFullscreenBtn", ext: "webp" })}
+          </div>
+        </div>
 
-        <div class="topbar-title">
+        <div class="topbar-title gallery3d-topbar-title">
           <h1>3D 展館</h1>
           <p class="crystal-version" aria-hidden="true">v${GALLERY3D_FEATURE_VERSION}</p>
         </div>
 
-        <div class="topbar-actions" aria-label="照片操作">
+        <div class="topbar-actions gallery3d-photo-actions" id="gallery3dPhotoActions" aria-label="照片操作">
           ${iconButton({ icon: "openPhoto", label: "新增照片", id: "openPhotoBtn" })}
         </div>
       </nav>
@@ -297,7 +303,10 @@ export async function renderGallery3dPage(root, navigate){
       await enterGallerySession();
     },
     onExitGallery: async () => {
+      Object.assign(state, updateGallery3dState(state, { activeTab: "photos" }));
       await exitGallerySession();
+      ui.refreshAll();
+      persistDraft();
     },
     onToggleGyro: async () => {
       Object.assign(state, updateGallery3dState(state, { gyroEnabled: !state.gyroEnabled }));
@@ -330,6 +339,21 @@ export async function renderGallery3dPage(root, navigate){
       scene?.resetView();
       ui.refreshOverlay();
     }
+  });
+
+  root.querySelector("#gallery3dResetViewBtn")?.addEventListener("click", event => {
+    event.preventDefault();
+    zoomedPhotoId = null;
+    scene?.resetView();
+    ui.refreshOverlay();
+  });
+
+  root.querySelector("#gallery3dExitFullscreenBtn")?.addEventListener("click", async event => {
+    event.preventDefault();
+    Object.assign(state, updateGallery3dState(state, { activeTab: "photos" }));
+    await exitGallerySession();
+    ui.refreshAll();
+    persistDraft();
   });
 
   document.addEventListener("fullscreenchange", () => {

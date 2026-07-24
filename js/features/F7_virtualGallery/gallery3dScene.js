@@ -63,6 +63,7 @@ class RoomControls {
     this.camera = camera;
     this.domElement = domElement;
     this.enabled = true;
+    this.locked = false;
     this.gyroEnabled = false;
     this.smoothing = 0.1;
     this.pointerSensitivity = 0.003;
@@ -142,7 +143,7 @@ class RoomControls {
   }
 
   _onPointerDown(event){
-    if (!this.enabled || this.gyroEnabled) return;
+    if (!this.enabled || this.gyroEnabled || this.locked) return;
     this._pointerActive = true;
     this._lastX = event.clientX;
     this._lastY = event.clientY;
@@ -154,7 +155,7 @@ class RoomControls {
   }
 
   _onPointerMove(event){
-    if (!this.enabled || this.gyroEnabled || !this._pointerActive) return;
+    if (!this.enabled || this.gyroEnabled || !this._pointerActive || this.locked) return;
     const dx = event.clientX - this._lastX;
     const dy = event.clientY - this._lastY;
     this._lastX = event.clientX;
@@ -165,7 +166,7 @@ class RoomControls {
   }
 
   _onOrient(event){
-    if (!this.enabled || !this.gyroEnabled) return;
+    if (!this.enabled || !this.gyroEnabled || this.locked) return;
     if (!this._orientBaseline) {
       this._orientBaseline = {
         alpha: event.alpha || 0,
@@ -190,7 +191,8 @@ class RoomControls {
   }
 
   update(){
-    if (!this.enabled || this.gyroEnabled) return;
+    if (!this.enabled || this.locked) return;
+    if (this.gyroEnabled) return;
     this.yaw = THREE.MathUtils.lerp(this.yaw, this.targetYaw, this.smoothing);
     this.pitch = THREE.MathUtils.lerp(this.pitch, this.targetPitch, this.smoothing);
     this._applyCameraRotation();
@@ -212,6 +214,7 @@ export class Gallery3DScene {
     this._cameraTween = null;
     this._zoomedArtworkId = null;
     this._returnPose = null;
+    this._zoomAnimating = false;
     this._raycaster = new THREE.Raycaster();
     this._pointer = new THREE.Vector2();
     this._resizeObserver = null;
@@ -281,6 +284,8 @@ export class Gallery3DScene {
     this._textures = [];
     this._zoomedArtworkId = null;
     this._returnPose = null;
+    this._zoomAnimating = false;
+    this.controls.locked = false;
   }
 
   async loadRoom({
@@ -308,14 +313,13 @@ export class Gallery3DScene {
     this.controls.setOrientation(spawn.yaw, 0);
   }
 
-  _applySurfaceMaterials(surfaceTextures, wallMeshes, floorMesh, wallRepeatScale = 1){
+  _applySurfaceMaterials(surfaceTextures, wallMeshes, floorMesh, options = {}){
     if (!surfaceTextures) return;
-    const { wallCanvas, floorCanvas, wallAspect, floorAspect } = surfaceTextures;
-    const wallTexture = createSurfaceTexture(
-      wallCanvas,
-      Math.max(1.5, 4 * wallRepeatScale),
-      Math.max(1, ROOM_WALL_HEIGHT / 2.2)
-    );
+    const { wallRepeatScale = 1, unlitWalls = false, wallRepeat } = options;
+    const { wallCanvas, floorCanvas } = surfaceTextures;
+    const wallRepeatX = wallRepeat?.x ?? Math.max(1.5, 4 * wallRepeatScale);
+    const wallRepeatY = wallRepeat?.y ?? Math.max(1, ROOM_WALL_HEIGHT / 2.2);
+    const wallTexture = createSurfaceTexture(wallCanvas, wallRepeatX, wallRepeatY);
     const floorTexture = createSurfaceTexture(
       floorCanvas,
       Math.max(2, 6 * wallRepeatScale),
@@ -323,14 +327,17 @@ export class Gallery3DScene {
     );
     this._roomTextures.push(wallTexture, floorTexture);
 
-    const wallMaterial = new THREE.MeshStandardMaterial({
-      map: wallTexture,
-      roughness: 0.9,
-      metalness: 0.02
-    });
+    const wallMaterial = unlitWalls
+      ? new THREE.MeshBasicMaterial({ map: wallTexture, side: THREE.BackSide })
+      : new THREE.MeshStandardMaterial({
+        map: wallTexture,
+        roughness: 0.9,
+        metalness: 0.02
+      });
     wallMeshes.forEach(mesh => {
       mesh.material = wallMaterial.clone();
       mesh.material.map = wallTexture;
+      if (unlitWalls) mesh.material.side = THREE.BackSide;
     });
 
     if (floorMesh) {
@@ -340,9 +347,6 @@ export class Gallery3DScene {
         metalness: 0.04
       });
     }
-
-    void wallAspect;
-    void floorAspect;
   }
 
   _buildSquareRoom(surfaceTextures, room){
@@ -390,7 +394,7 @@ export class Gallery3DScene {
       }
     });
 
-    this._applySurfaceMaterials(surfaceTextures, wallMeshes, floor, 1);
+    this._applySurfaceMaterials(surfaceTextures, wallMeshes, floor, { wallRepeatScale: 1 });
   }
 
   _createWallPlane(width, height){
@@ -400,6 +404,22 @@ export class Gallery3DScene {
     );
   }
 
+  _createDoorHitbox(doorway){
+    const door = new THREE.Mesh(
+      new THREE.PlaneGeometry(DOOR_WIDTH, DOOR_HEIGHT),
+      new THREE.MeshBasicMaterial({
+        color: 0x6a7a88,
+        transparent: true,
+        opacity: 0.14,
+        depthWrite: false
+      })
+    );
+    door.userData = { type: "door", doorwayId: doorway.id, targetRoomId: doorway.targetRoomId };
+    this._roomGroup.add(door);
+    this._clickables.push(door);
+    return door;
+  }
+
   _addWallWithDoor(def, roomSize, doorway, wallMeshes){
     const half = roomSize / 2;
     const segmentWidth = (roomSize - DOOR_WIDTH) / 2;
@@ -407,6 +427,12 @@ export class Gallery3DScene {
     const wallCenterY = ROOM_WALL_HEIGHT / 2;
     const lintelCenterY = DOOR_HEIGHT + lintelHeight / 2;
     const doorCenterY = DOOR_HEIGHT / 2;
+    const inset = 0.03;
+
+    const left = this._createWallPlane(segmentWidth, ROOM_WALL_HEIGHT);
+    const right = this._createWallPlane(segmentWidth, ROOM_WALL_HEIGHT);
+    const lintel = this._createWallPlane(DOOR_WIDTH, lintelHeight);
+    const door = this._createDoorHitbox(doorway);
 
     if (def.side === "east" || def.side === "west") {
       const x = def.side === "east" ? half : -half;
@@ -417,34 +443,35 @@ export class Gallery3DScene {
       const rightZ = def.side === "east"
         ? (segmentWidth / 2 + DOOR_WIDTH / 2)
         : -(segmentWidth / 2 + DOOR_WIDTH / 2);
-
-      const left = this._createWallPlane(segmentWidth, ROOM_WALL_HEIGHT);
-      const right = this._createWallPlane(segmentWidth, ROOM_WALL_HEIGHT);
-      const lintel = this._createWallPlane(DOOR_WIDTH, lintelHeight);
       left.position.set(x, wallCenterY, leftZ);
       right.position.set(x, wallCenterY, rightZ);
       lintel.position.set(x, lintelCenterY, 0);
+      door.position.set(def.side === "east" ? half - inset : -half + inset, doorCenterY, 0);
       left.rotation.y = rotY;
       right.rotation.y = rotY;
       lintel.rotation.y = rotY;
-      this._roomGroup.add(left, right, lintel);
-      wallMeshes.push(left, right, lintel);
-
-      const door = new THREE.Mesh(
-        new THREE.PlaneGeometry(DOOR_WIDTH * 0.88, DOOR_HEIGHT * 0.94),
-        new THREE.MeshBasicMaterial({
-          color: 0x1a2228,
-          transparent: true,
-          opacity: 0.32,
-          depthWrite: false
-        })
-      );
-      door.position.set(def.side === "east" ? half - 0.03 : -half + 0.03, doorCenterY, 0);
       door.rotation.y = rotY;
-      door.userData = { type: "door", doorwayId: doorway.id, targetRoomId: doorway.targetRoomId };
-      this._roomGroup.add(door);
-      this._clickables.push(door);
+    } else {
+      const z = def.side === "north" ? -half : half;
+      const rotY = def.side === "north" ? 0 : Math.PI;
+      const leftX = def.side === "north"
+        ? -(segmentWidth / 2 + DOOR_WIDTH / 2)
+        : (segmentWidth / 2 + DOOR_WIDTH / 2);
+      const rightX = def.side === "north"
+        ? (segmentWidth / 2 + DOOR_WIDTH / 2)
+        : -(segmentWidth / 2 + DOOR_WIDTH / 2);
+      left.position.set(leftX, wallCenterY, z);
+      right.position.set(rightX, wallCenterY, z);
+      lintel.position.set(0, lintelCenterY, z);
+      door.position.set(0, doorCenterY, def.side === "north" ? -half + inset : half - inset);
+      left.rotation.y = rotY;
+      right.rotation.y = rotY;
+      lintel.rotation.y = rotY;
+      door.rotation.y = rotY;
     }
+
+    this._roomGroup.add(left, right, lintel);
+    wallMeshes.push(left, right, lintel);
   }
 
   _buildRoundRoom(surfaceTextures, room){
@@ -477,23 +504,20 @@ export class Gallery3DScene {
       const angle = doorway.angle || 0;
       const x = Math.sin(angle) * (radius - 0.05);
       const z = Math.cos(angle) * (radius - 0.05);
-      const door = new THREE.Mesh(
-        new THREE.PlaneGeometry(DOOR_WIDTH * 0.88, DOOR_HEIGHT * 0.94),
-        new THREE.MeshBasicMaterial({
-          color: 0x1a2228,
-          transparent: true,
-          opacity: 0.32,
-          depthWrite: false
-        })
-      );
+      const door = this._createDoorHitbox(doorway);
       door.position.set(x, DOOR_HEIGHT / 2, z);
       door.rotation.y = angle;
-      door.userData = { type: "door", doorwayId: doorway.id, targetRoomId: doorway.targetRoomId };
-      this._roomGroup.add(door);
-      this._clickables.push(door);
     });
 
-    this._applySurfaceMaterials(surfaceTextures, [wall], floor, 1.2);
+    const circumference = 2 * Math.PI * radius;
+    this._applySurfaceMaterials(surfaceTextures, [wall], floor, {
+      wallRepeatScale: 1.2,
+      unlitWalls: true,
+      wallRepeat: {
+        x: circumference / 2.4,
+        y: ROOM_WALL_HEIGHT / 2.4
+      }
+    });
   }
 
   async _hangPhotosOnSquareWalls(photos, room){
@@ -562,7 +586,13 @@ export class Gallery3DScene {
   }
 
   _onCanvasClick(event){
-    if (!this.interactionEnabled) return;
+    if (!this.interactionEnabled || this._zoomAnimating) return;
+
+    if (this._zoomedArtworkId) {
+      this._zoomOutArtwork();
+      return;
+    }
+
     const rect = this.renderer.domElement.getBoundingClientRect();
     this._pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this._pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -586,7 +616,7 @@ export class Gallery3DScene {
     if (data.type === "artwork") {
       const photoId = data.photoId;
       const group = this._artworkGroups.find(item => item.userData.photoId === photoId);
-      if (group) this._toggleArtworkZoom(group);
+      if (group) this._zoomInArtwork(group);
     }
   }
 
@@ -627,55 +657,132 @@ export class Gallery3DScene {
     return position;
   }
 
-  _toggleArtworkZoom(group){
+  _getRoomCenter(){
+    return new THREE.Vector3(0, EYE_HEIGHT, 0);
+  }
+
+  _getArtworkFocus(group){
+    const worldPos = new THREE.Vector3();
+    group.getWorldPosition(worldPos);
+    const roomCenter = this._getRoomCenter();
+    const box = new THREE.Box3().setFromObject(group);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const artSize = Math.max(size.x, size.y, 0.8);
+    const yaw = Math.atan2(worldPos.x - roomCenter.x, worldPos.z - roomCenter.z);
+    const horizontal = Math.hypot(worldPos.x - roomCenter.x, worldPos.z - roomCenter.z);
+    const pitch = THREE.MathUtils.clamp(
+      Math.atan2((worldPos.y + 0.05) - roomCenter.y, horizontal),
+      -0.22,
+      0.22
+    );
+    const targetFov = 36;
+    const distance = (artSize * 0.56) / Math.tan(THREE.MathUtils.degToRad(targetFov / 2));
+    const inward = new THREE.Vector3().subVectors(roomCenter, worldPos);
+    inward.y = 0;
+    if (inward.lengthSq() < 0.01) inward.set(0, 0, 1);
+    inward.normalize();
+    const targetPos = worldPos.clone().add(inward.multiplyScalar(distance));
+    targetPos.y = THREE.MathUtils.lerp(EYE_HEIGHT, worldPos.y, 0.35);
+    this._clampCameraToRoom(targetPos);
+    return { worldPos, roomCenter, yaw, pitch, targetFov, targetPos };
+  }
+
+  _zoomInArtwork(group){
     const photoId = group.userData.photoId;
-    if (this._zoomedArtworkId === photoId) {
-      if (this._returnPose) {
-        this._animateCameraPose(this._returnPose.position, this._returnPose.yaw, this._returnPose.pitch, 550);
-      }
+    this._returnPose = {
+      position: this.camera.position.clone(),
+      yaw: this.controls.yaw,
+      pitch: this.controls.pitch,
+      fov: this.camera.fov
+    };
+
+    const focus = this._getArtworkFocus(group);
+    this._zoomedArtworkId = photoId;
+    group.userData.zoomed = true;
+    this.controls.locked = true;
+    this._hadGyroBeforeZoom = this.controls.gyroEnabled;
+    if (this._hadGyroBeforeZoom) this.controls.disableGyro();
+    this.callbacks.onArtworkZoomChange?.(photoId);
+
+    this._animateCameraState({
+      position: focus.roomCenter.clone(),
+      yaw: focus.yaw,
+      pitch: focus.pitch,
+      fov: this._returnPose.fov
+    }, {
+      position: focus.targetPos,
+      yaw: focus.yaw,
+      pitch: focus.pitch,
+      fov: focus.targetFov
+    }, 1050, () => {
+      this._zoomAnimating = false;
+      this.controls.setOrientation(focus.yaw, focus.pitch);
+    });
+  }
+
+  _zoomOutArtwork(){
+    if (!this._returnPose) {
       this._zoomedArtworkId = null;
-      this._returnPose = null;
-      group.userData.zoomed = false;
+      this.controls.locked = false;
       this.callbacks.onArtworkZoomChange?.(null);
       return;
     }
 
-    if (!this._zoomedArtworkId) {
-      this._returnPose = {
-        position: this.camera.position.clone(),
-        yaw: this.controls.yaw,
-        pitch: this.controls.pitch
-      };
-    }
+    const group = this._artworkGroups.find(item => item.userData.photoId === this._zoomedArtworkId);
+    const returnPose = this._returnPose;
+    this._zoomAnimating = true;
 
-    const worldPos = new THREE.Vector3();
-    group.getWorldPosition(worldPos);
+    this._animateCameraState({
+      position: this.camera.position.clone(),
+      yaw: this.controls.yaw,
+      pitch: this.controls.pitch,
+      fov: this.camera.fov
+    }, {
+      position: returnPose.position,
+      yaw: returnPose.yaw,
+      pitch: returnPose.pitch,
+      fov: returnPose.fov
+    }, 900, () => {
+      this._zoomedArtworkId = null;
+      this._returnPose = null;
+      this._zoomAnimating = false;
+      this.controls.locked = false;
+      if (this._hadGyroBeforeZoom) {
+        this.enableGyro();
+        this._hadGyroBeforeZoom = false;
+      }
+      if (group) group.userData.zoomed = false;
+      this.controls.setOrientation(returnPose.yaw, returnPose.pitch);
+      this.callbacks.onArtworkZoomChange?.(null);
+    });
+  }
 
-    const viewDir = new THREE.Vector3().subVectors(this.camera.position, worldPos);
-    viewDir.y = 0;
-    if (viewDir.lengthSq() < 0.01) {
-      viewDir.set(0, 0, 1).applyQuaternion(group.quaternion);
-      viewDir.y = 0;
-    }
-    viewDir.normalize();
+  _animateCameraState(fromState, toState, duration, onComplete){
+    const startTime = performance.now();
+    this._zoomAnimating = true;
+    const step = now => {
+      const t = Math.min(1, (now - startTime) / duration);
+      const eased = t < 0.5
+        ? 4 * t * t * t
+        : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
-    const standOff = 1.05;
-    const targetPos = worldPos.clone().add(viewDir.multiplyScalar(standOff));
-    targetPos.y = EYE_HEIGHT;
-    this._clampCameraToRoom(targetPos);
+      this.camera.position.lerpVectors(fromState.position, toState.position, eased);
+      const nextYaw = THREE.MathUtils.lerp(fromState.yaw, toState.yaw, eased);
+      const nextPitch = THREE.MathUtils.lerp(fromState.pitch, toState.pitch, eased);
+      this.camera.fov = THREE.MathUtils.lerp(fromState.fov, toState.fov, eased);
+      this.camera.updateProjectionMatrix();
+      this.controls.setOrientation(nextYaw, nextPitch);
 
-    const yaw = Math.atan2(worldPos.x - targetPos.x, worldPos.z - targetPos.z);
-    const horizontal = Math.hypot(worldPos.x - targetPos.x, worldPos.z - targetPos.z);
-    const pitch = THREE.MathUtils.clamp(
-      Math.atan2((worldPos.y + 0.05) - targetPos.y, horizontal),
-      -0.28,
-      0.28
-    );
-
-    this._zoomedArtworkId = photoId;
-    group.userData.zoomed = true;
-    this.callbacks.onArtworkZoomChange?.(photoId);
-    this._animateCameraPose(targetPos, yaw, pitch, 600);
+      if (t < 1) {
+        this._cameraTween = requestAnimationFrame(step);
+      } else {
+        this._cameraTween = null;
+        onComplete?.();
+      }
+    };
+    if (this._cameraTween) cancelAnimationFrame(this._cameraTween);
+    this._cameraTween = requestAnimationFrame(step);
   }
 
   _animateCameraPosition(targetPosition, duration){
@@ -720,9 +827,14 @@ export class Gallery3DScene {
   }
 
   resetView(){
-    this._zoomedArtworkId = null;
+    if (this._zoomedArtworkId) {
+      this._zoomOutArtwork();
+      return;
+    }
     this._returnPose = null;
     const spawn = getSpawnPose(this.currentRoomId);
+    this.camera.fov = 68;
+    this.camera.updateProjectionMatrix();
     this.camera.position.set(spawn.x, spawn.y, spawn.z);
     this.controls.resetView();
   }

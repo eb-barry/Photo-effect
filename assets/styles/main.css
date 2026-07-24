@@ -1684,10 +1684,41 @@ body.magic-sky-scroll-locked {
   right: 0;
   z-index: 45;
   pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+}
+
+.gallery3d-topbar-leading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+.gallery3d-gallery-top-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gallery3d-gallery-top-controls.hidden {
+  display: none;
+}
+
+.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar-title.hidden,
+.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-photo-actions.hidden {
+  display: none;
 }
 
 .gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar .icon-button {
   pointer-events: auto;
+}
+
+.gallery3d-overlay-minimal {
+  inset: calc(env(safe-area-inset-top) + 64px) 12px auto 12px;
+  bottom: auto;
 }
 
 .gallery3d-page.gallery3d-fullscreen-mode .gallery3d-panel {

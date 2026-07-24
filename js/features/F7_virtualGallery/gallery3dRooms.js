@@ -6,8 +6,8 @@ export const SQUARE_ROOM_SIZE = 12;
 export const ROUND_ROOM_RADIUS = 6;
 export const ROOM_WALL_HEIGHT = 4.5;
 export const EYE_HEIGHT = 1.65;
-export const DOOR_WIDTH = 1.2;
-export const DOOR_HEIGHT = 2.2;
+export const DOOR_WIDTH = 0.85;
+export const DOOR_HEIGHT = 1.75;
 
 /** @typedef {{ id: string, targetRoomId: number, side?: string, angle?: number }} DoorwayDef */
 
