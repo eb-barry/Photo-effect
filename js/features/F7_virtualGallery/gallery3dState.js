@@ -3,9 +3,11 @@
 import { GALLERY3D_ROOM_COUNT } from "./gallery3dRooms.js";
 
 export const GALLERY3D_FEATURE_ID = "F7_virtualGallery";
-export const GALLERY3D_FEATURE_VERSION = "0.3.0";
+export const GALLERY3D_FEATURE_VERSION = "0.3.1";
 export const GALLERY3D_DRAFT_KEY = "photoEffects.F7_virtualGallery.draft.v3";
+export const GALLERY3D_TUTORIAL_KEY = "photoEffects.F7_virtualGallery.tutorial.v1";
 export const GALLERY3D_MAX_PHOTOS = 30;
+export const GALLERY3D_RECOMMENDED_PHOTOS_PER_ROOM = 10;
 
 export const GALLERY3D_TABS = [
   { id: "gallery", label: "展館" },
@@ -61,10 +63,53 @@ export function toggleSceneMaterialTarget(currentTarget, nextTarget){
 }
 
 export function distributePhotosToRooms(photos){
-  return photos.map((photo, index) => ({
-    ...photo,
-    roomId: (index % GALLERY3D_ROOM_COUNT) + 1
-  }));
+  const total = photos.length;
+  if (!total) return [];
+
+  const base = Math.floor(total / GALLERY3D_ROOM_COUNT);
+  const extra = total % GALLERY3D_ROOM_COUNT;
+  const result = [];
+  let index = 0;
+
+  for (let roomIndex = 0; roomIndex < GALLERY3D_ROOM_COUNT; roomIndex += 1) {
+    const roomId = roomIndex + 1;
+    const quota = base + (roomIndex < extra ? 1 : 0);
+    for (let slot = 0; slot < quota; slot += 1) {
+      const photo = photos[index];
+      if (!photo) break;
+      result.push({ ...photo, roomId });
+      index += 1;
+    }
+  }
+
+  return result;
+}
+
+export function getPhotoCountsByRoom(photos){
+  const counts = Object.fromEntries(
+    Array.from({ length: GALLERY3D_ROOM_COUNT }, (_, index) => [index + 1, 0])
+  );
+  photos.forEach(photo => {
+    const roomId = clampRoomNumber(photo.roomId);
+    counts[roomId] = (counts[roomId] || 0) + 1;
+  });
+  return counts;
+}
+
+export function hasSeenGalleryTutorial(){
+  try {
+    return localStorage.getItem(GALLERY3D_TUTORIAL_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function markGalleryTutorialSeen(){
+  try {
+    localStorage.setItem(GALLERY3D_TUTORIAL_KEY, "1");
+  } catch {
+    // ignore
+  }
 }
 
 export function updateGallery3dState(currentState, partial){
@@ -85,9 +130,15 @@ export function updateGallery3dState(currentState, partial){
     : null;
 
   next.rooms = normalizeRooms(next.rooms);
-  next.photos = Array.isArray(next.photos)
-    ? distributePhotosToRooms(next.photos.slice(0, GALLERY3D_MAX_PHOTOS).map(normalizePhotoRecord))
-    : [];
+
+  if (Array.isArray(next.photos)) {
+    const trimmed = next.photos.slice(0, GALLERY3D_MAX_PHOTOS).map(normalizePhotoRecord);
+    next.photos = partial && "photos" in partial
+      ? distributePhotosToRooms(trimmed)
+      : trimmed;
+  } else {
+    next.photos = [];
+  }
 
   next.gyroEnabled = Boolean(next.gyroEnabled);
   next.gallerySessionReady = Boolean(next.gallerySessionReady);

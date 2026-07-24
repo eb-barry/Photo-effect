@@ -1,6 +1,11 @@
 // F7 3D 展館 - UI 元件
 
-import { GALLERY3D_MAX_PHOTOS, GALLERY3D_TABS } from "./gallery3dState.js";
+import {
+  GALLERY3D_MAX_PHOTOS,
+  GALLERY3D_RECOMMENDED_PHOTOS_PER_ROOM,
+  GALLERY3D_TABS,
+  getPhotoCountsByRoom
+} from "./gallery3dState.js";
 import { GALLERY3D_ROOM_COUNT } from "./gallery3dRooms.js";
 import { canUseDeviceOrientation, isLikelyMobileDevice } from "./gallery3dTool.js";
 
@@ -83,6 +88,18 @@ export function renderScenePanel(state, { walls = [], floors = [] } = {}){
 export function renderPhotosPanel(state){
   const count = state.photos.length;
   const remaining = GALLERY3D_MAX_PHOTOS - count;
+  const roomCounts = getPhotoCountsByRoom(state.photos);
+  const roomSummary = Array.from({ length: GALLERY3D_ROOM_COUNT }, (_, index) => {
+    const roomId = index + 1;
+    const roomCount = roomCounts[roomId] || 0;
+    const heavy = roomCount > GALLERY3D_RECOMMENDED_PHOTOS_PER_ROOM ? " is-heavy" : "";
+    return `<span class="gallery3d-room-stat${heavy}">房間 ${roomId}：${roomCount} 張</span>`;
+  }).join("");
+
+  const heavyWarning = Object.values(roomCounts).some(
+    value => value > GALLERY3D_RECOMMENDED_PHOTOS_PER_ROOM
+  );
+
   return `
     <div class="gallery3d-photo-panel">
       <div class="gallery3d-photo-head">
@@ -91,7 +108,11 @@ export function renderPhotosPanel(state){
           新增照片
         </button>
       </div>
-      <p class="note gallery3d-note">僅支援 4:3 橫向或 3:4 直向照片。照片會自動分配到 3 個房間。</p>
+      <p class="note gallery3d-note">依上傳順序平均分配到 3 個房間（例如 10 張 → 各房 4／3／3）。</p>
+      <div class="gallery3d-room-stats" aria-label="各房間照片數量">${roomSummary}</div>
+      ${heavyWarning
+        ? `<p class="note gallery3d-room-warning">圓形房間建議每間不超過 ${GALLERY3D_RECOMMENDED_PHOTOS_PER_ROOM} 張，以維持舒適的觀賞密度。</p>`
+        : ""}
       <div class="gallery3d-thumb-strip" id="gallery3dThumbStrip">
         ${state.photos.length
           ? state.photos.map((photo, index) => `
@@ -121,20 +142,57 @@ export function renderGalleryEntryGate({ needsGyroPermission }){
   `;
 }
 
+export function renderGalleryTutorial(){
+  return `
+    <div class="gallery3d-tutorial" id="gallery3dTutorial" role="dialog" aria-label="展館操作教學">
+      <div class="gallery3d-tutorial-card">
+        <p class="gallery3d-tutorial-title">歡迎來到 3D 展館</p>
+        <ul class="gallery3d-tutorial-list">
+          <li>拖曳畫面（或轉動手機）環顧四周</li>
+          <li>點<strong>地板</strong>向前移動</li>
+          <li>點<strong>畫作</strong>放大，再點一次縮小</li>
+          <li>點<strong>門口</strong>或下方房間按鈕切換展間</li>
+        </ul>
+        <button type="button" class="gallery3d-enter-btn" id="gallery3dTutorialDismissBtn">開始參觀</button>
+      </div>
+    </div>
+  `;
+}
+
 export function renderGalleryOverlay({
   showControls,
   inFullscreen,
   roomId,
-  zoomedPhotoId
+  zoomedPhotoId,
+  uiNotice,
+  gyroEnabled,
+  showGyroButton
 }){
+  const roomButtons = Array.from({ length: GALLERY3D_ROOM_COUNT }, (_, index) => {
+    const id = index + 1;
+    const active = id === roomId ? " is-active" : "";
+    return `<button type="button" class="gallery3d-room-jump-btn${active}" data-gallery3d-jump-room="${id}">房間 ${id}</button>`;
+  }).join("");
+
   return `
     <div class="gallery3d-overlay ${showControls ? "" : "hidden"}" id="gallery3dOverlay">
+      ${inFullscreen ? `<p class="gallery3d-room-badge" aria-live="polite">目前：房間 ${roomId}／${GALLERY3D_ROOM_COUNT}</p>` : ""}
+      ${uiNotice ? `<p class="gallery3d-ui-notice" role="status">${uiNotice}</p>` : ""}
       <p class="gallery3d-hint" id="gallery3dHint">
         ${zoomedPhotoId
           ? "再次點擊同一張畫作可縮小返回"
-          : `房間 ${roomId}：點地板前進、點畫作放大、點門口換房`}
+          : "點地板前進、點畫作放大、點門口或下方按鈕換房"}
       </p>
       ${inFullscreen ? `
+        <div class="gallery3d-room-jump-bar" role="group" aria-label="快速切換房間">${roomButtons}</div>
+        ${showGyroButton ? `
+          <button
+            type="button"
+            class="gallery3d-gyro-btn ${gyroEnabled ? "is-active" : ""}"
+            id="gallery3dGyroBtn"
+            aria-pressed="${gyroEnabled ? "true" : "false"}"
+          >${gyroEnabled ? "關閉陀螺儀" : "開啟陀螺儀"}</button>
+        ` : ""}
         <button type="button" class="gallery3d-reset-btn" id="gallery3dResetViewBtn" aria-label="重設視角">重設視角</button>
         <button type="button" class="gallery3d-exit-btn" id="gallery3dExitFullscreenBtn">離開全螢幕</button>
       ` : ""}
@@ -225,9 +283,22 @@ export function setupGallery3dUI(root, state, callbacks){
       showControls: state.activeTab === "gallery" || state.activeTab === "scene",
       inFullscreen: Boolean(state.gallerySessionReady && state.activeTab === "gallery"),
       roomId: state.currentRoomId,
-      zoomedPhotoId: callbacks.getZoomedPhotoId?.() || null
+      zoomedPhotoId: callbacks.getZoomedPhotoId?.() || null,
+      uiNotice: callbacks.getUiNotice?.() || "",
+      gyroEnabled: state.gyroEnabled,
+      showGyroButton: isLikelyMobileDevice() && canUseDeviceOrientation()
     });
 
+    overlayHost.querySelector("#gallery3dGyroBtn")?.addEventListener("click", event => {
+      event.preventDefault();
+      callbacks.onToggleGyro?.();
+    });
+    overlayHost.querySelectorAll("[data-gallery3d-jump-room]").forEach(button => {
+      button.addEventListener("click", event => {
+        event.preventDefault();
+        callbacks.onJumpToRoom?.(Number(button.dataset.gallery3dJumpRoom));
+      });
+    });
     overlayHost.querySelector("#gallery3dResetViewBtn")?.addEventListener("click", event => {
       event.preventDefault();
       callbacks.onResetView?.();
@@ -236,6 +307,27 @@ export function setupGallery3dUI(root, state, callbacks){
       event.preventDefault();
       callbacks.onExitGallery?.();
     });
+  }
+
+  function setLoading(isLoading){
+    canvasWrap?.classList.toggle("is-loading", Boolean(isLoading));
+    canvasWrap?.querySelector("#gallery3dLoading")?.classList.toggle("hidden", !isLoading);
+  }
+
+  function showTutorial(show){
+    let tutorial = page?.querySelector("#gallery3dTutorial");
+    if (!show) {
+      tutorial?.remove();
+      return;
+    }
+    if (!tutorial && page) {
+      page.insertAdjacentHTML("beforeend", renderGalleryTutorial());
+      tutorial = page.querySelector("#gallery3dTutorial");
+    }
+    tutorial?.querySelector("#gallery3dTutorialDismissBtn")?.addEventListener("click", event => {
+      event.preventDefault();
+      callbacks.onDismissTutorial?.();
+    }, { once: true });
   }
 
   function refreshViewMode(){
@@ -274,6 +366,8 @@ export function setupGallery3dUI(root, state, callbacks){
     refreshGalleryGate,
     refreshOverlay,
     refreshViewMode,
-    refreshTabs
+    refreshTabs,
+    setLoading,
+    showTutorial
   };
 }
