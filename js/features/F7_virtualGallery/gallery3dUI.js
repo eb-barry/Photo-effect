@@ -15,6 +15,36 @@ export function renderControlTabs(activeTab){
   `).join("");
 }
 
+export function renderScenePanel(state, scenes){
+  const buttons = scenes.map(item => `
+    <button
+      type="button"
+      class="crystal-scene-button gallery3d-scene-button${state.wallSceneId === item.id ? " active" : ""}"
+      data-gallery3d-scene="${item.id}"
+      aria-pressed="${String(state.wallSceneId === item.id)}"
+      aria-label="${item.label}"
+      title="${item.label}"
+    >
+      <span class="crystal-scene-thumb gallery3d-scene-thumb">
+        <span class="gallery3d-scene-aspect">${item.aspect === "4x3" ? "4:3" : "3:4"}</span>
+        <img src="${item.thumb || item.asset}" alt="" loading="lazy" decoding="async" draggable="false" />
+      </span>
+      <span class="gallery3d-scene-label">${item.label}</span>
+    </button>
+  `).join("");
+
+  return `
+    <div class="gallery3d-scene-panel">
+      <p class="note gallery3d-note">沿用「畫框」功能的展場材質：牆面取自展場圖上半部，地板取自底部區塊並重複鋪設。</p>
+      <div class="crystal-asset-carousel" data-gallery3d-carousel="scenes">
+        <span class="crystal-carousel-hint crystal-carousel-hint-left hidden" aria-hidden="true"></span>
+        <div class="crystal-asset-track" role="group" aria-label="展場材質">${buttons}</div>
+        <span class="crystal-carousel-hint crystal-carousel-hint-right hidden" aria-hidden="true"></span>
+      </div>
+    </div>
+  `;
+}
+
 export function renderPhotosPanel(state){
   const count = state.photos.length;
   const remaining = GALLERY3D_MAX_PHOTOS - count;
@@ -42,15 +72,17 @@ export function renderPhotosPanel(state){
   `;
 }
 
-export function renderGalleryOverlay({ showGyroButton, gyroEnabled, hasPhotos }){
+export function renderGalleryOverlay({ showGyroButton, gyroEnabled, hasPhotos, showControls }){
   const mobile = isLikelyMobileDevice();
   const gyroAvailable = canUseDeviceOrientation();
   return `
-    <div class="gallery3d-overlay ${hasPhotos ? "" : "hidden"}" id="gallery3dOverlay">
+    <div class="gallery3d-overlay ${showControls ? "" : "hidden"}" id="gallery3dOverlay">
       <p class="gallery3d-hint" id="gallery3dHint">
-        ${mobile && gyroAvailable
-          ? "點擊陀螺儀按鈕後，轉動手機即可環顧展館"
-          : "拖曳畫面即可環顧展館"}
+        ${hasPhotos
+          ? (mobile && gyroAvailable
+            ? "點擊陀螺儀按鈕後，轉動手機即可環顧展館"
+            : "拖曳畫面即可環顧展館")
+          : "可先預覽展場材質，上傳照片後牆面會掛上畫作"}
       </p>
       ${showGyroButton ? `
         <button
@@ -69,8 +101,10 @@ export function setupGallery3dUI(root, state, callbacks){
   const tabBar = root.querySelector("#gallery3dTabBar");
   const tabPanels = root.querySelector("#gallery3dTabPanels");
   const galleryPanel = root.querySelector("#gallery3dGalleryPanel");
+  const scenePanel = root.querySelector("#gallery3dScenePanel");
   const photosPanel = root.querySelector("#gallery3dPhotosPanel");
   const photoHost = root.querySelector("#gallery3dPhotoHost");
+  const sceneHost = root.querySelector("#gallery3dSceneHost");
   const overlayHost = root.querySelector("#gallery3dOverlayHost");
   const canvasWrap = root.querySelector("#gallery3dCanvasWrap");
   const emptyCanvas = root.querySelector("#gallery3dEmptyCanvas");
@@ -104,7 +138,8 @@ export function setupGallery3dUI(root, state, callbacks){
     overlayHost.innerHTML = renderGalleryOverlay({
       showGyroButton: isLikelyMobileDevice() && canUseDeviceOrientation(),
       gyroEnabled: state.gyroEnabled,
-      hasPhotos: state.photos.length > 0
+      hasPhotos: state.photos.length > 0,
+      showControls: state.activeTab === "gallery" || state.activeTab === "scene"
     });
 
     overlayHost.querySelector("#gallery3dGyroBtn")?.addEventListener("click", event => {
@@ -117,17 +152,36 @@ export function setupGallery3dUI(root, state, callbacks){
     });
   }
 
+  function refreshScenePanel(){
+    if (!sceneHost) return;
+    sceneHost.innerHTML = renderScenePanel(state, callbacks.getScenes?.() || []);
+    sceneHost.querySelectorAll("[data-gallery3d-scene]").forEach(button => {
+      button.addEventListener("click", event => {
+        event.preventDefault();
+        callbacks.onSceneChange?.(button.dataset.gallery3dScene);
+      });
+    });
+  }
+
   function refreshViewMode(){
     const inGallery = state.activeTab === "gallery";
+    const inScene = state.activeTab === "scene";
+    const inPhotos = state.activeTab === "photos";
     galleryPanel.classList.toggle("hidden", !inGallery);
-    photosPanel.classList.toggle("hidden", inGallery);
-    canvasWrap.classList.toggle("is-gallery-active", inGallery && state.photos.length > 0);
-    emptyCanvas.classList.toggle("hidden", state.photos.length > 0);
-    tabPanels.classList.toggle("gallery3d-gallery-mode", inGallery);
+    scenePanel?.classList.toggle("hidden", !inScene);
+    photosPanel.classList.toggle("hidden", !inPhotos);
+    const showStage = inGallery || inScene;
+    canvasWrap.classList.toggle("is-gallery-active", showStage);
+    emptyCanvas.classList.toggle("hidden", showStage);
+    emptyCanvas.textContent = inScene
+      ? "載入展場材質中…"
+      : "請先上傳 4:3 或 3:4 照片";
+    tabPanels.classList.toggle("gallery3d-gallery-mode", inGallery || inScene);
   }
 
   function refreshAll(){
     refreshTabs();
+    refreshScenePanel();
     refreshPhotosPanel();
     refreshOverlay();
     refreshViewMode();
@@ -138,6 +192,7 @@ export function setupGallery3dUI(root, state, callbacks){
   return {
     refreshAll,
     refreshPhotosPanel,
+    refreshScenePanel,
     refreshOverlay,
     refreshViewMode,
     refreshTabs

@@ -75,6 +75,18 @@ function createWallMaterial(){
   });
 }
 
+function createSurfaceTexture(sourceCanvas, repeatX, repeatY){
+  const texture = new THREE.CanvasTexture(sourceCanvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(repeatX, repeatY);
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 function createFrameMesh(width, height, texture){
   const group = new THREE.Group();
 
@@ -165,6 +177,8 @@ class LookControls {
     this.targetYaw = 0;
     this.targetPitch = 0;
     this._orientBaseline = null;
+    this.camera.rotation.set(0, 0, 0);
+    this.camera.quaternion.set(0, 0, 0, 1);
   }
 
   dispose(){
@@ -242,7 +256,9 @@ export class Gallery3DScene {
     this.container = container;
     this.photos = [];
     this._textures = [];
+    this._roomTextures = [];
     this._frameGroups = [];
+    this._roomMeshes = { floor: null, ceiling: null, walls: [] };
     this._animationId = 0;
     this._resizeObserver = null;
 
@@ -279,6 +295,7 @@ export class Gallery3DScene {
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = 0;
     this.scene.add(floor);
+    this._roomMeshes.floor = floor;
 
     const ceiling = new THREE.Mesh(
       new THREE.PlaneGeometry(ROOM_SIZE + 2, ROOM_SIZE + 2),
@@ -287,10 +304,11 @@ export class Gallery3DScene {
     ceiling.rotation.x = Math.PI / 2;
     ceiling.position.y = 4.8;
     this.scene.add(ceiling);
+    this._roomMeshes.ceiling = ceiling;
 
     const wallMaterial = createWallMaterial();
     WALL_DEFS.forEach(wall => {
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_SIZE, 4.8), wallMaterial);
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_SIZE, 4.8), wallMaterial.clone());
       if (wall.axis === "z") {
         mesh.position.set(0, 2.4, wall.sign * WALL_HALF);
         mesh.rotation.y = wall.rotY;
@@ -299,6 +317,7 @@ export class Gallery3DScene {
         mesh.rotation.y = wall.rotY;
       }
       this.scene.add(mesh);
+      this._roomMeshes.walls.push(mesh);
     });
 
     const baseboard = new THREE.MeshStandardMaterial({ color: 0xd9d2c6, roughness: 0.8 });
@@ -311,6 +330,60 @@ export class Gallery3DScene {
       }
       this.scene.add(strip);
     });
+  }
+
+  _disposeRoomTextures(){
+    this._roomTextures.forEach(texture => texture.dispose());
+    this._roomTextures = [];
+  }
+
+  setRoomTextures(roomTextures){
+    this._disposeRoomTextures();
+    if (!roomTextures) return;
+
+    const { wallCanvas, floorCanvas, wallAspect, floorAspect } = roomTextures;
+    const wallRepeatX = Math.max(1.5, ROOM_SIZE / Math.max(wallAspect * 2.2, 1));
+    const wallRepeatY = Math.max(1, 4.8 / 2.4);
+    const floorRepeat = Math.max(2, ROOM_SIZE / Math.max((floorAspect || 1) * 2.5, 1));
+
+    const wallTexture = createSurfaceTexture(wallCanvas, wallRepeatX, wallRepeatY);
+    const floorTexture = createSurfaceTexture(floorCanvas, floorRepeat, floorRepeat);
+    this._roomTextures.push(wallTexture, floorTexture);
+
+    const wallMaterial = new THREE.MeshStandardMaterial({
+      map: wallTexture,
+      roughness: 0.9,
+      metalness: 0.02
+    });
+    const floorMaterial = new THREE.MeshStandardMaterial({
+      map: floorTexture,
+      roughness: 0.82,
+      metalness: 0.04
+    });
+
+    this._roomMeshes.walls.forEach(mesh => {
+      mesh.material.dispose();
+      mesh.material = wallMaterial.clone();
+      mesh.material.map = wallTexture;
+    });
+
+    if (this._roomMeshes.floor) {
+      this._roomMeshes.floor.material.dispose();
+      this._roomMeshes.floor.material = floorMaterial;
+    }
+
+    if (this.scene.fog) {
+      const sample = floorCanvas.getContext("2d")?.getImageData(0, 0, 1, 1)?.data;
+      if (sample) {
+        const fogColor = new THREE.Color(
+          sample[0] / 255,
+          sample[1] / 255,
+          sample[2] / 255
+        ).multiplyScalar(0.42);
+        this.scene.fog.color.copy(fogColor);
+        this.renderer.setClearColor(fogColor, 1);
+      }
+    }
   }
 
   _buildLights(){
@@ -426,6 +499,7 @@ export class Gallery3DScene {
     this.stop();
     this._resizeObserver?.disconnect();
     this._clearFrames();
+    this._disposeRoomTextures();
     this.controls.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
