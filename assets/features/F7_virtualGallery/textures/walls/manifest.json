@@ -1,7 +1,71 @@
 {
-  "generatedAt": "2026-07-24T12:00:00.000Z",
-  "note": "Drop wall-01.webp, wall-02.webp, ... here (2048x2048 tileable). Run scripts/sync-f7-gallery-textures.mjs to refresh.",
+  "generatedAt": "2026-07-24T13:05:49.562Z",
+  "note": "Auto-generated entries; run scripts/sync-f7-gallery-textures.mjs after adding files.",
   "items": [
-    { "id": "wall-01", "label": "牆面 1", "file": "wall-01.webp" }
+    {
+      "id": "wall-01",
+      "label": "牆面 1",
+      "file": "wall-01.webp"
+    },
+    {
+      "id": "wall-02",
+      "label": "牆面 2",
+      "file": "wall-02.webp"
+    },
+    {
+      "id": "wall-03",
+      "label": "牆面 3",
+      "file": "wall-03.webp"
+    },
+    {
+      "id": "wall-04",
+      "label": "牆面 4",
+      "file": "wall-04.webp"
+    },
+    {
+      "id": "wall-05",
+      "label": "牆面 5",
+      "file": "wall-05.webp"
+    },
+    {
+      "id": "wall-06",
+      "label": "牆面 6",
+      "file": "wall-06.webp"
+    },
+    {
+      "id": "wall-07",
+      "label": "牆面 7",
+      "file": "wall-07.webp"
+    },
+    {
+      "id": "wall-08",
+      "label": "牆面 8",
+      "file": "wall-08.webp"
+    },
+    {
+      "id": "wall-09",
+      "label": "牆面 9",
+      "file": "wall-09.webp"
+    },
+    {
+      "id": "wall-10",
+      "label": "牆面 10",
+      "file": "wall-10.webp"
+    },
+    {
+      "id": "wall-11",
+      "label": "牆面 11",
+      "file": "wall-11.webp"
+    },
+    {
+      "id": "wall-12",
+      "label": "牆面 12",
+      "file": "wall-12.webp"
+    },
+    {
+      "id": "wall-13",
+      "label": "牆面 13",
+      "file": "wall-13.webp"
+    }
   ]
 }

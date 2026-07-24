@@ -9,6 +9,28 @@ import {
 import { GALLERY3D_ROOM_COUNT } from "./gallery3dRooms.js";
 import { canUseDeviceOrientation, isLikelyMobileDevice } from "./gallery3dTool.js";
 
+function setupTextureCarousel(carousel){
+  const track = carousel.querySelector(".crystal-asset-track");
+  const left = carousel.querySelector(".crystal-carousel-hint-left");
+  const right = carousel.querySelector(".crystal-carousel-hint-right");
+  if (!track) return;
+
+  const update = () => {
+    const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
+    const offset = track.scrollLeft;
+    left?.classList.toggle("hidden", offset <= 4);
+    right?.classList.toggle("hidden", maxScroll - offset <= 4);
+  };
+
+  track.addEventListener("scroll", update, { passive: true });
+  if (typeof ResizeObserver !== "undefined") {
+    const observer = new ResizeObserver(update);
+    observer.observe(track);
+    carousel._resizeObserver = observer;
+  }
+  requestAnimationFrame(update);
+}
+
 export function renderControlTabs(activeTab){
   return GALLERY3D_TABS.map(tab => `
     <button
@@ -128,20 +150,6 @@ export function renderPhotosPanel(state){
   `;
 }
 
-export function renderGalleryEntryGate({ needsGyroPermission }){
-  return `
-    <div class="gallery3d-entry-gate" id="gallery3dEntryGate">
-      <p class="gallery3d-entry-title">進入 3D 展館</p>
-      <p class="note gallery3d-entry-note">
-        ${needsGyroPermission
-          ? "進入全螢幕後會請求陀螺儀權限，轉動手機即可環顧展館。"
-          : "進入全螢幕模式後，可拖曳畫面環顧，點地板前進、點畫作放大。"}
-      </p>
-      <button type="button" class="gallery3d-enter-btn" id="gallery3dEnterBtn">進入展館</button>
-    </div>
-  `;
-}
-
 export function renderGalleryTutorial(){
   return `
     <div class="gallery3d-tutorial" id="gallery3dTutorial" role="dialog" aria-label="展館操作教學">
@@ -208,7 +216,6 @@ export function setupGallery3dUI(root, state, callbacks){
   const photosPanel = root.querySelector("#gallery3dPhotosPanel");
   const photoHost = root.querySelector("#gallery3dPhotoHost");
   const sceneHost = root.querySelector("#gallery3dSceneHost");
-  const galleryGateHost = root.querySelector("#gallery3dGalleryGateHost");
   const overlayHost = root.querySelector("#gallery3dOverlayHost");
   const canvasWrap = root.querySelector("#gallery3dCanvasWrap");
   const emptyCanvas = root.querySelector("#gallery3dEmptyCanvas");
@@ -262,20 +269,8 @@ export function setupGallery3dUI(root, state, callbacks){
         callbacks.onTextureChange?.(button.dataset.gallery3dTextureKind, button.dataset.gallery3dTexture);
       });
     });
-  }
 
-  function refreshGalleryGate(){
-    if (!galleryGateHost) return;
-    const showGate = state.activeTab === "gallery" && !state.gallerySessionReady;
-    galleryGateHost.innerHTML = showGate
-      ? renderGalleryEntryGate({
-        needsGyroPermission: isLikelyMobileDevice() && canUseDeviceOrientation()
-      })
-      : "";
-    galleryGateHost.querySelector("#gallery3dEnterBtn")?.addEventListener("click", event => {
-      event.preventDefault();
-      callbacks.onEnterGallery?.();
-    });
+    sceneHost.querySelectorAll("[data-gallery3d-carousel]").forEach(setupTextureCarousel);
   }
 
   function refreshOverlay(){
@@ -341,12 +336,11 @@ export function setupGallery3dUI(root, state, callbacks){
     canvasWrap.classList.toggle("is-gallery-active", showStage);
     canvasWrap.classList.toggle("is-fullscreen-active", inGallery && state.gallerySessionReady);
     emptyCanvas.classList.toggle("hidden", showStage);
-    emptyCanvas.textContent = inScene ? "載入展間預覽中…" : "請點下方「進入展館」";
+    emptyCanvas.textContent = inScene ? "載入展間預覽中…" : "切換至展館分頁即可進入 3D 模式";
     tabPanels.classList.toggle("gallery3d-gallery-mode", inGallery && state.gallerySessionReady);
     tabPanels.classList.toggle("hidden", inGallery && state.gallerySessionReady);
     tabBar.classList.toggle("hidden", inGallery && state.gallerySessionReady);
     page?.classList.toggle("gallery3d-fullscreen-mode", inGallery && state.gallerySessionReady);
-    refreshGalleryGate();
   }
 
   function refreshAll(){
@@ -363,7 +357,6 @@ export function setupGallery3dUI(root, state, callbacks){
     refreshAll,
     refreshPhotosPanel,
     refreshScenePanel,
-    refreshGalleryGate,
     refreshOverlay,
     refreshViewMode,
     refreshTabs,

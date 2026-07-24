@@ -1,4 +1,4 @@
-// F7 3D 展館 - Page Controller v0.3.1
+// F7 3D 展館 - Page Controller v0.3.2
 
 import { iconButton } from "../../core/iconLoader.js";
 import {
@@ -53,13 +53,13 @@ export async function renderGallery3dPage(root, navigate){
 
       <section class="panel gallery3d-panel">
         <div class="canvas-wrap crystal-canvas-wrap gallery3d-canvas-wrap" id="gallery3dCanvasWrap">
-          <div class="empty-canvas" id="gallery3dEmptyCanvas">請點下方「進入展館」</div>
+          <div class="empty-canvas" id="gallery3dEmptyCanvas">切換至展館分頁即可進入 3D 模式</div>
           <div class="gallery3d-loading hidden" id="gallery3dLoading" aria-live="polite">載入展間中…</div>
           <div class="gallery3d-stage" id="gallery3dStage"></div>
           <div id="gallery3dOverlayHost"></div>
         </div>
 
-        <div id="gallery3dGalleryGateHost"></div>
+        <div id="gallery3dGalleryGateHost" hidden></div>
 
         <div class="crystal-tab-bar gallery3d-tab-bar" id="gallery3dTabBar" role="tablist" aria-label="3D 展館功能">
           ${renderControlTabs(state.activeTab)}
@@ -67,7 +67,7 @@ export async function renderGallery3dPage(root, navigate){
 
         <div class="crystal-tab-panels gallery3d-tab-panels" id="gallery3dTabPanels">
           <div id="gallery3dGalleryPanel" class="crystal-tab-panel ${state.activeTab === "gallery" ? "" : "hidden"}" role="tabpanel" aria-label="展館">
-            <p class="note gallery3d-gallery-note">點「進入展館」後會進入全螢幕 3D 模式，並在手機上請求陀螺儀權限。</p>
+            <p class="note gallery3d-gallery-note">點「展館」分頁即進入全螢幕 3D 模式；手機上會請求陀螺儀權限。</p>
           </div>
           <div id="gallery3dScenePanel" class="crystal-tab-panel ${state.activeTab === "scene" ? "" : "hidden"}" role="tabpanel" aria-label="場景">
             <div id="gallery3dSceneHost"></div>
@@ -217,6 +217,7 @@ export async function renderGallery3dPage(root, navigate){
   };
 
   const enterGallerySession = async () => {
+    if (state.gallerySessionReady) return;
     await ensureScene();
     Object.assign(state, updateGallery3dState(state, { gallerySessionReady: true }));
     ui.refreshAll();
@@ -258,7 +259,11 @@ export async function renderGallery3dPage(root, navigate){
       Object.assign(state, updateGallery3dState(state, { activeTab: tab }));
       ui.refreshAll();
       persistDraft();
-      await rebuildScene();
+      if (tab === "gallery") {
+        await enterGallerySession();
+      } else {
+        await rebuildScene();
+      }
     },
     onRoomNumberChange: async roomNumber => {
       Object.assign(state, updateGallery3dState(state, { selectedRoomNumber: roomNumber }));
@@ -289,8 +294,6 @@ export async function renderGallery3dPage(root, navigate){
       }
     },
     onEnterGallery: async () => {
-      Object.assign(state, updateGallery3dState(state, { activeTab: "gallery" }));
-      ui.refreshAll();
       await enterGallerySession();
     },
     onExitGallery: async () => {
@@ -398,7 +401,9 @@ export async function renderGallery3dPage(root, navigate){
     imageInput.value = "";
   });
 
-  if (state.activeTab === "scene") {
+  if (state.activeTab === "gallery") {
+    await enterGallerySession();
+  } else if (state.activeTab === "scene") {
     await rebuildScene();
   } else {
     ui.refreshAll();

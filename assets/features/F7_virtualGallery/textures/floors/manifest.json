@@ -1,7 +1,51 @@
 {
-  "generatedAt": "2026-07-24T12:00:00.000Z",
-  "note": "Drop floor-01.webp, floor-02.webp, ... here (2048x2048 tileable). Run scripts/sync-f7-gallery-textures.mjs to refresh.",
+  "generatedAt": "2026-07-24T13:05:49.557Z",
+  "note": "Auto-generated entries; run scripts/sync-f7-gallery-textures.mjs after adding files.",
   "items": [
-    { "id": "floor-01", "label": "地板 1", "file": "floor-01.webp" }
+    {
+      "id": "floor-01",
+      "label": "地板 1",
+      "file": "floor-01.webp"
+    },
+    {
+      "id": "floor-02",
+      "label": "地板 2",
+      "file": "floor-02.webp"
+    },
+    {
+      "id": "floor-03",
+      "label": "地板 3",
+      "file": "floor-03.webp"
+    },
+    {
+      "id": "floor-04",
+      "label": "地板 4",
+      "file": "floor-04.webp"
+    },
+    {
+      "id": "floor-05",
+      "label": "地板 5",
+      "file": "floor-05.webp"
+    },
+    {
+      "id": "floor-06",
+      "label": "地板 6",
+      "file": "floor-06.webp"
+    },
+    {
+      "id": "floor-07",
+      "label": "地板 7",
+      "file": "floor-07.webp"
+    },
+    {
+      "id": "floor-08",
+      "label": "地板 8",
+      "file": "floor-08.webp"
+    },
+    {
+      "id": "floor-09",
+      "label": "地板 9",
+      "file": "floor-09.webp"
+    }
   ]
 }
