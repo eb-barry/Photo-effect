@@ -1,0 +1,7 @@
+{
+  "generatedAt": "2026-07-24T12:00:00.000Z",
+  "note": "Drop wall-01.webp, wall-02.webp, ... here (2048x2048 tileable). Run scripts/sync-f7-gallery-textures.mjs to refresh.",
+  "items": [
+    { "id": "wall-01", "label": "牆面 1", "file": "wall-01.webp" }
+  ]
+}
