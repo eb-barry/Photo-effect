@@ -1,4 +1,4 @@
-// F7 3D 展館 - Feature entry metadata v0.3.1
+// F7 3D 展館 - Feature entry metadata v0.3.2
 
 import { initGallery3dPage } from "./gallery3dPage.js";
 
@@ -17,7 +17,7 @@ export const gallery3dFeature = {
   enabled: true,
   disabled: false,
   isAvailable: true,
-  version: "0.3.1",
+  version: "0.3.2",
   mount: initGallery3dPage
 };
 
