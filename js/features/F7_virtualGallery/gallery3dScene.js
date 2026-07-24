@@ -303,7 +303,7 @@ export class Gallery3DScene {
 
     if (room.shape === "round") {
       this._buildRoundRoom(surfaceTextures, room);
-      await this._hangPhotosOnRoundWall(photos);
+      await this._hangPhotosOnRoundWall(photos, room);
     } else {
       this._buildSquareRoom(surfaceTextures, room);
       await this._hangPhotosOnSquareWalls(photos, room);
@@ -329,16 +329,17 @@ export class Gallery3DScene {
     this._roomTextures.push(wallTexture, floorTexture);
 
     const wallMaterial = unlitWalls
-      ? new THREE.MeshBasicMaterial({ map: wallTexture, side: THREE.BackSide })
+      ? new THREE.MeshBasicMaterial({ map: wallTexture, side: THREE.DoubleSide })
       : new THREE.MeshStandardMaterial({
         map: wallTexture,
         roughness: 0.9,
-        metalness: 0.02
+        metalness: 0.02,
+        side: THREE.DoubleSide
       });
     wallMeshes.forEach(mesh => {
       mesh.material = wallMaterial.clone();
       mesh.material.map = wallTexture;
-      if (unlitWalls) mesh.material.side = THREE.BackSide;
+      if (unlitWalls) mesh.material.side = THREE.DoubleSide;
     });
 
     if (floorMesh) {
@@ -395,7 +396,10 @@ export class Gallery3DScene {
       }
     });
 
-    this._applySurfaceMaterials(surfaceTextures, wallMeshes, floor, { wallRepeatScale: 1 });
+    this._applySurfaceMaterials(surfaceTextures, wallMeshes, floor, {
+      wallRepeatScale: 1,
+      unlitWalls: true
+    });
   }
 
   _createWallPlane(width, height){
@@ -406,19 +410,38 @@ export class Gallery3DScene {
   }
 
   _createDoorHitbox(doorway){
-    const door = new THREE.Mesh(
-      new THREE.PlaneGeometry(DOOR_WIDTH, DOOR_HEIGHT),
+    const group = new THREE.Group();
+    group.userData = {
+      type: "door",
+      doorwayId: doorway.id,
+      targetRoomId: doorway.targetRoomId
+    };
+
+    const frame = new THREE.Mesh(
+      new THREE.PlaneGeometry(DOOR_WIDTH + 0.12, DOOR_HEIGHT + 0.12),
       new THREE.MeshBasicMaterial({
-        color: 0x6a7a88,
+        color: 0xb8c8d8,
         transparent: true,
-        opacity: 0.14,
+        opacity: 0.72,
         depthWrite: false
       })
     );
-    door.userData = { type: "door", doorwayId: doorway.id, targetRoomId: doorway.targetRoomId };
-    this._roomGroup.add(door);
-    this._clickables.push(door);
-    return door;
+    const opening = new THREE.Mesh(
+      new THREE.PlaneGeometry(DOOR_WIDTH, DOOR_HEIGHT),
+      new THREE.MeshBasicMaterial({
+        color: 0x3d4f5c,
+        transparent: true,
+        opacity: 0.38,
+        depthWrite: false
+      })
+    );
+    opening.position.z = 0.01;
+    opening.userData = { ...group.userData };
+    frame.userData = { ...group.userData };
+    group.add(frame, opening);
+    this._roomGroup.add(group);
+    this._clickables.push(opening, frame);
+    return group;
   }
 
   _addWallWithDoor(def, roomSize, doorway, wallMeshes){
@@ -455,12 +478,8 @@ export class Gallery3DScene {
     } else {
       const z = def.side === "north" ? -half : half;
       const rotY = def.side === "north" ? 0 : Math.PI;
-      const leftX = def.side === "north"
-        ? -(segmentWidth / 2 + DOOR_WIDTH / 2)
-        : (segmentWidth / 2 + DOOR_WIDTH / 2);
-      const rightX = def.side === "north"
-        ? (segmentWidth / 2 + DOOR_WIDTH / 2)
-        : -(segmentWidth / 2 + DOOR_WIDTH / 2);
+      const leftX = -(segmentWidth / 2 + DOOR_WIDTH / 2);
+      const rightX = (segmentWidth / 2 + DOOR_WIDTH / 2);
       left.position.set(leftX, wallCenterY, z);
       right.position.set(rightX, wallCenterY, z);
       lintel.position.set(0, lintelCenterY, z);
@@ -521,27 +540,47 @@ export class Gallery3DScene {
     });
   }
 
-  async _hangPhotosOnSquareWalls(photos, room){
-    if (!photos.length) return;
-    const loader = new THREE.TextureLoader();
-    const walls = [
-      { rotY: 0, z: -(SQUARE_ROOM_SIZE / 2 - 0.08), axis: "x" },
-      { rotY: Math.PI, z: SQUARE_ROOM_SIZE / 2 - 0.08, axis: "x" },
-      { rotY: -Math.PI / 2, x: -(SQUARE_ROOM_SIZE / 2 - 0.08), axis: "z" }
-    ].filter(wall => !room.doorways.some(door => (
-      (door.side === "east" && wall.rotY === Math.PI / 2)
-      || (door.side === "west" && wall.rotY === -Math.PI / 2)
-    )));
+  _getSquareWallDefinitions(){
+    const half = SQUARE_ROOM_SIZE / 2;
+    const inset = 0.08;
+    return [
+      { side: "north", rotY: 0, axis: "x", fixed: -(half - inset) },
+      { side: "south", rotY: Math.PI, axis: "x", fixed: half - inset },
+      { side: "east", rotY: Math.PI / 2, axis: "z", fixed: half - inset },
+      { side: "west", rotY: -Math.PI / 2, axis: "z", fixed: -(half - inset) }
+    ];
+  }
 
-    const chunks = walls.map(() => []);
-    photos.forEach((photo, index) => {
-      chunks[index % walls.length].push(photo);
+  _splitEvenly(items, buckets){
+    const chunks = Array.from({ length: buckets }, () => []);
+    items.forEach((item, index) => {
+      chunks[index % buckets].push(item);
     });
+    return chunks;
+  }
 
-    for (let wallIndex = 0; wallIndex < walls.length; wallIndex += 1) {
-      const wall = walls[wallIndex];
-      const chunk = chunks[wallIndex];
-      let cursor = -((chunk.length - 1) * 1.2) / 2;
+  _getWallHangRanges(wall, room){
+    const half = SQUARE_ROOM_SIZE / 2 - 0.55;
+    const doorway = room.doorways.find(item => item.side === wall.side);
+    if (!doorway) return [{ min: -half, max: half }];
+    const gap = DOOR_WIDTH / 2 + 0.18;
+    return [
+      { min: -half, max: -gap },
+      { min: gap, max: half }
+    ];
+  }
+
+  async _placeFramesOnWall(wall, photos, loader, ranges){
+    if (!photos.length) return;
+    const perRange = this._splitEvenly(photos, ranges.length);
+    for (let rangeIndex = 0; rangeIndex < ranges.length; rangeIndex += 1) {
+      const range = ranges[rangeIndex];
+      const chunk = perRange[rangeIndex];
+      if (!chunk.length) continue;
+      const span = range.max - range.min;
+      let cursor = range.min + span / 2;
+      const totalWidth = chunk.reduce((sum, photo) => sum + frameSizeForAspect(photo.aspect).width + 0.3, -0.3);
+      cursor -= totalWidth / 2;
       for (const photo of chunk) {
         const size = frameSizeForAspect(photo.aspect);
         const texture = await loader.loadAsync(photo.textureDataUrl);
@@ -549,30 +588,66 @@ export class Gallery3DScene {
         this._textures.push(texture);
         const frame = createFrameMesh(size.width, size.height, texture, photo.id);
         if (wall.axis === "x") {
-          frame.position.set(cursor, 2.2, wall.z);
-          frame.rotation.y = wall.rotY;
+          frame.position.set(cursor + size.width / 2, 2.2, wall.fixed);
         } else {
-          frame.position.set(wall.x, 2.2, cursor);
-          frame.rotation.y = wall.rotY;
+          frame.position.set(wall.fixed, 2.2, cursor + size.width / 2);
         }
+        frame.rotation.y = wall.rotY;
         this._roomGroup.add(frame);
         this._artworkGroups.push(frame);
         this._clickables.push(frame, ...frame.children);
-        cursor += size.width + 0.35;
+        cursor += size.width + 0.3;
       }
     }
   }
 
-  async _hangPhotosOnRoundWall(photos){
+  async _hangPhotosOnSquareWalls(photos, room){
+    if (!photos.length) return;
+    const loader = new THREE.TextureLoader();
+    const walls = this._getSquareWallDefinitions();
+    const wallChunks = this._splitEvenly(photos, walls.length);
+
+    for (let wallIndex = 0; wallIndex < walls.length; wallIndex += 1) {
+      const wall = walls[wallIndex];
+      const chunk = wallChunks[wallIndex];
+      if (!chunk.length) continue;
+      const ranges = this._getWallHangRanges(wall, room);
+      await this._placeFramesOnWall(wall, chunk, loader, ranges);
+    }
+  }
+
+  _getRoundWallAngles(room, count){
+    if (!count) return [];
+    const doorAngles = room.doorways.map(item => item.angle || 0);
+    const doorArc = (DOOR_WIDTH / ROUND_ROOM_RADIUS) + 0.22;
+    const slots = [];
+    const steps = Math.max(count * 3, 24);
+    for (let index = 0; index < steps; index += 1) {
+      const angle = -Math.PI + (Math.PI * 2 * index) / steps;
+      const blocked = doorAngles.some(doorAngle => {
+        let delta = angle - doorAngle;
+        while (delta > Math.PI) delta -= Math.PI * 2;
+        while (delta < -Math.PI) delta += Math.PI * 2;
+        return Math.abs(delta) < doorArc;
+      });
+      if (!blocked) slots.push(angle);
+    }
+    if (!slots.length) return [];
+    if (count === 1) return [slots[Math.floor(slots.length / 2)]];
+    return Array.from({ length: count }, (_, index) => (
+      slots[Math.round((index * (slots.length - 1)) / Math.max(count - 1, 1))]
+    ));
+  }
+
+  async _hangPhotosOnRoundWall(photos, room){
     if (!photos.length) return;
     const loader = new THREE.TextureLoader();
     const radius = ROUND_ROOM_RADIUS - 0.1;
-    const span = Math.PI * 1.35;
-    const start = -span / 2;
+    const angles = this._getRoundWallAngles(room, photos.length);
 
     for (let index = 0; index < photos.length; index += 1) {
       const photo = photos[index];
-      const angle = start + (span * index) / Math.max(photos.length - 1, 1);
+      const angle = angles[index] ?? (-Math.PI / 2 + (Math.PI * index) / Math.max(photos.length, 1));
       const size = frameSizeForAspect(photo.aspect);
       const texture = await loader.loadAsync(photo.textureDataUrl);
       texture.colorSpace = THREE.SRGBColorSpace;
@@ -602,7 +677,10 @@ export class Gallery3DScene {
     if (!hits.length) return;
 
     const target = hits[0].object;
-    const data = target.userData || {};
+    let data = target.userData || {};
+    if (!data.type && target.parent?.userData?.type) {
+      data = target.parent.userData;
+    }
     if (data.type === "floor") {
       this._walkToward(hits[0].point);
       return;
@@ -669,7 +747,8 @@ export class Gallery3DScene {
     const box = new THREE.Box3().setFromObject(group);
     const size = new THREE.Vector3();
     box.getSize(size);
-    const artSize = Math.max(size.x, size.y, 0.8);
+    const artWidth = Math.max(size.x, 0.8);
+    const artHeight = Math.max(size.y, 0.8);
     const yaw = Math.atan2(worldPos.x - roomCenter.x, worldPos.z - roomCenter.z);
     const horizontal = Math.hypot(worldPos.x - roomCenter.x, worldPos.z - roomCenter.z);
     const pitch = THREE.MathUtils.clamp(
@@ -677,13 +756,27 @@ export class Gallery3DScene {
       -0.22,
       0.22
     );
-    const targetFov = 36;
-    const distance = (artSize * 0.56) / Math.tan(THREE.MathUtils.degToRad(targetFov / 2));
+
+    const aspect = this.camera.aspect;
+    const fill = 0.98;
+    let targetFov = 22;
+    let fovRad = THREE.MathUtils.degToRad(targetFov);
+    let hFov = 2 * Math.atan(Math.tan(fovRad / 2) * aspect);
+    let distance = (artWidth * fill * 0.5) / Math.tan(hFov / 2);
+    const vDistance = (artHeight * fill * 0.5) / Math.tan(fovRad / 2);
+    if (vDistance > distance) {
+      distance = vDistance;
+      targetFov = THREE.MathUtils.radToDeg(2 * Math.atan((artHeight * fill * 0.5) / distance));
+      fovRad = THREE.MathUtils.degToRad(targetFov);
+      hFov = 2 * Math.atan(Math.tan(fovRad / 2) * aspect);
+      distance = (artWidth * fill * 0.5) / Math.tan(hFov / 2);
+    }
+
     const inward = new THREE.Vector3().subVectors(roomCenter, worldPos);
     inward.y = 0;
     if (inward.lengthSq() < 0.01) inward.set(0, 0, 1);
     inward.normalize();
-    const targetPos = worldPos.clone().add(inward.multiplyScalar(distance));
+    const targetPos = worldPos.clone().add(inward.multiplyScalar(Math.max(0.42, distance)));
     targetPos.y = THREE.MathUtils.lerp(EYE_HEIGHT, worldPos.y, 0.35);
     this._clampCameraToRoom(targetPos);
     return { worldPos, roomCenter, yaw, pitch, targetFov, targetPos };
