@@ -1706,23 +1706,57 @@ body.magic-sky-scroll-locked {
 .gallery3d-topbar-leading {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  flex: 0 0 auto;
+  z-index: 6;
   pointer-events: auto;
+}
+
+.gallery3d-topbar-leading .feature-home,
+.gallery3d-topbar-leading .icon-button {
+  position: relative;
+  left: auto;
+  top: auto;
+  flex: 0 0 auto;
 }
 
 .gallery3d-gallery-top-controls {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .gallery3d-gallery-top-controls.hidden {
   display: none;
 }
 
+.gallery3d-page .gallery3d-topbar {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
 .gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar-title.hidden,
 .gallery3d-page.gallery3d-fullscreen-mode .gallery3d-photo-actions.hidden {
   display: none;
+}
+
+.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar {
+  justify-content: flex-start;
+  padding: 4px 10px;
+  min-height: 60px;
+}
+
+.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar-leading .icon-button,
+.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar-leading .feature-home {
+  width: 48px;
+  height: 48px;
+}
+
+.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar-leading .icon-button img,
+.gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar-leading .feature-home img {
+  width: 40px;
+  height: 40px;
 }
 
 .gallery3d-page.gallery3d-fullscreen-mode .gallery3d-topbar .icon-button {
@@ -1878,4 +1912,49 @@ body.magic-sky-scroll-locked {
   color: var(--base-dark);
   font-size: 0.84rem;
   line-height: 1.55;
+}
+
+.gallery3d-gyro-prompt {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(7, 12, 18, 0.78);
+}
+
+.gallery3d-gyro-prompt-card {
+  width: min(100%, 360px);
+  padding: 18px 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  text-align: center;
+}
+
+.gallery3d-gyro-prompt-title {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 900;
+  color: var(--base-dark);
+}
+
+.gallery3d-gyro-prompt-note {
+  margin: 0 0 14px;
+}
+
+.gallery3d-gyro-prompt-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.gallery3d-gyro-skip-btn {
+  appearance: none;
+  border: 0;
+  border-radius: 16px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--base-dark);
+  font-weight: 700;
 }

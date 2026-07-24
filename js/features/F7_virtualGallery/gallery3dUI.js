@@ -149,6 +149,21 @@ export function renderPhotosPanel(state){
   `;
 }
 
+export function renderGyroPrompt(){
+  return `
+    <div class="gallery3d-gyro-prompt" id="gallery3dGyroPrompt" role="dialog" aria-label="陀螺儀權限">
+      <div class="gallery3d-gyro-prompt-card">
+        <p class="gallery3d-gyro-prompt-title">啟用陀螺儀環顧</p>
+        <p class="note gallery3d-gyro-prompt-note">轉動手機即可環顧 3D 展館。請點「同意」以授權裝置的方向感測。</p>
+        <div class="gallery3d-gyro-prompt-actions">
+          <button type="button" class="gallery3d-enter-btn" id="gallery3dGyroAgreeBtn">同意</button>
+          <button type="button" class="gallery3d-gyro-skip-btn" id="gallery3dGyroSkipBtn">使用拖曳操作</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 export function renderGalleryTutorial(){
   return `
     <div class="gallery3d-tutorial" id="gallery3dTutorial" role="dialog" aria-label="展館操作教學">
@@ -267,6 +282,26 @@ export function setupGallery3dUI(root, state, callbacks){
     canvasWrap?.querySelector("#gallery3dLoading")?.classList.toggle("hidden", !isLoading);
   }
 
+  function showGyroPrompt(show){
+    let prompt = page?.querySelector("#gallery3dGyroPrompt");
+    if (!show) {
+      prompt?.remove();
+      return;
+    }
+    if (!prompt && page) {
+      page.insertAdjacentHTML("beforeend", renderGyroPrompt());
+      prompt = page.querySelector("#gallery3dGyroPrompt");
+    }
+    prompt?.querySelector("#gallery3dGyroAgreeBtn")?.addEventListener("click", event => {
+      event.preventDefault();
+      callbacks.onGyroAgree?.();
+    }, { once: true });
+    prompt?.querySelector("#gallery3dGyroSkipBtn")?.addEventListener("click", event => {
+      event.preventDefault();
+      callbacks.onGyroSkip?.();
+    }, { once: true });
+  }
+
   function showTutorial(show){
     let tutorial = page?.querySelector("#gallery3dTutorial");
     if (!show) {
@@ -322,6 +357,7 @@ export function setupGallery3dUI(root, state, callbacks){
     refreshViewMode,
     refreshTabs,
     setLoading,
-    showTutorial
+    showTutorial,
+    showGyroPrompt
   };
 }

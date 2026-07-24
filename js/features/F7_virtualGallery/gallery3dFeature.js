@@ -17,7 +17,7 @@ export const gallery3dFeature = {
   enabled: true,
   disabled: false,
   isAvailable: true,
-  version: "0.3.3",
+  version: "0.3.4",
   mount: initGallery3dPage
 };
 

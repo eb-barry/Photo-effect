@@ -62,6 +62,15 @@ export function canUseDeviceOrientation(){
   return typeof window !== "undefined" && "DeviceOrientationEvent" in window;
 }
 
+export function needsGyroPermissionPrompt(){
+  return typeof DeviceOrientationEvent !== "undefined"
+    && typeof DeviceOrientationEvent.requestPermission === "function";
+}
+
+export function shouldOfferGyro(){
+  return isLikelyMobileDevice() && canUseDeviceOrientation();
+}
+
 export function isLikelyMobileDevice(){
   if (typeof navigator === "undefined") return false;
   return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
