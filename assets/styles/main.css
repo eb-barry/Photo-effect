@@ -1637,12 +1637,21 @@ body.magic-sky-scroll-locked {
 
 .gallery3d-material-segment-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .gallery3d-material-segment-grid .gallery3d-material-btn {
   width: 100%;
+  min-height: 34px;
+  padding: 6px 4px;
+  font-size: 0.78rem;
+  letter-spacing: -0.02em;
+}
+
+.gallery3d-material-segment-grid .gallery3d-material-btn-secondary {
+  grid-column: 1;
+  max-width: calc(25% - 5px);
 }
 
 .gallery3d-material-btn.active {
