@@ -33,6 +33,9 @@ export function initGallery3dPage(root, shared = {}){
 export async function renderGallery3dPage(root, navigate){
   const savedState = loadGallery3dDraft() || createDefaultGallery3dState();
   const state = { ...savedState };
+  if (state.activeTab === "gallery" && !state.photos.length) {
+    state.activeTab = "photos";
+  }
   let zoomedPhotoId = null;
   let uiNotice = "";
 
@@ -49,6 +52,7 @@ export async function renderGallery3dPage(root, navigate){
         </div>
 
         <div class="gallery3d-gallery-top-controls hidden" id="gallery3dGalleryTopControls" aria-label="展館控制">
+          ${iconButton({ icon: "openPhoto", label: "新增照片", id: "gallery3dGalleryAddPhotoBtn" })}
           ${iconButton({ icon: "compass", label: "重設視角", id: "gallery3dResetViewBtn", ext: "webp" })}
           ${iconButton({ icon: "backward", label: "離開全螢幕", id: "gallery3dExitFullscreenBtn", ext: "webp" })}
         </div>
@@ -270,6 +274,87 @@ export async function renderGallery3dPage(root, navigate){
     scene?.stop();
   };
 
+  const requestPhotoUpload = async () => {
+    if (document.fullscreenElement) {
+      await exitFullscreen();
+    }
+    if (state.gallerySessionReady) {
+      scene?.disableGyro();
+      Object.assign(state, updateGallery3dState(state, {
+        gallerySessionReady: false,
+        gyroEnabled: false
+      }));
+      zoomedPhotoId = null;
+      ui?.showGyroPrompt(false);
+      ui?.showTutorial(false);
+      ui?.refreshAll();
+      scene?.stop();
+    }
+    imageInput.click();
+  };
+
+  const handlePhotoUpload = async event => {
+    const files = [...(event.target.files || [])];
+    if (!files.length) return;
+
+    const remaining = GALLERY3D_MAX_PHOTOS - state.photos.length;
+    if (remaining <= 0) {
+      alert(`最多只能上傳 ${GALLERY3D_MAX_PHOTOS} 張照片。`);
+      imageInput.value = "";
+      return;
+    }
+
+    const accepted = files.slice(0, remaining);
+    const nextPhotos = [...state.photos];
+    const errors = [];
+
+    ui?.setLoading(true);
+    try {
+      for (const file of accepted) {
+        if (nextPhotos.length >= GALLERY3D_MAX_PHOTOS) break;
+        try {
+          const prepared = await prepareGalleryPhoto(file);
+          nextPhotos.push({
+            id: createPhotoId(),
+            aspect: prepared.aspect,
+            dataUrl: prepared.dataUrl,
+            textureDataUrl: prepared.textureDataUrl,
+            thumbDataUrl: prepared.thumbDataUrl
+          });
+        } catch (error) {
+          errors.push(`${file.name}：${error.message || "無法使用"}`);
+        }
+      }
+
+      if (nextPhotos.length === state.photos.length && errors.length) {
+        alert(errors.join("\n"));
+        return;
+      }
+
+      Object.assign(state, updateGallery3dState(state, { photos: nextPhotos }));
+      ui?.refreshAll();
+      persistDraft();
+
+      try {
+        await rebuildScene();
+      } catch (error) {
+        console.warn("[F7 3D 展館] 更新展間預覽失敗，照片已加入：", error);
+        uiNotice = "照片已加入，但展間預覽更新失敗，請切換至場景分頁重試。";
+        ui?.refreshOverlay();
+      }
+
+      if (errors.length) {
+        alert(`部分照片未加入：\n${errors.join("\n")}`);
+      }
+    } catch (error) {
+      console.error("[F7 3D 展館] 上傳照片失敗：", error);
+      alert(`上傳照片失敗：${error.message || "請稍後再試"}`);
+    } finally {
+      ui?.setLoading(false);
+      imageInput.value = "";
+    }
+  };
+
   ui = setupGallery3dUI(root, state, {
     getWallTextures: () => getWallTextureCatalog(),
     getFloorTextures: () => getFloorTextureCatalog(),
@@ -354,7 +439,7 @@ export async function renderGallery3dPage(root, navigate){
       persistDraft();
       maybeShowTutorial();
     },
-    onUploadRequest: () => imageInput.click(),
+    onUploadRequest: () => requestPhotoUpload(),
     onRemovePhoto: async photoId => {
       Object.assign(state, updateGallery3dState(state, {
         photos: state.photos.filter(photo => photo.id !== photoId)
@@ -405,56 +490,15 @@ export async function renderGallery3dPage(root, navigate){
 
   root.querySelector("#openPhotoBtn")?.addEventListener("click", event => {
     event.preventDefault();
-    imageInput.click();
+    requestPhotoUpload();
   });
 
-  imageInput.addEventListener("change", async event => {
-    const files = [...(event.target.files || [])];
-    if (!files.length) return;
-
-    const remaining = GALLERY3D_MAX_PHOTOS - state.photos.length;
-    if (remaining <= 0) {
-      alert(`最多只能上傳 ${GALLERY3D_MAX_PHOTOS} 張照片。`);
-      imageInput.value = "";
-      return;
-    }
-
-    const accepted = files.slice(0, remaining);
-    const nextPhotos = [...state.photos];
-    const errors = [];
-
-    for (const file of accepted) {
-      if (nextPhotos.length >= GALLERY3D_MAX_PHOTOS) break;
-      try {
-        const prepared = await prepareGalleryPhoto(file);
-        nextPhotos.push({
-          id: createPhotoId(),
-          aspect: prepared.aspect,
-          dataUrl: prepared.dataUrl,
-          textureDataUrl: prepared.textureDataUrl,
-          thumbDataUrl: prepared.thumbDataUrl
-        });
-      } catch (error) {
-        errors.push(`${file.name}：${error.message || "無法使用"}`);
-      }
-    }
-
-    if (!nextPhotos.length && errors.length) {
-      alert(errors.join("\n"));
-      imageInput.value = "";
-      return;
-    }
-
-    Object.assign(state, updateGallery3dState(state, { photos: nextPhotos }));
-    ui.refreshAll();
-    persistDraft();
-    await rebuildScene();
-
-    if (errors.length) {
-      alert(`部分照片未加入：\n${errors.join("\n")}`);
-    }
-    imageInput.value = "";
+  root.querySelector("#gallery3dGalleryAddPhotoBtn")?.addEventListener("click", event => {
+    event.preventDefault();
+    requestPhotoUpload();
   });
+
+  imageInput.addEventListener("change", handlePhotoUpload);
 
   if (state.activeTab === "gallery") {
     await enterGallerySession();

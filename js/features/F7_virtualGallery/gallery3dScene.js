@@ -75,8 +75,7 @@ function createFrameMesh(width, height, texture, photoId){
   const hitPlane = new THREE.Mesh(
     new THREE.PlaneGeometry(width + FRAME_BORDER * 2, height + FRAME_BORDER * 2),
     new THREE.MeshBasicMaterial({
-      transparent: true,
-      opacity: 0,
+      colorWrite: false,
       depthWrite: false,
       side: THREE.DoubleSide
     })
