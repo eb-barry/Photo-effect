@@ -1,0 +1,64 @@
+# Manually sync F7 virtual gallery texture manifests from *.webp files.
+# GitHub → Actions → "Sync F7 gallery textures" → Run workflow
+#
+# After adding or renaming wall / floor / door textures under
+# assets/features/F7_virtualGallery/textures/, run this workflow to regenerate
+# the corresponding manifest.json files.
+
+name: Sync F7 gallery textures
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_changes:
+        description: "Commit and push updated manifest.json files to this branch"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-f7-gallery-textures-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Regenerate manifests
+        run: node scripts/sync-f7-gallery-textures.mjs
+
+      - name: Detect changes
+        id: changes
+        run: |
+          if git diff --quiet -- \
+            'assets/features/F7_virtualGallery/textures/**/manifest.json'; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No manifest changes."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git status --short -- 'assets/features/F7_virtualGallery/textures/**/manifest.json'
+          fi
+
+      - name: Commit and push manifests
+        if: >-
+          steps.changes.outputs.changed == 'true' &&
+          (inputs.commit_changes == true || inputs.commit_changes == 'true')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          find assets/features/F7_virtualGallery/textures -name manifest.json -print0 | xargs -0 git add
+          git commit -m "chore(F7): sync gallery texture manifests from WebP files"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

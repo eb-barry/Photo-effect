@@ -110,7 +110,7 @@ function normalizeManifestItem(item, basePath, kind, index){
   if (typeof item === "string") item = { file: item };
   if (!item || typeof item !== "object") return null;
   const file = item.file || `${kind}-${String(index + 1).padStart(2, "0")}.webp`;
-  const id = item.id || file.replace(/\.webp$/i, "");
+  const id = item.id || file.replace(/\.[^.]+$/i, "").toLowerCase();
   const label = item.label || (
     kind === "floor"
       ? `地板 ${index + 1}`
