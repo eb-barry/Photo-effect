@@ -72,6 +72,19 @@ function createFrameMesh(width, height, texture, photoId){
   group.add(picture);
   group.userData.pictureMesh = picture;
 
+  const hitPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(width + FRAME_BORDER * 2, height + FRAME_BORDER * 2),
+    new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    })
+  );
+  hitPlane.position.z = FRAME_DEPTH * 0.52;
+  hitPlane.userData = { type: "artwork", photoId };
+  group.add(hitPlane);
+
   return group;
 }
 
@@ -230,7 +243,7 @@ export class Gallery3DScene {
     this._animationId = 0;
     this._cameraTween = null;
     this._zoomedArtworkId = null;
-    this._returnPose = null;
+    this._zoomReturnFov = 68;
     this._zoomAnimating = false;
     this._hadGyroBeforeZoom = false;
     this._raycaster = new THREE.Raycaster();
@@ -301,7 +314,7 @@ export class Gallery3DScene {
     this._textures.forEach(texture => texture.dispose());
     this._textures = [];
     this._zoomedArtworkId = null;
-    this._returnPose = null;
+    this._zoomReturnFov = 68;
     this._zoomAnimating = false;
     this.controls.locked = false;
   }
@@ -647,8 +660,6 @@ export class Gallery3DScene {
         alignMeshFacing(frame, normal);
         this._roomGroup.add(frame);
         this._artworkGroups.push(frame);
-        const pictureMesh = frame.userData.pictureMesh;
-        if (pictureMesh) this._clickables.push(pictureMesh);
         cursor += size.width + 0.45;
       }
     }
@@ -716,8 +727,6 @@ export class Gallery3DScene {
       alignMeshFacing(frame, normal);
       this._roomGroup.add(frame);
       this._artworkGroups.push(frame);
-      const pictureMesh = frame.userData.pictureMesh;
-      if (pictureMesh) this._clickables.push(pictureMesh);
     }
   }
 
@@ -730,21 +739,37 @@ export class Gallery3DScene {
     return {};
   }
 
-  _onCanvasClick(event){
-    if (!this.interactionEnabled || this._zoomAnimating) return;
-
-    if (this._zoomedArtworkId) {
-      this._zoomOutArtwork();
-      return;
-    }
-
+  _setPointerFromEvent(event){
     const rect = this.renderer.domElement.getBoundingClientRect();
     this._pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this._pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     this._raycaster.setFromCamera(this._pointer, this.camera);
-    const hits = this._raycaster.intersectObjects(this._clickables, false);
-    if (!hits.length) return;
+  }
 
+  _pickArtworkHit(){
+    const hits = this._raycaster.intersectObjects(this._artworkGroups, true);
+    for (const hit of hits) {
+      const data = this._resolveInteractiveData(hit.object);
+      if (data.type !== "artwork" || !data.photoId) continue;
+      const group = this._artworkGroups.find(item => item.userData.photoId === data.photoId);
+      if (group) return { group, photoId: data.photoId };
+    }
+    return null;
+  }
+
+  _onCanvasClick(event){
+    if (!this.interactionEnabled || this._zoomAnimating) return;
+    this._setPointerFromEvent(event);
+
+    if (this._zoomedArtworkId) {
+      const artworkHit = this._pickArtworkHit();
+      if (!artworkHit || artworkHit.photoId === this._zoomedArtworkId) {
+        this._zoomOutArtwork();
+      }
+      return;
+    }
+
+    const hits = this._raycaster.intersectObjects(this._clickables, false);
     for (const hit of hits) {
       const data = this._resolveInteractiveData(hit.object);
       if (data.type === "door") {
@@ -756,13 +781,10 @@ export class Gallery3DScene {
       }
     }
 
-    for (const hit of hits) {
-      const data = this._resolveInteractiveData(hit.object);
-      if (data.type === "artwork" && data.photoId) {
-        const group = this._artworkGroups.find(item => item.userData.photoId === data.photoId);
-        if (group) this._zoomInArtwork(group);
-        return;
-      }
+    const artworkHit = this._pickArtworkHit();
+    if (artworkHit) {
+      this._zoomInArtwork(artworkHit.group);
+      return;
     }
 
     for (const hit of hits) {
@@ -824,13 +846,6 @@ export class Gallery3DScene {
     box.getSize(size);
     const artWidth = Math.max(size.x, 0.8);
     const artHeight = Math.max(size.y, 0.8);
-    const yaw = Math.atan2(worldPos.x - roomCenter.x, worldPos.z - roomCenter.z);
-    const horizontal = Math.hypot(worldPos.x - roomCenter.x, worldPos.z - roomCenter.z);
-    const pitch = THREE.MathUtils.clamp(
-      Math.atan2((worldPos.y + 0.05) - roomCenter.y, horizontal),
-      -0.22,
-      0.22
-    );
 
     const aspect = this.camera.aspect;
     const fill = 0.98;
@@ -854,19 +869,21 @@ export class Gallery3DScene {
     const targetPos = worldPos.clone().add(inward.multiplyScalar(Math.max(0.42, distance)));
     targetPos.y = THREE.MathUtils.lerp(EYE_HEIGHT, worldPos.y, 0.35);
     this._clampCameraToRoom(targetPos);
+
+    const lookDx = worldPos.x - targetPos.x;
+    const lookDy = (worldPos.y + 0.05) - targetPos.y;
+    const lookDz = worldPos.z - targetPos.z;
+    const horizontal = Math.hypot(lookDx, lookDz);
+    const yaw = Math.atan2(lookDx, lookDz);
+    const pitch = THREE.MathUtils.clamp(Math.atan2(lookDy, horizontal), -0.22, 0.22);
+
     return { worldPos, roomCenter, yaw, pitch, targetFov, targetPos };
   }
 
   _zoomInArtwork(group){
     const photoId = group.userData.photoId;
-    this._returnPose = {
-      position: this.camera.position.clone(),
-      yaw: this.controls.yaw,
-      pitch: this.controls.pitch,
-      fov: this.camera.fov
-    };
-
     const focus = this._getArtworkFocus(group);
+    this._zoomReturnFov = this.camera.fov;
     this._zoomedArtworkId = photoId;
     group.userData.zoomed = true;
     this.controls.locked = true;
@@ -875,10 +892,10 @@ export class Gallery3DScene {
     this.callbacks.onArtworkZoomChange?.(photoId);
 
     this._animateCameraState({
-      position: focus.roomCenter.clone(),
-      yaw: focus.yaw,
-      pitch: focus.pitch,
-      fov: this._returnPose.fov
+      position: this.camera.position.clone(),
+      yaw: this.controls.yaw,
+      pitch: this.controls.pitch,
+      fov: this.camera.fov
     }, {
       position: focus.targetPos,
       yaw: focus.yaw,
@@ -891,30 +908,24 @@ export class Gallery3DScene {
   }
 
   _zoomOutArtwork(){
-    if (!this._returnPose) {
-      this._zoomedArtworkId = null;
-      this.controls.locked = false;
-      this.callbacks.onArtworkZoomChange?.(null);
-      return;
-    }
-
     const group = this._artworkGroups.find(item => item.userData.photoId === this._zoomedArtworkId);
-    const returnPose = this._returnPose;
-    this._zoomAnimating = true;
+    const roomCenter = this._getRoomCenter();
+    const facingYaw = this.controls.yaw;
+    const facingPitch = this.controls.pitch;
+    const returnFov = this._zoomReturnFov;
 
     this._animateCameraState({
       position: this.camera.position.clone(),
-      yaw: this.controls.yaw,
-      pitch: this.controls.pitch,
+      yaw: facingYaw,
+      pitch: facingPitch,
       fov: this.camera.fov
     }, {
-      position: returnPose.position,
-      yaw: returnPose.yaw,
-      pitch: returnPose.pitch,
-      fov: returnPose.fov
+      position: roomCenter,
+      yaw: facingYaw,
+      pitch: facingPitch,
+      fov: returnFov
     }, 900, () => {
       this._zoomedArtworkId = null;
-      this._returnPose = null;
       this._zoomAnimating = false;
       this.controls.locked = false;
       if (this._hadGyroBeforeZoom) {
@@ -922,7 +933,7 @@ export class Gallery3DScene {
         this._hadGyroBeforeZoom = false;
       }
       if (group) group.userData.zoomed = false;
-      this.controls.setOrientation(returnPose.yaw, returnPose.pitch);
+      this.controls.setOrientation(facingYaw, facingPitch);
       this.callbacks.onArtworkZoomChange?.(null);
     });
   }
@@ -1000,7 +1011,6 @@ export class Gallery3DScene {
       this._zoomOutArtwork();
       return;
     }
-    this._returnPose = null;
     const spawn = getSpawnPose(this.currentRoomId);
     this.camera.fov = 68;
     this.camera.updateProjectionMatrix();
