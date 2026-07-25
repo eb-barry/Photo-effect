@@ -8,6 +8,14 @@ import {
   pickDefaultTextureId,
   resolveGallery3dRoomSurfaceTextures
 } from "./gallery3dAssets.js";
+import {
+  ensureGalleryFrameCatalog,
+  GALLERY_DEFAULT_INNER_FRAME_ID,
+  GALLERY_DEFAULT_OUTER_FRAME_ID,
+  getGalleryInnerFrameCatalog,
+  getGalleryOuterFrameCatalog,
+  pickDefaultFrameId
+} from "./gallery3dFrames.js";
 import { Gallery3DScene } from "./gallery3dScene.js";
 import {
   GALLERY3D_FEATURE_VERSION,
@@ -113,11 +121,22 @@ export async function renderGallery3dPage(root, navigate){
   };
 
   await loadGallery3dTextureCatalogs();
+  await ensureGalleryFrameCatalog();
   Object.assign(state, updateGallery3dState(state, {
     rooms: state.rooms.map(room => ({
       ...room,
       wallTextureId: pickDefaultTextureId(getWallTextureCatalog(), room.wallTextureId),
-      floorTextureId: pickDefaultTextureId(getFloorTextureCatalog(), room.floorTextureId)
+      floorTextureId: pickDefaultTextureId(getFloorTextureCatalog(), room.floorTextureId),
+      outerFrameTypeId: pickDefaultFrameId(
+        getGalleryOuterFrameCatalog(),
+        room.outerFrameTypeId,
+        GALLERY_DEFAULT_OUTER_FRAME_ID
+      ),
+      innerFrameTypeId: pickDefaultFrameId(
+        getGalleryInnerFrameCatalog(),
+        room.innerFrameTypeId,
+        GALLERY_DEFAULT_INNER_FRAME_ID
+      )
     }))
   }));
 
@@ -171,7 +190,11 @@ export async function renderGallery3dPage(root, navigate){
         surfaceTextures,
         photos: getPhotosForRoom(roomId),
         fromRoomId,
-        interactionEnabled: state.activeTab === "gallery" && state.gallerySessionReady
+        interactionEnabled: state.activeTab === "gallery" && state.gallerySessionReady,
+        frameSettings: {
+          outerFrameTypeId: roomSettings.outerFrameTypeId,
+          innerFrameTypeId: roomSettings.innerFrameTypeId
+        }
       });
       if (serial !== rebuildSerial) return;
 
@@ -379,6 +402,8 @@ export async function renderGallery3dPage(root, navigate){
   ui = setupGallery3dUI(root, state, {
     getWallTextures: () => getWallTextureCatalog(),
     getFloorTextures: () => getFloorTextureCatalog(),
+    getOuterFrameTextures: () => getGalleryOuterFrameCatalog(),
+    getInnerFrameTextures: () => getGalleryInnerFrameCatalog(),
     getZoomedPhotoId: () => zoomedPhotoId,
     getUiNotice: () => uiNotice,
     onTabChange: async tab => {
@@ -414,7 +439,11 @@ export async function renderGallery3dPage(root, navigate){
       const roomId = state.selectedRoomNumber;
       const patch = kind === "floor"
         ? { floorTextureId: textureId }
-        : { wallTextureId: textureId };
+        : kind === "wall"
+          ? { wallTextureId: textureId }
+          : kind === "outerFrame"
+            ? { outerFrameTypeId: textureId }
+            : { innerFrameTypeId: textureId };
       Object.assign(state, updateRoomSettings(state, roomId, patch));
       ui.refreshScenePanel();
       persistDraft();

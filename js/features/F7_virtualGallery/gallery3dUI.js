@@ -42,10 +42,26 @@ export function renderControlTabs(activeTab){
   `).join("");
 }
 
+function getActiveTextureId(room, kind){
+  if (kind === "floor") return room.floorTextureId;
+  if (kind === "wall") return room.wallTextureId;
+  if (kind === "outerFrame") return room.outerFrameTypeId;
+  if (kind === "innerFrame") return room.innerFrameTypeId;
+  return null;
+}
+
+function getTextureCarouselLabel(kind){
+  if (kind === "floor") return "地板材質";
+  if (kind === "wall") return "牆面材質";
+  if (kind === "outerFrame") return "畫框外框材質";
+  if (kind === "innerFrame") return "畫框內框材質";
+  return "材質";
+}
+
 function renderTextureCarousel(state, textures, kind){
   const room = state.rooms.find(item => item.roomId === state.selectedRoomNumber)
     || state.rooms[0];
-  const activeId = kind === "floor" ? room.floorTextureId : room.wallTextureId;
+  const activeId = getActiveTextureId(room, kind);
   const buttons = textures.map(item => `
     <button
       type="button"
@@ -66,13 +82,18 @@ function renderTextureCarousel(state, textures, kind){
   return `
     <div class="crystal-asset-carousel" data-gallery3d-carousel="${kind}">
       <span class="crystal-carousel-hint crystal-carousel-hint-left hidden" aria-hidden="true"></span>
-      <div class="crystal-asset-track" role="group" aria-label="${kind === "floor" ? "地板材質" : "牆面材質"}">${buttons}</div>
+      <div class="crystal-asset-track" role="group" aria-label="${getTextureCarouselLabel(kind)}">${buttons}</div>
       <span class="crystal-carousel-hint crystal-carousel-hint-right hidden" aria-hidden="true"></span>
     </div>
   `;
 }
 
-export function renderScenePanel(state, { walls = [], floors = [] } = {}){
+export function renderScenePanel(state, {
+  walls = [],
+  floors = [],
+  outerFrames = [],
+  innerFrames = []
+} = {}){
   const roomOptions = Array.from({ length: GALLERY3D_ROOM_COUNT }, (_, index) => {
     const roomId = index + 1;
     const selected = state.selectedRoomNumber === roomId ? "selected" : "";
@@ -81,7 +102,17 @@ export function renderScenePanel(state, { walls = [], floors = [] } = {}){
 
   const floorActive = state.sceneMaterialTarget === "floor";
   const wallActive = state.sceneMaterialTarget === "wall";
-  const textures = floorActive ? floors : wallActive ? walls : [];
+  const outerFrameActive = state.sceneMaterialTarget === "outerFrame";
+  const innerFrameActive = state.sceneMaterialTarget === "innerFrame";
+  const textures = floorActive
+    ? floors
+    : wallActive
+      ? walls
+      : outerFrameActive
+        ? outerFrames
+        : innerFrameActive
+          ? innerFrames
+          : [];
 
   return `
     <div class="gallery3d-scene-panel">
@@ -92,16 +123,18 @@ export function renderScenePanel(state, { walls = [], floors = [] } = {}){
         </select>
       </div>
 
-      <div class="segment gallery3d-material-segment" role="group" aria-label="材質類型">
+      <div class="segment gallery3d-material-segment gallery3d-material-segment-grid" role="group" aria-label="材質類型">
         <button type="button" class="gallery3d-material-btn ${floorActive ? "active" : ""}" data-gallery3d-material="floor">地板</button>
         <button type="button" class="gallery3d-material-btn ${wallActive ? "active" : ""}" data-gallery3d-material="wall">牆面</button>
+        <button type="button" class="gallery3d-material-btn ${outerFrameActive ? "active" : ""}" data-gallery3d-material="outerFrame">外框</button>
+        <button type="button" class="gallery3d-material-btn ${innerFrameActive ? "active" : ""}" data-gallery3d-material="innerFrame">內框</button>
       </div>
 
-      <p class="note gallery3d-note">選擇房間後，再點地板或牆面，下方只會顯示一列對應材質縮圖。</p>
+      <p class="note gallery3d-note">選擇房間後，再點材質類型，下方會顯示對應縮圖。畫框外框 55px、內框 25px（沿用畫框功能材質）。</p>
 
       ${textures.length
         ? renderTextureCarousel(state, textures, state.sceneMaterialTarget)
-        : `<p class="note gallery3d-note gallery3d-texture-empty">請先點「地板」或「牆面」以選擇材質。</p>`}
+        : `<p class="note gallery3d-note gallery3d-texture-empty">請先點「地板」、「牆面」、「外框」或「內框」以選擇材質。</p>`}
     </div>
   `;
 }
@@ -169,6 +202,7 @@ export function renderGalleryTutorial(){
         <p class="gallery3d-tutorial-title">歡迎來到 3D 展館</p>
         <ul class="gallery3d-tutorial-list">
           <li>拖曳畫面（或轉動手機）環顧四周</li>
+          <li>點<strong>牆面</strong>往後退一步（可連點多次）</li>
           <li>點<strong>地板</strong>向前移動</li>
           <li>點<strong>畫作</strong>放大，再點一次縮小</li>
           <li>點<strong>門口</strong>切換展間</li>
@@ -243,7 +277,9 @@ export function setupGallery3dUI(root, state, callbacks){
     if (!sceneHost) return;
     sceneHost.innerHTML = renderScenePanel(state, {
       walls: callbacks.getWallTextures?.() || [],
-      floors: callbacks.getFloorTextures?.() || []
+      floors: callbacks.getFloorTextures?.() || [],
+      outerFrames: callbacks.getOuterFrameTextures?.() || [],
+      innerFrames: callbacks.getInnerFrameTextures?.() || []
     });
 
     sceneHost.querySelector("#gallery3dRoomSelect")?.addEventListener("change", event => {
