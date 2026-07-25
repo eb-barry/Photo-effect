@@ -19,6 +19,13 @@ import { bakeGalleryFramedTexture } from "./gallery3dFrames.js";
 const FRAME_DEPTH = 0.06;
 const WALL_STEP_BACK_DISTANCE = 1.15;
 
+function lerpAngle(from, to, t){
+  let delta = to - from;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return from + delta * t;
+}
+
 const FRAME_SCALE = 1.5;
 
 function frameSizeForPhoto(photo){
@@ -73,7 +80,7 @@ function alignMeshFacing(mesh, normal){
 
 function createFrameMesh(width, height, texture, photoId){
   const group = new THREE.Group();
-  group.userData = { type: "artwork", photoId, zoomed: false };
+  group.userData = { type: "artwork", photoId, zoomed: false, artWidth: width, artHeight: height };
 
   const picture = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
@@ -260,6 +267,8 @@ export class Gallery3DScene {
     this._cameraTween = null;
     this._zoomedArtworkId = null;
     this._zoomReturnFov = 68;
+    this._zoomFocusYaw = 0;
+    this._zoomFocusPitch = 0;
     this._cameraAnimating = false;
     this._hadGyroBeforeZoom = false;
     this._frameSettings = null;
@@ -332,6 +341,8 @@ export class Gallery3DScene {
     this._textures = [];
     this._zoomedArtworkId = null;
     this._zoomReturnFov = 68;
+    this._zoomFocusYaw = 0;
+    this._zoomFocusPitch = 0;
     this._cameraAnimating = false;
     this.controls.locked = false;
   }
@@ -934,52 +945,64 @@ export class Gallery3DScene {
   }
 
   _getArtworkFocus(group){
+    const pictureMesh = group.userData.pictureMesh;
+    const artWidth = Number(group.userData.artWidth) || 1;
+    const artHeight = Number(group.userData.artHeight) || 1;
+
+    pictureMesh.updateWorldMatrix(true, false);
     const worldPos = new THREE.Vector3();
-    group.getWorldPosition(worldPos);
+    pictureMesh.getWorldPosition(worldPos);
+
     const roomCenter = this._getRoomCenter();
-    const box = new THREE.Box3().setFromObject(group);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const artWidth = Math.max(size.x, 0.8);
-    const artHeight = Math.max(size.y, 0.8);
-
-    const aspect = this.camera.aspect;
-    const fill = 0.98;
-    let targetFov = 22;
-    let fovRad = THREE.MathUtils.degToRad(targetFov);
-    let hFov = 2 * Math.atan(Math.tan(fovRad / 2) * aspect);
-    let distance = (artWidth * fill * 0.5) / Math.tan(hFov / 2);
-    const vDistance = (artHeight * fill * 0.5) / Math.tan(fovRad / 2);
-    if (vDistance > distance) {
-      distance = vDistance;
-      targetFov = THREE.MathUtils.radToDeg(2 * Math.atan((artHeight * fill * 0.5) / distance));
-      fovRad = THREE.MathUtils.degToRad(targetFov);
-      hFov = 2 * Math.atan(Math.tan(fovRad / 2) * aspect);
-      distance = (artWidth * fill * 0.5) / Math.tan(hFov / 2);
-    }
-
     const inward = new THREE.Vector3().subVectors(roomCenter, worldPos);
     inward.y = 0;
-    if (inward.lengthSq() < 0.01) inward.set(0, 0, 1);
+    if (inward.lengthSq() < 0.0001) inward.set(0, 0, 1);
     inward.normalize();
-    const targetPos = worldPos.clone().add(inward.multiplyScalar(Math.max(0.42, distance)));
-    targetPos.y = THREE.MathUtils.lerp(EYE_HEIGHT, worldPos.y, 0.35);
-    this._clampCameraToRoom(targetPos);
+
+    const fill = 0.98;
+    const aspect = this.camera.aspect;
+    const minDistance = 0.42;
+    const maxDistance = 4.2;
+    const halfWidth = artWidth * fill * 0.5;
+
+    let distance = Math.max(minDistance, halfWidth / Math.tan(THREE.MathUtils.degToRad(34)));
+    let targetFov = 40;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const hFovRad = 2 * Math.atan(halfWidth / distance);
+      let vFovRad = 2 * Math.atan(Math.tan(hFovRad / 2) / aspect);
+      const visibleHeight = 2 * distance * Math.tan(vFovRad / 2);
+      if (visibleHeight + 0.02 < artHeight * fill && distance < maxDistance) {
+        distance = Math.min(maxDistance, distance + 0.12);
+        continue;
+      }
+      targetFov = THREE.MathUtils.radToDeg(vFovRad);
+      if (targetFov > 72 && distance < maxDistance) {
+        distance = Math.min(maxDistance, distance + 0.12);
+        continue;
+      }
+      break;
+    }
+    targetFov = THREE.MathUtils.clamp(targetFov, 12, 72);
+
+    const targetPos = worldPos.clone().addScaledVector(inward, distance);
+    targetPos.y = worldPos.y;
 
     const lookDx = worldPos.x - targetPos.x;
-    const lookDy = (worldPos.y + 0.05) - targetPos.y;
+    const lookDy = worldPos.y - targetPos.y;
     const lookDz = worldPos.z - targetPos.z;
     const horizontal = Math.hypot(lookDx, lookDz);
     const yaw = Math.atan2(lookDx, lookDz);
-    const pitch = THREE.MathUtils.clamp(Math.atan2(lookDy, horizontal), -0.22, 0.22);
+    const pitch = THREE.MathUtils.clamp(Math.atan2(lookDy, horizontal), -0.35, 0.35);
 
-    return { worldPos, roomCenter, yaw, pitch, targetFov, targetPos };
+    return { worldPos, yaw, pitch, targetFov, targetPos };
   }
 
   _zoomInArtwork(group){
     const photoId = group.userData.photoId;
     const focus = this._getArtworkFocus(group);
     this._zoomReturnFov = this.camera.fov;
+    this._zoomFocusYaw = focus.yaw;
+    this._zoomFocusPitch = focus.pitch;
     this._zoomedArtworkId = photoId;
     group.userData.zoomed = true;
     this.controls.locked = true;
@@ -997,16 +1020,16 @@ export class Gallery3DScene {
       yaw: focus.yaw,
       pitch: focus.pitch,
       fov: focus.targetFov
-    }, 1050, () => {
+    }, 1100, () => {
       this.controls.setOrientation(focus.yaw, focus.pitch);
     });
   }
 
   _zoomOutArtwork(){
     const roomCenter = this._getRoomCenter();
-    const facingYaw = this.controls.yaw;
-    const facingPitch = this.controls.pitch;
-    const returnFov = this._zoomReturnFov;
+    const facingYaw = this._zoomFocusYaw;
+    const facingPitch = this._zoomFocusPitch;
+    const returnFov = this._zoomReturnFov || 68;
 
     this._animateCameraState({
       position: this.camera.position.clone(),
@@ -1018,7 +1041,7 @@ export class Gallery3DScene {
       yaw: facingYaw,
       pitch: facingPitch,
       fov: returnFov
-    }, 900, () => {
+    }, 950, () => {
       this.controls.setOrientation(facingYaw, facingPitch);
       this._clearZoomState();
     });
@@ -1041,7 +1064,7 @@ export class Gallery3DScene {
         : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
       this.camera.position.lerpVectors(fromState.position, toState.position, eased);
-      const nextYaw = THREE.MathUtils.lerp(fromState.yaw, toState.yaw, eased);
+      const nextYaw = lerpAngle(fromState.yaw, toState.yaw, eased);
       const nextPitch = THREE.MathUtils.lerp(fromState.pitch, toState.pitch, eased);
       this.camera.fov = THREE.MathUtils.lerp(fromState.fov, toState.fov, eased);
       this.camera.updateProjectionMatrix();
