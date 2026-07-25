@@ -34,7 +34,7 @@ import {
   updateRoomSettings
 } from "./gallery3dState.js";
 import { prepareGalleryPhoto, shouldOfferGyro } from "./gallery3dTool.js";
-import { renderControlTabs, setupGallery3dUI } from "./gallery3dUI.js";
+import { setupGallery3dUI } from "./gallery3dUI.js";
 
 export function initGallery3dPage(root, shared = {}){
   return renderGallery3dPage(root, shared.goHome || shared.navigate || (() => {}));
@@ -42,9 +42,16 @@ export function initGallery3dPage(root, shared = {}){
 
 export async function renderGallery3dPage(root, navigate){
   const savedState = loadGallery3dDraft() || createDefaultGallery3dState();
+  if (savedState.activeTab === "gallery") {
+    savedState.activeTab = "scene";
+    savedState.gallerySessionReady = false;
+  }
   const state = { ...savedState };
+  if (state.activeTab === "gallery" && !state.gallerySessionReady) {
+    state.activeTab = "scene";
+  }
   if (state.activeTab === "gallery" && !state.photos.length) {
-    state.activeTab = "photos";
+    state.activeTab = "scene";
   }
   let zoomedPhotoId = null;
   let uiNotice = "";
@@ -74,7 +81,8 @@ export async function renderGallery3dPage(root, navigate){
 
       <section class="panel gallery3d-panel">
         <div class="canvas-wrap crystal-canvas-wrap gallery3d-canvas-wrap" id="gallery3dCanvasWrap">
-          <div class="empty-canvas" id="gallery3dEmptyCanvas">切換至展館分頁即可進入 3D 模式</div>
+          <div class="gallery3d-material-preview-host" id="gallery3dMaterialPreviewHost" aria-hidden="true"></div>
+          <div class="empty-canvas" id="gallery3dEmptyCanvas">上傳照片後，可至「展間佈置」預覽材質</div>
           <div class="gallery3d-loading hidden" id="gallery3dLoading" aria-live="polite">載入展間中…</div>
           <div class="gallery3d-stage" id="gallery3dStage"></div>
           <div id="gallery3dOverlayHost"></div>
@@ -82,15 +90,11 @@ export async function renderGallery3dPage(root, navigate){
 
         <div id="gallery3dGalleryGateHost" hidden></div>
 
-        <div class="crystal-tab-bar gallery3d-tab-bar" id="gallery3dTabBar" role="tablist" aria-label="3D 展館功能">
-          ${renderControlTabs(state.activeTab)}
-        </div>
+        <div class="gallery3d-tab-bar" id="gallery3dTabBar" role="tablist" aria-label="3D 展館功能"></div>
 
         <div class="crystal-tab-panels gallery3d-tab-panels" id="gallery3dTabPanels">
-          <div id="gallery3dGalleryPanel" class="crystal-tab-panel ${state.activeTab === "gallery" ? "" : "hidden"}" role="tabpanel" aria-label="展館">
-            <p class="note gallery3d-gallery-note">點「展館」分頁即進入全螢幕 3D 模式；手機上會請您同意啟用陀螺儀。</p>
-          </div>
-          <div id="gallery3dScenePanel" class="crystal-tab-panel ${state.activeTab === "scene" ? "" : "hidden"}" role="tabpanel" aria-label="場景">
+          <div id="gallery3dGalleryPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="展館" hidden></div>
+          <div id="gallery3dScenePanel" class="crystal-tab-panel ${state.activeTab === "scene" ? "" : "hidden"}" role="tabpanel" aria-label="展間佈置">
             <div id="gallery3dSceneHost"></div>
           </div>
           <div id="gallery3dPhotosPanel" class="crystal-tab-panel ${state.activeTab === "photos" ? "" : "hidden"}" role="tabpanel" aria-label="相片">
@@ -146,8 +150,7 @@ export async function renderGallery3dPage(root, navigate){
   const persistDraft = () => saveGallery3dDraft(state);
 
   const shouldRender3d = () => (
-    state.activeTab === "scene"
-    || (state.activeTab === "gallery" && state.gallerySessionReady)
+    state.activeTab === "gallery" && state.gallerySessionReady
   );
 
   const getPhotosForRoom = roomId => state.photos.filter(photo => photo.roomId === Number(roomId));
@@ -269,6 +272,14 @@ export async function renderGallery3dPage(root, navigate){
 
   const enterGallerySession = async () => {
     if (state.gallerySessionReady) return;
+    if (!state.photos.length) {
+      uiNotice = "請先上傳至少一張照片，再開始導覽。";
+      Object.assign(state, updateGallery3dState(state, { activeTab: "photos" }));
+      ui.refreshAll();
+      persistDraft();
+      return;
+    }
+    Object.assign(state, updateGallery3dState(state, { activeTab: "gallery" }));
     await ensureScene();
     Object.assign(state, updateGallery3dState(state, { gallerySessionReady: true }));
     ui.refreshAll();
@@ -300,7 +311,8 @@ export async function renderGallery3dPage(root, navigate){
     await exitFullscreen();
     Object.assign(state, updateGallery3dState(state, {
       gallerySessionReady: false,
-      gyroEnabled: false
+      gyroEnabled: false,
+      activeTab: "scene"
     }));
     zoomedPhotoId = null;
     uiNotice = "";
@@ -315,7 +327,8 @@ export async function renderGallery3dPage(root, navigate){
     scene?.disableGyro();
     Object.assign(state, updateGallery3dState(state, {
       gallerySessionReady: false,
-      gyroEnabled: false
+      gyroEnabled: false,
+      activeTab: "photos"
     }));
     zoomedPhotoId = null;
     ui?.showGyroPrompt(false);
@@ -390,7 +403,7 @@ export async function renderGallery3dPage(root, navigate){
         await rebuildScene();
       } catch (error) {
         console.warn("[F7 3D 展館] 更新展間預覽失敗，照片已加入：", error);
-        uiNotice = "照片已加入，但展間預覽更新失敗，請切換至場景分頁重試。";
+        uiNotice = "照片已加入，但展間預覽更新失敗，請切換至展間佈置重試。";
         ui?.refreshOverlay();
       }
 
@@ -407,6 +420,7 @@ export async function renderGallery3dPage(root, navigate){
   };
 
   ui = setupGallery3dUI(root, state, {
+    getRoomSettings: () => getRoomSettings(state, state.selectedRoomNumber),
     getWallTextures: () => getWallTextureCatalog(),
     getFloorTextures: () => getFloorTextureCatalog(),
     getDoorTextures: () => getDoorTextureCatalog(),
@@ -423,18 +437,19 @@ export async function renderGallery3dPage(root, navigate){
       persistDraft();
       if (tab === "gallery") {
         await enterGallerySession();
-      } else {
-        await rebuildScene();
       }
     },
+    onStartTour: async () => {
+      await enterGallerySession();
+    },
     onRoomNumberChange: async roomNumber => {
-      Object.assign(state, updateGallery3dState(state, { selectedRoomNumber: roomNumber }));
+      Object.assign(state, updateGallery3dState(state, {
+        selectedRoomNumber: roomNumber,
+        currentRoomId: roomNumber
+      }));
       ui.refreshScenePanel();
+      ui.refreshMaterialPreview();
       persistDraft();
-      if (state.activeTab === "scene") {
-        Object.assign(state, updateGallery3dState(state, { currentRoomId: roomNumber }));
-        await rebuildScene();
-      }
     },
     onMaterialTargetToggle: async target => {
       Object.assign(state, updateGallery3dState(state, {
@@ -456,8 +471,9 @@ export async function renderGallery3dPage(root, navigate){
               : { innerFrameTypeId: textureId };
       Object.assign(state, updateRoomSettings(state, roomId, patch));
       ui.refreshScenePanel();
+      ui.refreshMaterialPreview();
       persistDraft();
-      if (state.activeTab === "scene" && state.currentRoomId === roomId) {
+      if (state.gallerySessionReady && state.currentRoomId === roomId) {
         await rebuildScene();
       }
     },
@@ -560,10 +576,8 @@ export async function renderGallery3dPage(root, navigate){
 
   imageInput.addEventListener("change", handlePhotoUpload);
 
-  if (state.activeTab === "gallery") {
+  if (state.activeTab === "gallery" && state.gallerySessionReady) {
     await enterGallerySession();
-  } else if (state.activeTab === "scene") {
-    await rebuildScene();
   } else {
     ui.refreshAll();
   }

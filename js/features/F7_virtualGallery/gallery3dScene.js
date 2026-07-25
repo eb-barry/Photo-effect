@@ -357,6 +357,7 @@ export class Gallery3DScene {
     this._zoomFocusYaw = 0;
     this._zoomFocusPitch = 0;
     this._cameraAnimating = false;
+    this._doorTexture = null;
     this.controls.locked = false;
   }
 
