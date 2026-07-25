@@ -18,9 +18,11 @@ import {
 const FRAME_DEPTH = 0.06;
 const FRAME_BORDER = 0.08;
 
+const FRAME_SCALE = 1.5;
+
 function frameSizeForAspect(aspect){
-  if (aspect === "4x3") return { width: 1.35, height: 1.02 };
-  return { width: 0.82, height: 1.02 };
+  if (aspect === "4x3") return { width: 1.35 * FRAME_SCALE, height: 1.02 * FRAME_SCALE };
+  return { width: 0.82 * FRAME_SCALE, height: 1.02 * FRAME_SCALE };
 }
 
 function createSurfaceTexture(sourceCanvas, repeatX, repeatY){
@@ -628,7 +630,7 @@ export class Gallery3DScene {
       if (!chunk.length) continue;
       const span = range.max - range.min;
       let cursor = range.min + span / 2;
-      const totalWidth = chunk.reduce((sum, photo) => sum + frameSizeForAspect(photo.aspect).width + 0.3, -0.3);
+      const totalWidth = chunk.reduce((sum, photo) => sum + frameSizeForAspect(photo.aspect).width + 0.45, -0.45);
       cursor -= totalWidth / 2;
       for (const photo of chunk) {
         const size = frameSizeForAspect(photo.aspect);
@@ -647,7 +649,7 @@ export class Gallery3DScene {
         this._artworkGroups.push(frame);
         const pictureMesh = frame.userData.pictureMesh;
         if (pictureMesh) this._clickables.push(pictureMesh);
-        cursor += size.width + 0.3;
+        cursor += size.width + 0.45;
       }
     }
   }

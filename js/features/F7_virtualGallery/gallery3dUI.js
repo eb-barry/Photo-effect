@@ -107,8 +107,7 @@ export function renderScenePanel(state, { walls = [], floors = [] } = {}){
 }
 
 export function renderPhotosPanel(state){
-  const count = state.photos.length;
-  const remaining = GALLERY3D_MAX_PHOTOS - count;
+  const remaining = GALLERY3D_MAX_PHOTOS - state.photos.length;
   const roomCounts = getPhotoCountsByRoom(state.photos);
   const roomSummary = Array.from({ length: GALLERY3D_ROOM_COUNT }, (_, index) => {
     const roomId = index + 1;
@@ -124,7 +123,6 @@ export function renderPhotosPanel(state){
   return `
     <div class="gallery3d-photo-panel">
       <div class="gallery3d-photo-head">
-        <p class="gallery3d-photo-count">已上傳 <strong>${count}</strong> / ${GALLERY3D_MAX_PHOTOS} 張</p>
         <button type="button" class="gallery3d-upload-btn" id="gallery3dUploadBtn" ${remaining <= 0 ? "disabled" : ""}>
           新增照片
         </button>

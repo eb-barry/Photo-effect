@@ -2,7 +2,7 @@
 
 import { createScaledDataUrl } from "../F6_photoWall/photoWallTool.js";
 
-export const GALLERY_TEXTURE_MAX_EDGE = 1024;
+export const GALLERY_TEXTURE_MAX_EDGE = 2048;
 export const GALLERY_THUMB_MAX_EDGE = 192;
 export const ASPECT_TOLERANCE = 0.06;
 
