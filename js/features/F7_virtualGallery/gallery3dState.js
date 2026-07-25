@@ -3,7 +3,7 @@
 import { GALLERY3D_ROOM_COUNT } from "./gallery3dRooms.js";
 
 export const GALLERY3D_FEATURE_ID = "F7_virtualGallery";
-export const GALLERY3D_FEATURE_VERSION = "0.3.10";
+export const GALLERY3D_FEATURE_VERSION = "0.3.11";
 export const GALLERY3D_DRAFT_KEY = "photoEffects.F7_virtualGallery.draft.v3";
 export const GALLERY3D_TUTORIAL_KEY = "photoEffects.F7_virtualGallery.tutorial.v1";
 export const GALLERY3D_MAX_PHOTOS = 100;
@@ -146,10 +146,16 @@ export function updateGallery3dState(currentState, partial){
 }
 
 export function normalizePhotoRecord(photo){
+  const legacyWidth = photo?.aspect === "4x3" ? 4 : 3;
+  const legacyHeight = photo?.aspect === "4x3" ? 3 : 4;
+  const width = Number(photo?.width) > 0 ? Number(photo.width) : legacyWidth;
+  const height = Number(photo?.height) > 0 ? Number(photo.height) : legacyHeight;
   return {
     id: photo?.id || createPhotoId(),
     roomId: clampRoomNumber(photo?.roomId || 1),
-    aspect: photo?.aspect === "4x3" ? "4x3" : "3x4",
+    aspect: width >= height ? "4x3" : "3x4",
+    width,
+    height,
     thumbDataUrl: photo?.thumbDataUrl || null,
     textureDataUrl: photo?.textureDataUrl || photo?.workDataUrl || photo?.dataUrl || null,
     dataUrl: photo?.dataUrl || null
@@ -189,7 +195,9 @@ export function saveGallery3dDraft(state){
       photoMeta: state.photos.map(photo => ({
         id: photo.id,
         roomId: photo.roomId,
-        aspect: photo.aspect
+        aspect: photo.aspect,
+        width: photo.width,
+        height: photo.height
       })),
       updatedAt: Date.now()
     };

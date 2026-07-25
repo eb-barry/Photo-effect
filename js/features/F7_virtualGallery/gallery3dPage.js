@@ -336,6 +336,8 @@ export async function renderGallery3dPage(root, navigate){
           nextPhotos.push({
             id: createPhotoId(),
             aspect: prepared.aspect,
+            width: prepared.width,
+            height: prepared.height,
             dataUrl: prepared.dataUrl,
             textureDataUrl: prepared.textureDataUrl,
             thumbDataUrl: prepared.thumbDataUrl

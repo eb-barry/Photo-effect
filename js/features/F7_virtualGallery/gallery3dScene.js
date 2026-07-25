@@ -20,9 +20,34 @@ const FRAME_BORDER = 0.08;
 
 const FRAME_SCALE = 1.5;
 
-function frameSizeForAspect(aspect){
-  if (aspect === "4x3") return { width: 1.35 * FRAME_SCALE, height: 1.02 * FRAME_SCALE };
-  return { width: 0.82 * FRAME_SCALE, height: 1.02 * FRAME_SCALE };
+function frameSizeForPhoto(photo){
+  const legacyWidth = photo?.aspect === "4x3" ? 4 : 3;
+  const legacyHeight = photo?.aspect === "4x3" ? 3 : 4;
+  const sourceWidth = Number(photo?.width) > 0 ? Number(photo.width) : legacyWidth;
+  const sourceHeight = Number(photo?.height) > 0 ? Number(photo.height) : legacyHeight;
+  const ratio = sourceWidth / sourceHeight;
+  const maxHeight = 1.02 * FRAME_SCALE;
+  const maxWidth = 1.35 * FRAME_SCALE;
+
+  let width;
+  let height;
+  if (ratio >= 1) {
+    width = maxWidth;
+    height = width / ratio;
+    if (height > maxHeight) {
+      height = maxHeight;
+      width = height * ratio;
+    }
+  } else {
+    height = maxHeight;
+    width = height * ratio;
+    if (width > maxWidth) {
+      width = maxWidth;
+      height = width / ratio;
+    }
+  }
+
+  return { width, height };
 }
 
 function createSurfaceTexture(sourceCanvas, repeatX, repeatY){
@@ -642,10 +667,10 @@ export class Gallery3DScene {
       if (!chunk.length) continue;
       const span = range.max - range.min;
       let cursor = range.min + span / 2;
-      const totalWidth = chunk.reduce((sum, photo) => sum + frameSizeForAspect(photo.aspect).width + 0.45, -0.45);
+      const totalWidth = chunk.reduce((sum, photo) => sum + frameSizeForPhoto(photo).width + 0.45, -0.45);
       cursor -= totalWidth / 2;
       for (const photo of chunk) {
-        const size = frameSizeForAspect(photo.aspect);
+        const size = frameSizeForPhoto(photo);
         const texture = await loader.loadAsync(photo.textureDataUrl);
         texture.colorSpace = THREE.SRGBColorSpace;
         this._textures.push(texture);
@@ -712,7 +737,7 @@ export class Gallery3DScene {
       const photo = photos[index];
       const angle = angles[index] ?? (-Math.PI / 2 + (Math.PI * index) / Math.max(photos.length, 1));
       const normal = getRoundWallInwardNormal(angle);
-      const size = frameSizeForAspect(photo.aspect);
+      const size = frameSizeForPhoto(photo);
       const texture = await loader.loadAsync(photo.textureDataUrl);
       texture.colorSpace = THREE.SRGBColorSpace;
       this._textures.push(texture);
