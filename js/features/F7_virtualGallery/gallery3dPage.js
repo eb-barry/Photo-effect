@@ -89,7 +89,13 @@ export async function renderGallery3dPage(root, navigate){
         </div>
       </section>
 
-      <input id="gallery3dImageInput" class="file-input-hidden" type="file" accept="image/*" multiple />
+      <input
+        id="gallery3dImageInput"
+        class="file-input-hidden gallery3d-image-input"
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
+        multiple
+      />
     </main>
   `;
 
@@ -274,21 +280,24 @@ export async function renderGallery3dPage(root, navigate){
     scene?.stop();
   };
 
-  const requestPhotoUpload = async () => {
+  const pauseGallerySessionForUpload = () => {
+    if (!state.gallerySessionReady) return;
+    scene?.disableGyro();
+    Object.assign(state, updateGallery3dState(state, {
+      gallerySessionReady: false,
+      gyroEnabled: false
+    }));
+    zoomedPhotoId = null;
+    ui?.showGyroPrompt(false);
+    ui?.showTutorial(false);
+    scene?.stop();
+  };
+
+  const requestPhotoUpload = () => {
+    // iOS only delivers picked files when input.click() runs synchronously
+    // inside the original tap handler. Never await before opening the picker.
     if (document.fullscreenElement) {
-      await exitFullscreen();
-    }
-    if (state.gallerySessionReady) {
-      scene?.disableGyro();
-      Object.assign(state, updateGallery3dState(state, {
-        gallerySessionReady: false,
-        gyroEnabled: false
-      }));
-      zoomedPhotoId = null;
-      ui?.showGyroPrompt(false);
-      ui?.showTutorial(false);
-      ui?.refreshAll();
-      scene?.stop();
+      void document.exitFullscreen();
     }
     imageInput.click();
   };
@@ -296,6 +305,16 @@ export async function renderGallery3dPage(root, navigate){
   const handlePhotoUpload = async event => {
     const files = [...(event.target.files || [])];
     if (!files.length) return;
+
+    pauseGallerySessionForUpload();
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+      } catch (error) {
+        console.warn("[F7 3D 展館] 無法離開全螢幕：", error);
+      }
+    }
+    ui?.refreshAll();
 
     const remaining = GALLERY3D_MAX_PHOTOS - state.photos.length;
     if (remaining <= 0) {
