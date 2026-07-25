@@ -8,6 +8,7 @@
  * Drop files into:
  *   assets/features/F7_virtualGallery/textures/walls/wall-01.webp
  *   assets/features/F7_virtualGallery/textures/floors/floor-01.webp
+ *   assets/features/F7_virtualGallery/textures/doors/door-01.webp
  */
 
 import fs from "node:fs";
@@ -28,6 +29,12 @@ const TARGETS = [
     dir: path.join(root, "assets/features/F7_virtualGallery/textures/floors"),
     pattern: /^floor[-_]?(\d+)\.webp$/i,
     label: n => `地板 ${n}`
+  },
+  {
+    kind: "door",
+    dir: path.join(root, "assets/features/F7_virtualGallery/textures/doors"),
+    pattern: /^door[-_]?(\d+)\.webp$/i,
+    label: n => `門框 ${n}`
   }
 ];
 

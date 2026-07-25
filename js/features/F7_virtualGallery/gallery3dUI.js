@@ -45,6 +45,7 @@ export function renderControlTabs(activeTab){
 function getActiveTextureId(room, kind){
   if (kind === "floor") return room.floorTextureId;
   if (kind === "wall") return room.wallTextureId;
+  if (kind === "door") return room.doorTextureId;
   if (kind === "outerFrame") return room.outerFrameTypeId;
   if (kind === "innerFrame") return room.innerFrameTypeId;
   return null;
@@ -53,6 +54,7 @@ function getActiveTextureId(room, kind){
 function getTextureCarouselLabel(kind){
   if (kind === "floor") return "地板材質";
   if (kind === "wall") return "牆面材質";
+  if (kind === "door") return "門框材質";
   if (kind === "outerFrame") return "畫框外框材質";
   if (kind === "innerFrame") return "畫框內框材質";
   return "材質";
@@ -91,6 +93,7 @@ function renderTextureCarousel(state, textures, kind){
 export function renderScenePanel(state, {
   walls = [],
   floors = [],
+  doors = [],
   outerFrames = [],
   innerFrames = []
 } = {}){
@@ -102,17 +105,20 @@ export function renderScenePanel(state, {
 
   const floorActive = state.sceneMaterialTarget === "floor";
   const wallActive = state.sceneMaterialTarget === "wall";
+  const doorActive = state.sceneMaterialTarget === "door";
   const outerFrameActive = state.sceneMaterialTarget === "outerFrame";
   const innerFrameActive = state.sceneMaterialTarget === "innerFrame";
   const textures = floorActive
     ? floors
     : wallActive
       ? walls
-      : outerFrameActive
-        ? outerFrames
-        : innerFrameActive
-          ? innerFrames
-          : [];
+      : doorActive
+        ? doors
+        : outerFrameActive
+          ? outerFrames
+          : innerFrameActive
+            ? innerFrames
+            : [];
 
   return `
     <div class="gallery3d-scene-panel">
@@ -127,14 +133,15 @@ export function renderScenePanel(state, {
         <button type="button" class="gallery3d-material-btn ${floorActive ? "active" : ""}" data-gallery3d-material="floor">地板</button>
         <button type="button" class="gallery3d-material-btn ${wallActive ? "active" : ""}" data-gallery3d-material="wall">牆面</button>
         <button type="button" class="gallery3d-material-btn ${outerFrameActive ? "active" : ""}" data-gallery3d-material="outerFrame">外框</button>
-        <button type="button" class="gallery3d-material-btn ${innerFrameActive ? "active" : ""}" data-gallery3d-material="innerFrame">內框</button>
+        <button type="button" class="gallery3d-material-btn ${doorActive ? "active" : ""}" data-gallery3d-material="door">門框</button>
+        <button type="button" class="gallery3d-material-btn gallery3d-material-btn-secondary ${innerFrameActive ? "active" : ""}" data-gallery3d-material="innerFrame">內框</button>
       </div>
 
-      <p class="note gallery3d-note">選擇房間後，再點材質類型，下方會顯示對應縮圖。畫框外框 55px、內框 25px（沿用畫框功能材質）。</p>
+      <p class="note gallery3d-note">選擇房間後，再點材質類型，下方會顯示對應縮圖。門框為 1024×2048 貼圖；畫框外框 55px、內框 25px。</p>
 
       ${textures.length
         ? renderTextureCarousel(state, textures, state.sceneMaterialTarget)
-        : `<p class="note gallery3d-note gallery3d-texture-empty">請先點「地板」、「牆面」、「外框」或「內框」以選擇材質。</p>`}
+        : `<p class="note gallery3d-note gallery3d-texture-empty">請先點「地板」、「牆面」、「外框」、「門框」或「內框」以選擇材質。</p>`}
     </div>
   `;
 }
@@ -278,6 +285,7 @@ export function setupGallery3dUI(root, state, callbacks){
     sceneHost.innerHTML = renderScenePanel(state, {
       walls: callbacks.getWallTextures?.() || [],
       floors: callbacks.getFloorTextures?.() || [],
+      doors: callbacks.getDoorTextures?.() || [],
       outerFrames: callbacks.getOuterFrameTextures?.() || [],
       innerFrames: callbacks.getInnerFrameTextures?.() || []
     });

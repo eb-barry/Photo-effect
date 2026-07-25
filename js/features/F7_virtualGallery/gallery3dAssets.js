@@ -2,19 +2,22 @@
 
 const WALL_ROOT = "./assets/features/F7_virtualGallery/textures/walls/";
 const FLOOR_ROOT = "./assets/features/F7_virtualGallery/textures/floors/";
+const DOOR_ROOT = "./assets/features/F7_virtualGallery/textures/doors/";
 
 const imageCache = new Map();
-const catalogs = { walls: [], floors: [] };
+const catalogs = { walls: [], floors: [], doors: [] };
 let catalogPromise = null;
 
 export async function loadGallery3dTextureCatalogs(){
   if (!catalogPromise) {
     catalogPromise = Promise.all([
       loadManifest(`${WALL_ROOT}manifest.json`, WALL_ROOT, "walls"),
-      loadManifest(`${FLOOR_ROOT}manifest.json`, FLOOR_ROOT, "floors")
-    ]).then(([walls, floors]) => {
+      loadManifest(`${FLOOR_ROOT}manifest.json`, FLOOR_ROOT, "floors"),
+      loadManifest(`${DOOR_ROOT}manifest.json`, DOOR_ROOT, "doors")
+    ]).then(([walls, floors, doors]) => {
       catalogs.walls = walls;
       catalogs.floors = floors;
+      catalogs.doors = doors;
       return { ...catalogs };
     });
   }
@@ -29,6 +32,10 @@ export function getFloorTextureCatalog(){
   return catalogs.floors;
 }
 
+export function getDoorTextureCatalog(){
+  return catalogs.doors;
+}
+
 export function pickDefaultTextureId(catalog, preferredId = null){
   if (preferredId && catalog.some(item => item.id === preferredId)) return preferredId;
   return catalog[0]?.id || null;
@@ -39,7 +46,11 @@ export async function loadGallery3dTextureImage(textureId, kind){
   if (imageCache.has(key)) return imageCache.get(key);
 
   await loadGallery3dTextureCatalogs();
-  const catalog = kind === "floor" ? catalogs.floors : catalogs.walls;
+  const catalog = kind === "floor"
+    ? catalogs.floors
+    : kind === "door"
+      ? catalogs.doors
+      : catalogs.walls;
   const entry = catalog.find(item => item.id === textureId) || catalog[0];
   if (!entry?.asset) {
     const fallback = createProceduralTextureCanvas(kind, textureId || "default");
@@ -73,6 +84,11 @@ export async function resolveGallery3dRoomSurfaceTextures({ wallTextureId, floor
   };
 }
 
+export async function resolveGallery3dDoorTexture(doorTextureId){
+  const doorImage = await loadGallery3dTextureImage(doorTextureId, "door");
+  return imageToCanvas(doorImage);
+}
+
 async function loadManifest(url, basePath, kind){
   const fallback = [createFallbackEntry(kind, 1, basePath)];
   try {
@@ -95,17 +111,24 @@ function normalizeManifestItem(item, basePath, kind, index){
   if (!item || typeof item !== "object") return null;
   const file = item.file || `${kind}-${String(index + 1).padStart(2, "0")}.webp`;
   const id = item.id || file.replace(/\.webp$/i, "");
-  const label = item.label || (kind === "floor" ? `地板 ${index + 1}` : `牆面 ${index + 1}`);
+  const label = item.label || (
+    kind === "floor"
+      ? `地板 ${index + 1}`
+      : kind === "door"
+        ? `門框 ${index + 1}`
+        : `牆面 ${index + 1}`
+  );
   const encoded = String(file).split("/").map(encodeURIComponent).join("/");
   const asset = item.asset || `${basePath}${encoded}`;
   return { id, label, file, asset, thumb: item.thumb || asset, kind };
 }
 
 function createFallbackEntry(kind, number, basePath){
-  const id = `${kind === "floor" ? "floor" : "wall"}-0${number}`;
+  const prefix = kind === "floor" ? "floor" : kind === "door" ? "door" : "wall";
+  const id = `${prefix}-0${number}`;
   return {
     id,
-    label: kind === "floor" ? `地板 ${number}` : `牆面 ${number}`,
+    label: kind === "floor" ? `地板 ${number}` : kind === "door" ? `門框 ${number}` : `牆面 ${number}`,
     file: `${id}.webp`,
     asset: `${basePath}${encodeURIComponent(`${id}.webp`)}`,
     thumb: `${basePath}${encodeURIComponent(`${id}.webp`)}`,
@@ -145,7 +168,9 @@ function createProceduralTextureCanvas(kind, seed){
   const hash = String(seed).split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
   const base = kind === "floor"
     ? `hsl(${24 + (hash % 18)}, 24%, ${34 + (hash % 8)}%)`
-    : `hsl(${38 + (hash % 20)}, 18%, ${78 + (hash % 6)}%)`;
+    : kind === "door"
+      ? `hsl(${28 + (hash % 14)}, 30%, ${42 + (hash % 10)}%)`
+      : `hsl(${38 + (hash % 20)}, 18%, ${78 + (hash % 6)}%)`;
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, size, size);
   for (let i = 0; i < 80; i += 1) {

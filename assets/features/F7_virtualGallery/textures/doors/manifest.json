@@ -1,0 +1,66 @@
+{
+  "generatedAt": "2026-07-25T13:13:19.755Z",
+  "note": "Door textures 1024x2048. Run scripts/sync-f7-gallery-textures.mjs after adding files.",
+  "items": [
+    {
+      "id": "door-01",
+      "label": "門框 1",
+      "file": "door-01.webp"
+    },
+    {
+      "id": "door-02",
+      "label": "門框 2",
+      "file": "door-02.webp"
+    },
+    {
+      "id": "door-03",
+      "label": "門框 3",
+      "file": "door-03.webp"
+    },
+    {
+      "id": "door-04",
+      "label": "門框 4",
+      "file": "door-04.webp"
+    },
+    {
+      "id": "door-05",
+      "label": "門框 5",
+      "file": "door-05.webp"
+    },
+    {
+      "id": "door-06",
+      "label": "門框 6",
+      "file": "door-06.webp"
+    },
+    {
+      "id": "door-07",
+      "label": "門框 7",
+      "file": "door-07.webp"
+    },
+    {
+      "id": "door-08",
+      "label": "門框 8",
+      "file": "door-08.webp"
+    },
+    {
+      "id": "door-09",
+      "label": "門框 9",
+      "file": "door-09.webp"
+    },
+    {
+      "id": "door-10",
+      "label": "門框 10",
+      "file": "door-10.webp"
+    },
+    {
+      "id": "door-11",
+      "label": "門框 11",
+      "file": "door-11.webp"
+    },
+    {
+      "id": "door-12",
+      "label": "門框 12",
+      "file": "door-12.webp"
+    }
+  ]
+}

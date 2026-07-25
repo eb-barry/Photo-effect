@@ -4,8 +4,10 @@ import { iconButton } from "../../core/iconLoader.js";
 import {
   getFloorTextureCatalog,
   getWallTextureCatalog,
+  getDoorTextureCatalog,
   loadGallery3dTextureCatalogs,
   pickDefaultTextureId,
+  resolveGallery3dDoorTexture,
   resolveGallery3dRoomSurfaceTextures
 } from "./gallery3dAssets.js";
 import {
@@ -127,6 +129,7 @@ export async function renderGallery3dPage(root, navigate){
       ...room,
       wallTextureId: pickDefaultTextureId(getWallTextureCatalog(), room.wallTextureId),
       floorTextureId: pickDefaultTextureId(getFloorTextureCatalog(), room.floorTextureId),
+      doorTextureId: pickDefaultTextureId(getDoorTextureCatalog(), room.doorTextureId),
       outerFrameTypeId: pickDefaultFrameId(
         getGalleryOuterFrameCatalog(),
         room.outerFrameTypeId,
@@ -179,15 +182,19 @@ export async function renderGallery3dPage(root, navigate){
       if (serial !== rebuildSerial) return;
 
       const roomSettings = getRoomSettings(state, roomId);
-      const surfaceTextures = await resolveGallery3dRoomSurfaceTextures({
-        wallTextureId: roomSettings.wallTextureId,
-        floorTextureId: roomSettings.floorTextureId
-      });
+      const [surfaceTextures, doorCanvas] = await Promise.all([
+        resolveGallery3dRoomSurfaceTextures({
+          wallTextureId: roomSettings.wallTextureId,
+          floorTextureId: roomSettings.floorTextureId
+        }),
+        resolveGallery3dDoorTexture(roomSettings.doorTextureId)
+      ]);
       if (serial !== rebuildSerial) return;
 
       await scene.loadRoom({
         roomId,
         surfaceTextures,
+        doorTextureCanvas: doorCanvas,
         photos: getPhotosForRoom(roomId),
         fromRoomId,
         interactionEnabled: state.activeTab === "gallery" && state.gallerySessionReady,
@@ -402,6 +409,7 @@ export async function renderGallery3dPage(root, navigate){
   ui = setupGallery3dUI(root, state, {
     getWallTextures: () => getWallTextureCatalog(),
     getFloorTextures: () => getFloorTextureCatalog(),
+    getDoorTextures: () => getDoorTextureCatalog(),
     getOuterFrameTextures: () => getGalleryOuterFrameCatalog(),
     getInnerFrameTextures: () => getGalleryInnerFrameCatalog(),
     getZoomedPhotoId: () => zoomedPhotoId,
@@ -441,9 +449,11 @@ export async function renderGallery3dPage(root, navigate){
         ? { floorTextureId: textureId }
         : kind === "wall"
           ? { wallTextureId: textureId }
-          : kind === "outerFrame"
-            ? { outerFrameTypeId: textureId }
-            : { innerFrameTypeId: textureId };
+          : kind === "door"
+            ? { doorTextureId: textureId }
+            : kind === "outerFrame"
+              ? { outerFrameTypeId: textureId }
+              : { innerFrameTypeId: textureId };
       Object.assign(state, updateRoomSettings(state, roomId, patch));
       ui.refreshScenePanel();
       persistDraft();

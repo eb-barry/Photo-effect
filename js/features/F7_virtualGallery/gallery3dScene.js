@@ -18,6 +18,9 @@ import { bakeGalleryFramedTexture } from "./gallery3dFrames.js";
 
 const FRAME_DEPTH = 0.06;
 const WALL_STEP_BACK_DISTANCE = 1.15;
+const DOOR_FRAME_PADDING = 0.12;
+const DOOR_FRAME_WIDTH = DOOR_WIDTH + DOOR_FRAME_PADDING;
+const DOOR_FRAME_HEIGHT = DOOR_HEIGHT + DOOR_FRAME_PADDING;
 
 function lerpAngle(from, to, t){
   let delta = to - from;
@@ -64,6 +67,15 @@ function createSurfaceTexture(sourceCanvas, repeatX, repeatY){
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(repeatX, repeatY);
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function createDoorTexture(sourceCanvas){
+  const texture = new THREE.CanvasTexture(sourceCanvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.needsUpdate = true;
@@ -271,6 +283,7 @@ export class Gallery3DScene {
     this._zoomFocusPitch = 0;
     this._cameraAnimating = false;
     this._hadGyroBeforeZoom = false;
+    this._doorTexture = null;
     this._frameSettings = null;
     this._raycaster = new THREE.Raycaster();
     this._pointer = new THREE.Vector2();
@@ -353,12 +366,17 @@ export class Gallery3DScene {
     photos = [],
     fromRoomId = null,
     interactionEnabled = true,
-    frameSettings = null
+    frameSettings = null,
+    doorTextureCanvas = null
   }){
     this._disposeRoom();
     this._frameSettings = frameSettings;
     this.currentRoomId = Number(roomId);
     this.interactionEnabled = interactionEnabled;
+    if (doorTextureCanvas) {
+      this._doorTexture = createDoorTexture(doorTextureCanvas);
+      this._textures.push(this._doorTexture);
+    }
     const room = getRoomDefinition(roomId);
 
     if (room.shape === "round") {
@@ -487,43 +505,29 @@ export class Gallery3DScene {
     };
     group.userData = doorData;
 
-    const frame = new THREE.Mesh(
-      new THREE.PlaneGeometry(DOOR_WIDTH + 0.12, DOOR_HEIGHT + 0.12),
-      new THREE.MeshBasicMaterial({
+    const doorMaterial = this._doorTexture
+      ? new THREE.MeshBasicMaterial({
+        map: this._doorTexture,
+        transparent: true,
+        toneMapped: false,
+        side: THREE.DoubleSide
+      })
+      : new THREE.MeshBasicMaterial({
         color: 0xb8c8d8,
         transparent: true,
-        opacity: 0.72,
+        opacity: 0.82,
         depthWrite: false,
         side: THREE.DoubleSide
-      })
+      });
+
+    const doorPanel = new THREE.Mesh(
+      new THREE.PlaneGeometry(DOOR_FRAME_WIDTH, DOOR_FRAME_HEIGHT),
+      doorMaterial
     );
-    const opening = new THREE.Mesh(
-      new THREE.PlaneGeometry(DOOR_WIDTH, DOOR_HEIGHT),
-      new THREE.MeshBasicMaterial({
-        color: 0x3d4f5c,
-        transparent: true,
-        opacity: 0.38,
-        depthWrite: false,
-        side: THREE.DoubleSide
-      })
-    );
-    const hitArea = new THREE.Mesh(
-      new THREE.PlaneGeometry(DOOR_WIDTH + 0.6, DOOR_HEIGHT + 0.5),
-      new THREE.MeshBasicMaterial({
-        transparent: true,
-        opacity: 0.001,
-        depthWrite: false,
-        side: THREE.DoubleSide
-      })
-    );
-    opening.position.z = 0.01;
-    hitArea.position.z = 0.02;
-    opening.userData = doorData;
-    frame.userData = doorData;
-    hitArea.userData = doorData;
-    group.add(frame, opening, hitArea);
+    doorPanel.userData = doorData;
+    group.add(doorPanel);
     this._roomGroup.add(group);
-    this._clickables.push(hitArea, opening, frame);
+    this._clickables.push(doorPanel);
     return group;
   }
 
