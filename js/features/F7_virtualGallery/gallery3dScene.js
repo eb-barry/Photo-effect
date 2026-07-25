@@ -856,49 +856,25 @@ export class Gallery3DScene {
   }
 
   _stepBackAlongView(){
-    const roomCenter = this._getRoomCenter();
-    const facingYaw = this.controls.yaw;
-    const facingPitch = this.controls.pitch;
-    const returnFov = this._zoomReturnFov || 68;
     const forward = new THREE.Vector3();
     this.camera.getWorldDirection(forward);
     forward.y = 0;
     if (forward.lengthSq() < 0.0001) {
-      forward.set(Math.sin(facingYaw), 0, Math.cos(facingYaw));
+      forward.set(Math.sin(this.controls.yaw), 0, Math.cos(this.controls.yaw));
     }
     forward.normalize();
 
-    let target = this.camera.position.clone().add(
-      forward.multiplyScalar(-WALL_STEP_BACK_DISTANCE)
-    );
+    const target = this.camera.position.clone().addScaledVector(forward, -WALL_STEP_BACK_DISTANCE);
     target.y = EYE_HEIGHT;
-
-    const toCenter = roomCenter.clone().sub(this.camera.position);
-    toCenter.y = 0;
-    const step = target.clone().sub(this.camera.position);
-    step.y = 0;
-    if (toCenter.lengthSq() > 0.0001 && step.dot(toCenter) > 0 && step.length() > toCenter.length()) {
-      target.copy(roomCenter);
-    }
-
     this._clampCameraToRoom(target);
-    const atCenter = target.distanceTo(roomCenter) < 0.35;
-    const fromFov = this.camera.fov;
-    const toFov = atCenter ? returnFov : THREE.MathUtils.lerp(fromFov, returnFov, 0.38);
 
-    this._animateCameraState({
-      position: this.camera.position.clone(),
-      yaw: facingYaw,
-      pitch: facingPitch,
-      fov: fromFov
-    }, {
-      position: target,
-      yaw: facingYaw,
-      pitch: facingPitch,
-      fov: toFov
-    }, 480, () => {
-      if (atCenter) {
-        this._clearZoomState();
+    const zoomed = Boolean(this._zoomedArtworkId);
+    const targetFov = zoomed ? (this._zoomReturnFov || 68) : null;
+
+    this._animateCameraPosition(target, 500, {
+      fov: targetFov,
+      onComplete: () => {
+        if (zoomed) this._clearZoomState();
       }
     });
   }
@@ -1080,19 +1056,26 @@ export class Gallery3DScene {
     this._cameraTween = requestAnimationFrame(step);
   }
 
-  _animateCameraPosition(targetPosition, duration){
+  _animateCameraPosition(targetPosition, duration, options = {}){
     if (this._cameraTween) cancelAnimationFrame(this._cameraTween);
     const start = this.camera.position.clone();
+    const startFov = this.camera.fov;
+    const targetFov = options.fov ?? startFov;
+    const onComplete = options.onComplete;
     const startTime = performance.now();
     this._cameraAnimating = true;
     const step = now => {
       const t = Math.min(1, (now - startTime) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
       this.camera.position.lerpVectors(start, targetPosition, eased);
+      if (targetFov !== startFov) {
+        this.camera.fov = THREE.MathUtils.lerp(startFov, targetFov, eased);
+        this.camera.updateProjectionMatrix();
+      }
       if (t < 1) {
         this._cameraTween = requestAnimationFrame(step);
       } else {
-        this._finishCameraAnimation();
+        this._finishCameraAnimation(onComplete);
       }
     };
     this._cameraTween = requestAnimationFrame(step);
