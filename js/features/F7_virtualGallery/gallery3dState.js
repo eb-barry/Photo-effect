@@ -7,15 +7,14 @@ import {
 } from "./gallery3dFrames.js";
 
 export const GALLERY3D_FEATURE_ID = "F7_virtualGallery";
-export const GALLERY3D_FEATURE_VERSION = "0.3.17";
+export const GALLERY3D_FEATURE_VERSION = "0.3.18";
 export const GALLERY3D_DRAFT_KEY = "photoEffects.F7_virtualGallery.draft.v3";
 export const GALLERY3D_TUTORIAL_KEY = "photoEffects.F7_virtualGallery.tutorial.v1";
 export const GALLERY3D_MAX_PHOTOS = 100;
 export const GALLERY3D_RECOMMENDED_PHOTOS_PER_ROOM = 10;
 
 export const GALLERY3D_TABS = [
-  { id: "scene", label: "展間佈置" },
-  { id: "photos", label: "相片" }
+  { id: "scene", label: "展間佈置" }
 ];
 
 export const GALLERY3D_LAYOUT_MATERIAL_TARGETS = ["floor", "wall", "frame", "door"];
@@ -135,7 +134,8 @@ export function updateGallery3dState(currentState, partial){
     updatedAt: Date.now()
   };
 
-  next.activeTab = ["scene", "photos", "gallery"].includes(next.activeTab)
+  next.activeTab = next.activeTab === "photos" ? "scene" : next.activeTab;
+  next.activeTab = ["scene", "gallery"].includes(next.activeTab)
     ? next.activeTab
     : "scene";
 

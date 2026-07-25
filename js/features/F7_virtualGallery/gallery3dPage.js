@@ -14,6 +14,7 @@ import {
   ensureGalleryFrameCatalog,
   GALLERY_DEFAULT_INNER_FRAME_ID,
   GALLERY_DEFAULT_OUTER_FRAME_ID,
+  buildGalleryFramedPreviewDataUrl,
   getGalleryInnerFrameCatalog,
   getGalleryOuterFrameCatalog,
   pickDefaultFrameId
@@ -45,6 +46,9 @@ export async function renderGallery3dPage(root, navigate){
   if (savedState.activeTab === "gallery") {
     savedState.activeTab = "scene";
     savedState.gallerySessionReady = false;
+  }
+  if (savedState.activeTab === "photos") {
+    savedState.activeTab = "scene";
   }
   const state = { ...savedState };
   if (state.activeTab === "gallery" && !state.gallerySessionReady) {
@@ -93,12 +97,8 @@ export async function renderGallery3dPage(root, navigate){
         <div class="gallery3d-tab-bar" id="gallery3dTabBar" role="tablist" aria-label="3D 展館功能"></div>
 
         <div class="crystal-tab-panels gallery3d-tab-panels" id="gallery3dTabPanels">
-          <div id="gallery3dGalleryPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="展館" hidden></div>
           <div id="gallery3dScenePanel" class="crystal-tab-panel ${state.activeTab === "scene" ? "" : "hidden"}" role="tabpanel" aria-label="展間佈置">
             <div id="gallery3dSceneHost"></div>
-          </div>
-          <div id="gallery3dPhotosPanel" class="crystal-tab-panel ${state.activeTab === "photos" ? "" : "hidden"}" role="tabpanel" aria-label="相片">
-            <div id="gallery3dPhotoHost"></div>
           </div>
         </div>
       </section>
@@ -273,10 +273,7 @@ export async function renderGallery3dPage(root, navigate){
   const enterGallerySession = async () => {
     if (state.gallerySessionReady) return;
     if (!state.photos.length) {
-      uiNotice = "請先上傳至少一張照片，再開始導覽。";
-      Object.assign(state, updateGallery3dState(state, { activeTab: "photos" }));
-      ui.refreshAll();
-      persistDraft();
+      alert("請先點右上角圖示上傳至少一張照片，再開始導覽。");
       return;
     }
     Object.assign(state, updateGallery3dState(state, { activeTab: "gallery" }));
@@ -328,7 +325,7 @@ export async function renderGallery3dPage(root, navigate){
     Object.assign(state, updateGallery3dState(state, {
       gallerySessionReady: false,
       gyroEnabled: false,
-      activeTab: "photos"
+      activeTab: "scene"
     }));
     zoomedPhotoId = null;
     ui?.showGyroPrompt(false);
@@ -397,6 +394,7 @@ export async function renderGallery3dPage(root, navigate){
 
       Object.assign(state, updateGallery3dState(state, { photos: nextPhotos }));
       ui?.refreshAll();
+      await ui?.refreshMaterialPreview();
       persistDraft();
 
       try {
@@ -421,6 +419,14 @@ export async function renderGallery3dPage(root, navigate){
 
   ui = setupGallery3dUI(root, state, {
     getRoomSettings: () => getRoomSettings(state, state.selectedRoomNumber),
+    getFirstPhoto: () => state.photos[0] || null,
+    buildFramedPreview: async (room, photo) => buildGalleryFramedPreviewDataUrl(
+      photo.textureDataUrl || photo.thumbDataUrl || photo.dataUrl,
+      {
+        outerFrameTypeId: room.outerFrameTypeId,
+        innerFrameTypeId: room.innerFrameTypeId
+      }
+    ),
     getWallTextures: () => getWallTextureCatalog(),
     getFloorTextures: () => getFloorTextureCatalog(),
     getDoorTextures: () => getDoorTextureCatalog(),
@@ -448,7 +454,7 @@ export async function renderGallery3dPage(root, navigate){
         currentRoomId: roomNumber
       }));
       ui.refreshScenePanel();
-      ui.refreshMaterialPreview();
+      void ui.refreshMaterialPreview();
       persistDraft();
     },
     onMaterialTargetToggle: async target => {
@@ -471,7 +477,7 @@ export async function renderGallery3dPage(root, navigate){
               : { innerFrameTypeId: textureId };
       Object.assign(state, updateRoomSettings(state, roomId, patch));
       ui.refreshScenePanel();
-      ui.refreshMaterialPreview();
+      void ui.refreshMaterialPreview();
       persistDraft();
       if (state.gallerySessionReady && state.currentRoomId === roomId) {
         await rebuildScene();
@@ -516,14 +522,6 @@ export async function renderGallery3dPage(root, navigate){
       maybeShowTutorial();
     },
     onUploadRequest: () => requestPhotoUpload(),
-    onRemovePhoto: async photoId => {
-      Object.assign(state, updateGallery3dState(state, {
-        photos: state.photos.filter(photo => photo.id !== photoId)
-      }));
-      ui.refreshAll();
-      persistDraft();
-      await rebuildScene();
-    },
     onResetView: () => {
       zoomedPhotoId = null;
       scene?.resetView();

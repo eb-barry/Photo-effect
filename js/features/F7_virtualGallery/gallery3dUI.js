@@ -1,10 +1,5 @@
 // F7 3D 展館 - UI 元件
 
-import {
-  GALLERY3D_MAX_PHOTOS,
-  GALLERY3D_RECOMMENDED_PHOTOS_PER_ROOM,
-  getPhotoCountsByRoom
-} from "./gallery3dState.js";
 import { GALLERY3D_ROOM_COUNT } from "./gallery3dRooms.js";
 
 function setupTextureCarousel(carousel){
@@ -36,7 +31,6 @@ function resolveTextureAsset(catalog, textureId){
 
 export function renderGalleryToolbar(state){
   const layoutActive = state.activeTab === "scene";
-  const photosActive = state.activeTab === "photos";
   const tourActive = state.activeTab === "gallery" && state.gallerySessionReady;
 
   const roomOptions = Array.from({ length: GALLERY3D_ROOM_COUNT }, (_, index) => {
@@ -46,13 +40,12 @@ export function renderGalleryToolbar(state){
   }).join("");
 
   return `
-    <div class="gallery3d-toolbar" role="tablist" aria-label="3D 展館功能">
+    <div class="gallery3d-toolbar" role="toolbar" aria-label="3D 展館功能">
       <button
         type="button"
         class="gallery3d-toolbar-btn ${layoutActive ? "is-active" : ""}"
         data-gallery3d-tab="scene"
-        role="tab"
-        aria-selected="${layoutActive ? "true" : "false"}"
+        aria-pressed="${layoutActive ? "true" : "false"}"
       >展間佈置</button>
       <select
         id="gallery3dRoomSelect"
@@ -66,29 +59,32 @@ export function renderGalleryToolbar(state){
         class="gallery3d-toolbar-btn gallery3d-toolbar-tour ${tourActive ? "is-active" : ""}"
         data-gallery3d-action="tour"
       >開始導覽</button>
-      <button
-        type="button"
-        class="gallery3d-toolbar-btn ${photosActive ? "is-active" : ""}"
-        data-gallery3d-tab="photos"
-        role="tab"
-        aria-selected="${photosActive ? "true" : "false"}"
-      >相片</button>
     </div>
   `;
 }
 
-export function renderMaterialPreview(room, catalogs = {}){
-  const wallUrl = resolveTextureAsset(catalogs.walls || [], room.wallTextureId);
-  const floorUrl = resolveTextureAsset(catalogs.floors || [], room.floorTextureId);
-  const doorUrl = resolveTextureAsset(catalogs.doors || [], room.doorTextureId);
+export function renderMaterialPreview(room, roomNumber, { hasPhoto = false } = {}){
+  const wallUrl = resolveTextureAsset(room._wallCatalog || [], room.wallTextureId);
+  const floorUrl = resolveTextureAsset(room._floorCatalog || [], room.floorTextureId);
+  const doorUrl = resolveTextureAsset(room._doorCatalog || [], room.doorTextureId);
+  const roomLabel = `展間 ${Number(roomNumber) || 1}`;
+
+  const artworkMarkup = hasPhoto
+    ? `<img class="gallery3d-preview-framed-img" alt="畫框預覽" decoding="async" />`
+    : `<div class="gallery3d-preview-artwork-placeholder">上傳照片後<br>預覽畫框</div>`;
 
   return `
     <div class="gallery3d-material-preview" aria-label="展間材質預覽">
+      <span class="gallery3d-preview-room-label">${roomLabel}</span>
       <div
         class="gallery3d-preview-wall"
         style="background-image: url('${wallUrl}')"
         aria-hidden="true"
-      ></div>
+      >
+        <div class="gallery3d-preview-artwork">
+          ${artworkMarkup}
+        </div>
+      </div>
       <div
         class="gallery3d-preview-floor"
         style="background-image: url('${floorUrl}')"
@@ -206,47 +202,6 @@ export function renderScenePanel(state, {
   `;
 }
 
-export function renderPhotosPanel(state){
-  const remaining = GALLERY3D_MAX_PHOTOS - state.photos.length;
-  const roomCounts = getPhotoCountsByRoom(state.photos);
-  const roomSummary = Array.from({ length: GALLERY3D_ROOM_COUNT }, (_, index) => {
-    const roomId = index + 1;
-    const roomCount = roomCounts[roomId] || 0;
-    const heavy = roomCount > GALLERY3D_RECOMMENDED_PHOTOS_PER_ROOM ? " is-heavy" : "";
-    return `<span class="gallery3d-room-stat${heavy}">展間${["一", "二", "三"][index] || roomId}：${roomCount} 張</span>`;
-  }).join("");
-
-  const heavyWarning = Object.values(roomCounts).some(
-    value => value > GALLERY3D_RECOMMENDED_PHOTOS_PER_ROOM
-  );
-
-  return `
-    <div class="gallery3d-photo-panel">
-      <div class="gallery3d-photo-head">
-        <button type="button" class="gallery3d-upload-btn" id="gallery3dUploadBtn" ${remaining <= 0 ? "disabled" : ""}>
-          新增照片
-        </button>
-      </div>
-      <p class="note gallery3d-note">依上傳順序平均分配到 3 個展間（例如 10 張 → 各展間 4／3／3）。</p>
-      <div class="gallery3d-room-stats" aria-label="各展間照片數量">${roomSummary}</div>
-      ${heavyWarning
-        ? `<p class="note gallery3d-room-warning">圓形展間建議每間不超過 ${GALLERY3D_RECOMMENDED_PHOTOS_PER_ROOM} 張，以維持舒適的觀賞密度。</p>`
-        : ""}
-      <div class="gallery3d-thumb-strip" id="gallery3dThumbStrip">
-        ${state.photos.length
-          ? state.photos.map((photo, index) => `
-            <div class="gallery3d-thumb" data-photo-id="${photo.id}">
-              <img src="${photo.thumbDataUrl || photo.textureDataUrl}" alt="第 ${index + 1} 張" loading="lazy" decoding="async" />
-              <span class="gallery3d-thumb-aspect">R${photo.roomId}</span>
-              <button type="button" class="gallery3d-thumb-remove" data-remove-photo="${photo.id}" aria-label="移除第 ${index + 1} 張">×</button>
-            </div>
-          `).join("")
-          : `<div class="gallery3d-empty-photos">尚未上傳照片</div>`}
-      </div>
-    </div>
-  `;
-}
-
 export function renderGyroPrompt(){
   return `
     <div class="gallery3d-gyro-prompt" id="gallery3dGyroPrompt" role="dialog" aria-label="陀螺儀權限">
@@ -295,10 +250,7 @@ export function renderGalleryOverlay({
 export function setupGallery3dUI(root, state, callbacks){
   const tabBar = root.querySelector("#gallery3dTabBar");
   const tabPanels = root.querySelector("#gallery3dTabPanels");
-  const galleryPanel = root.querySelector("#gallery3dGalleryPanel");
   const scenePanel = root.querySelector("#gallery3dScenePanel");
-  const photosPanel = root.querySelector("#gallery3dPhotosPanel");
-  const photoHost = root.querySelector("#gallery3dPhotoHost");
   const sceneHost = root.querySelector("#gallery3dSceneHost");
   const previewHost = root.querySelector("#gallery3dMaterialPreviewHost");
   const overlayHost = root.querySelector("#gallery3dOverlayHost");
@@ -308,6 +260,7 @@ export function setupGallery3dUI(root, state, callbacks){
   const galleryTopControls = root.querySelector("#gallery3dGalleryTopControls");
   const photoActions = root.querySelector("#gallery3dPhotoActions");
   const topbarTitle = root.querySelector(".gallery3d-topbar-title");
+  let previewSerial = 0;
 
   const getCatalogs = () => ({
     walls: callbacks.getWallTextures?.() || [],
@@ -338,28 +291,40 @@ export function setupGallery3dUI(root, state, callbacks){
     bindToolbarEvents();
   }
 
-  function refreshMaterialPreview(){
+  async function refreshMaterialPreview(){
     if (!previewHost) return;
     if (state.activeTab !== "scene") {
       previewHost.innerHTML = "";
       return;
     }
-    const room = callbacks.getRoomSettings?.() || state.rooms[0];
-    previewHost.innerHTML = renderMaterialPreview(room, getCatalogs());
-  }
 
-  function refreshPhotosPanel(){
-    photoHost.innerHTML = renderPhotosPanel(state);
-    photoHost.querySelector("#gallery3dUploadBtn")?.addEventListener("click", event => {
-      event.preventDefault();
-      callbacks.onUploadRequest?.();
-    });
-    photoHost.querySelectorAll("[data-remove-photo]").forEach(button => {
-      button.addEventListener("click", event => {
-        event.preventDefault();
-        callbacks.onRemovePhoto?.(button.dataset.removePhoto);
-      });
-    });
+    const serial = ++previewSerial;
+    const catalogs = getCatalogs();
+    const room = callbacks.getRoomSettings?.() || state.rooms[0];
+    const firstPhoto = callbacks.getFirstPhoto?.() || null;
+    const previewRoom = {
+      ...room,
+      _wallCatalog: catalogs.walls,
+      _floorCatalog: catalogs.floors,
+      _doorCatalog: catalogs.doors
+    };
+
+    previewHost.innerHTML = renderMaterialPreview(
+      previewRoom,
+      state.selectedRoomNumber,
+      { hasPhoto: Boolean(firstPhoto) }
+    );
+
+    if (!firstPhoto) return;
+
+    try {
+      const framedUrl = await callbacks.buildFramedPreview?.(room, firstPhoto);
+      if (serial !== previewSerial) return;
+      const image = previewHost.querySelector(".gallery3d-preview-framed-img");
+      if (image && framedUrl) image.src = framedUrl;
+    } catch (error) {
+      console.warn("[F7 3D 展館] 畫框預覽產生失敗：", error);
+    }
   }
 
   function bindScenePanelEvents(){
@@ -435,33 +400,27 @@ export function setupGallery3dUI(root, state, callbacks){
   function refreshViewMode(){
     const inGallery = state.activeTab === "gallery" && state.gallerySessionReady;
     const inScene = state.activeTab === "scene";
-    const inPhotos = state.activeTab === "photos";
-    galleryPanel?.classList.toggle("hidden", true);
     scenePanel?.classList.toggle("hidden", !inScene);
-    photosPanel?.classList.toggle("hidden", !inPhotos);
     const showLayoutPreview = inScene;
     const showStage = inGallery;
     canvasWrap?.classList.toggle("is-layout-active", showLayoutPreview);
     canvasWrap?.classList.toggle("is-gallery-active", showStage);
     canvasWrap?.classList.toggle("is-fullscreen-active", inGallery);
     emptyCanvas?.classList.toggle("hidden", showLayoutPreview || showStage);
-    emptyCanvas.textContent = inPhotos
-      ? "上傳照片後，可至「展間佈置」預覽材質，或點「開始導覽」進入 3D 展館"
-      : "載入中…";
+    emptyCanvas.textContent = "點右上角圖示上傳照片，並在此預覽展間材質";
     tabPanels?.classList.toggle("gallery3d-gallery-mode", inGallery);
     tabPanels?.classList.toggle("hidden", inGallery);
     tabBar?.classList.toggle("hidden", inGallery);
     page?.classList.toggle("gallery3d-fullscreen-mode", inGallery);
     galleryTopControls?.classList.toggle("hidden", !inGallery);
-    photoActions?.classList.toggle("hidden", inGallery || inScene);
+    photoActions?.classList.toggle("hidden", inGallery);
     topbarTitle?.classList.toggle("hidden", inGallery);
-    refreshMaterialPreview();
+    void refreshMaterialPreview();
   }
 
   function refreshAll(){
     refreshToolbar();
     refreshScenePanel();
-    refreshPhotosPanel();
     refreshOverlay();
     refreshViewMode();
   }
@@ -470,7 +429,6 @@ export function setupGallery3dUI(root, state, callbacks){
 
   return {
     refreshAll,
-    refreshPhotosPanel,
     refreshScenePanel,
     refreshMaterialPreview,
     refreshOverlay,
