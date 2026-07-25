@@ -59,7 +59,7 @@ export async function loadGallery3dTextureImage(textureId, kind){
   }
 
   try {
-    const image = await loadImage(entry.asset);
+    const image = await loadImageFromCandidates(entry);
     imageCache.set(key, image);
     return image;
   } catch (error) {
@@ -115,7 +115,7 @@ function normalizeManifestItem(item, basePath, kind, index){
     kind === "floor"
       ? `地板 ${index + 1}`
       : kind === "door"
-        ? `門框 ${index + 1}`
+        ? `門片 ${index + 1}`
         : `牆面 ${index + 1}`
   );
   const encoded = String(file).split("/").map(encodeURIComponent).join("/");
@@ -128,7 +128,7 @@ function createFallbackEntry(kind, number, basePath){
   const id = `${prefix}-0${number}`;
   return {
     id,
-    label: kind === "floor" ? `地板 ${number}` : kind === "door" ? `門框 ${number}` : `牆面 ${number}`,
+    label: kind === "floor" ? `地板 ${number}` : kind === "door" ? `門片 ${number}` : `牆面 ${number}`,
     file: `${id}.webp`,
     asset: `${basePath}${encodeURIComponent(`${id}.webp`)}`,
     thumb: `${basePath}${encodeURIComponent(`${id}.webp`)}`,
@@ -144,6 +144,54 @@ function loadImage(url){
     image.onerror = () => reject(new Error(`Image load failed: ${url}`));
     image.src = url;
   });
+}
+
+function buildTextureAssetCandidates(entry){
+  const urls = [];
+  if (entry?.asset) urls.push(entry.asset);
+  if (entry?.thumb && entry.thumb !== entry.asset) urls.push(entry.thumb);
+
+  const file = entry?.file || "";
+  const basePath = entry?.asset?.slice(0, entry.asset.length - encodeURIComponent(file).length) || "";
+  const stem = file.replace(/\.[^.]+$/, "");
+  const ext = file.includes(".") ? file.slice(file.lastIndexOf(".")) : ".webp";
+
+  const addVariant = name => {
+    if (!name) return;
+    urls.push(`${basePath}${encodeURIComponent(name)}`);
+    urls.push(`${basePath}${name}`);
+  };
+
+  addVariant(file);
+  addVariant(stem.toLowerCase() + ext.toLowerCase());
+  addVariant(stem.charAt(0).toUpperCase() + stem.slice(1).toLowerCase() + ext.toLowerCase());
+
+  const numberMatch = (entry?.id || stem).match(/(\d+)$/);
+  if (numberMatch) {
+    const number = Number(numberMatch[1]);
+    const padded = String(number).padStart(2, "0");
+    const kind = String(entry?.id || stem).replace(/-\d+$/, "");
+    for (const extension of [ext.toLowerCase(), ".webp", ".png", ".jpg", ".jpeg"]) {
+      addVariant(`${kind}-${padded}${extension}`);
+      addVariant(`${kind}-${number}${extension}`);
+      addVariant(`${kind.charAt(0).toUpperCase()}${kind.slice(1)}-${padded}${extension}`);
+    }
+  }
+
+  return [...new Set(urls.filter(Boolean))];
+}
+
+async function loadImageFromCandidates(entry){
+  const candidates = buildTextureAssetCandidates(entry);
+  let lastError = null;
+  for (const url of candidates) {
+    try {
+      return await loadImage(url);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Image load failed");
 }
 
 function imageToCanvas(image){

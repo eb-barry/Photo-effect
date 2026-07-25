@@ -34,7 +34,7 @@ const TARGETS = [
     kind: "door",
     dir: path.join(root, "assets/features/F7_virtualGallery/textures/doors"),
     pattern: /^door[-_]?(\d+)\.webp$/i,
-    label: n => `門框 ${n}`
+    label: n => `門片 ${n}`
   }
 ];
 
