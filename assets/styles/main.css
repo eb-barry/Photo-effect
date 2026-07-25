@@ -1426,7 +1426,203 @@ body.magic-sky-scroll-locked {
 }
 
 .gallery3d-tab-bar {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: block;
+  margin-top: 10px;
+}
+
+.gallery3d-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.gallery3d-toolbar-spacer {
+  flex: 1 1 auto;
+  min-width: 8px;
+}
+
+.gallery3d-toolbar-btn {
+  appearance: none;
+  border: 0;
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #fff;
+  color: var(--base-dark);
+  font-weight: 800;
+  font-size: 0.84rem;
+  line-height: 1.2;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.1);
+  white-space: nowrap;
+}
+
+.gallery3d-toolbar-btn.is-active {
+  background: linear-gradient(145deg, var(--base), var(--base-dark));
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.86), 0 9px 22px rgba(0, 0, 0, 0.22);
+}
+
+.gallery3d-toolbar-room-select {
+  width: auto;
+  min-width: 0;
+  max-width: 92px;
+  min-height: 40px;
+  padding: 8px 28px 8px 10px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  flex: 0 0 auto;
+}
+
+.gallery3d-toolbar-room-select.is-hidden {
+  display: none;
+}
+
+.gallery3d-material-preview-host {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: none;
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.gallery3d-canvas-wrap.is-layout-active .gallery3d-material-preview-host {
+  display: block;
+}
+
+.gallery3d-material-preview {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  position: relative;
+}
+
+.gallery3d-preview-room-label {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+  padding: 6px 11px;
+  border-radius: 10px;
+  background: rgba(7, 53, 51, 0.78);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.gallery3d-preview-wall {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gallery3d-preview-artwork {
+  width: min(44%, 148px);
+  max-height: 82%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gallery3d-preview-framed-img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.28));
+}
+
+.gallery3d-preview-artwork-placeholder {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border: 2px dashed rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.45;
+  text-align: center;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.gallery3d-preview-wall,
+.gallery3d-preview-floor {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.gallery3d-preview-floor {
+  position: relative;
+}
+
+.gallery3d-preview-door {
+  position: absolute;
+  left: 50%;
+  top: 58%;
+  transform: translate(-50%, -50%);
+  width: min(30%, 108px);
+  aspect-ratio: 0.5;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  border-radius: 2px;
+}
+
+.gallery3d-canvas-wrap.is-layout-active {
+  background: #10141a;
+}
+
+.gallery3d-canvas-wrap.is-layout-active .gallery3d-stage,
+.gallery3d-canvas-wrap.is-layout-active #gallery3dOverlayHost {
+  display: none;
+}
+
+.gallery3d-material-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.gallery3d-material-row .gallery3d-material-btn {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 4px;
+  font-size: 0.8rem;
+  letter-spacing: -0.02em;
+  border: 0;
+  border-radius: 14px;
+  background: #fff;
+  color: var(--base-dark);
+  font-weight: 800;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.gallery3d-material-row .gallery3d-material-btn.active {
+  background: linear-gradient(145deg, var(--base), var(--base-dark));
+  color: #fff;
+}
+
+.gallery3d-subsection-label {
+  margin: 8px 0 6px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--base-dark);
+}
+
+.gallery3d-frame-pickers {
+  display: grid;
+  gap: 4px;
 }
 
 .gallery3d-canvas-wrap {

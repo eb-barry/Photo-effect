@@ -81,3 +81,8 @@ export async function bakeGalleryFramedTexture(photoSource, frameSettings = {}){
 
   return canvas;
 }
+
+export async function buildGalleryFramedPreviewDataUrl(photoSource, frameSettings = {}){
+  const canvas = await bakeGalleryFramedTexture(photoSource, frameSettings);
+  return canvas.toDataURL("image/png");
+}
