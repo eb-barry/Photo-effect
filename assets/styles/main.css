@@ -1635,6 +1635,16 @@ body.magic-sky-scroll-locked {
   margin-bottom: 8px;
 }
 
+.gallery3d-material-segment-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.gallery3d-material-segment-grid .gallery3d-material-btn {
+  width: 100%;
+}
+
 .gallery3d-material-btn.active {
   background: linear-gradient(145deg, var(--base), var(--base-dark));
   color: #fff;

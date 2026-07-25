@@ -14,9 +14,10 @@ import {
   getSpawnPose,
   getWallInwardNormal
 } from "./gallery3dRooms.js";
+import { bakeGalleryFramedTexture } from "./gallery3dFrames.js";
 
 const FRAME_DEPTH = 0.06;
-const FRAME_BORDER = 0.08;
+const WALL_STEP_BACK_DISTANCE = 1.15;
 
 const FRAME_SCALE = 1.5;
 
@@ -74,31 +75,22 @@ function createFrameMesh(width, height, texture, photoId){
   const group = new THREE.Group();
   group.userData = { type: "artwork", photoId, zoomed: false };
 
-  const frameMaterial = new THREE.MeshStandardMaterial({
-    color: 0x2a2118,
-    roughness: 0.55,
-    metalness: 0.08
-  });
-  group.add(new THREE.Mesh(
-    new THREE.BoxGeometry(width + FRAME_BORDER * 2, height + FRAME_BORDER * 2, FRAME_DEPTH),
-    frameMaterial
-  ));
-
   const picture = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
     new THREE.MeshBasicMaterial({
       map: texture,
+      transparent: true,
       toneMapped: false,
       side: THREE.DoubleSide
     })
   );
-  picture.position.z = FRAME_DEPTH * 0.51;
+  picture.position.z = FRAME_DEPTH * 0.5;
   picture.userData = { type: "artwork", photoId };
   group.add(picture);
   group.userData.pictureMesh = picture;
 
   const hitPlane = new THREE.Mesh(
-    new THREE.PlaneGeometry(width + FRAME_BORDER * 2, height + FRAME_BORDER * 2),
+    new THREE.PlaneGeometry(width, height),
     new THREE.MeshBasicMaterial({
       colorWrite: false,
       depthWrite: false,
@@ -270,6 +262,7 @@ export class Gallery3DScene {
     this._zoomReturnFov = 68;
     this._zoomAnimating = false;
     this._hadGyroBeforeZoom = false;
+    this._frameSettings = null;
     this._raycaster = new THREE.Raycaster();
     this._pointer = new THREE.Vector2();
     this._resizeObserver = null;
@@ -348,9 +341,11 @@ export class Gallery3DScene {
     surfaceTextures,
     photos = [],
     fromRoomId = null,
-    interactionEnabled = true
+    interactionEnabled = true,
+    frameSettings = null
   }){
     this._disposeRoom();
+    this._frameSettings = frameSettings;
     this.currentRoomId = Number(roomId);
     this.interactionEnabled = interactionEnabled;
     const room = getRoomDefinition(roomId);
@@ -366,6 +361,11 @@ export class Gallery3DScene {
     const spawn = getSpawnPose(roomId, fromRoomId);
     this.camera.position.set(spawn.x, spawn.y, spawn.z);
     this.controls.setOrientation(spawn.yaw, 0);
+  }
+
+  _tagWallClickable(mesh){
+    mesh.userData = { ...mesh.userData, type: "wall" };
+    this._clickables.push(mesh);
   }
 
   _applySurfaceMaterials(surfaceTextures, wallMeshes, floorMesh, options = {}){
@@ -445,6 +445,7 @@ export class Gallery3DScene {
         );
         wall.position.set(...def.pos);
         wall.rotation.y = def.rotY;
+        wall.userData = { type: "wall" };
         this._roomGroup.add(wall);
         wallMeshes.push(wall);
       }
@@ -454,13 +455,16 @@ export class Gallery3DScene {
       wallRepeatScale: 1,
       unlitWalls: true
     });
+    wallMeshes.forEach(mesh => this._tagWallClickable(mesh));
   }
 
   _createWallPlane(width, height){
-    return new THREE.Mesh(
+    const wall = new THREE.Mesh(
       new THREE.PlaneGeometry(width, height),
       new THREE.MeshStandardMaterial({ color: 0xf4f1ea })
     );
+    wall.userData = { type: "wall" };
+    return wall;
   }
 
   _createDoorHitbox(doorway){
@@ -582,6 +586,7 @@ export class Gallery3DScene {
       new THREE.MeshStandardMaterial({ color: 0xf4f1ea, side: THREE.BackSide })
     );
     wall.position.y = ROOM_WALL_HEIGHT / 2;
+    wall.userData = { type: "wall" };
     this._roomGroup.add(wall);
 
     const floor = new THREE.Mesh(
@@ -624,6 +629,7 @@ export class Gallery3DScene {
         y: ROOM_WALL_HEIGHT / 2.4
       }
     });
+    this._tagWallClickable(wall);
   }
 
   _getSquareWallDefinitions(){
@@ -655,6 +661,25 @@ export class Gallery3DScene {
     ];
   }
 
+  async _prepareFramedPhoto(photo, loader){
+    const sourceTexture = await loader.loadAsync(photo.textureDataUrl);
+    sourceTexture.colorSpace = THREE.SRGBColorSpace;
+    const framedCanvas = await bakeGalleryFramedTexture(
+      sourceTexture.image,
+      this._frameSettings || {}
+    );
+    sourceTexture.dispose();
+    const texture = new THREE.CanvasTexture(framedCanvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.needsUpdate = true;
+    this._textures.push(texture);
+    return {
+      photo,
+      texture,
+      size: frameSizeForPhoto({ width: framedCanvas.width, height: framedCanvas.height })
+    };
+  }
+
   async _placeFramesOnWall(wall, photos, loader, ranges){
     if (!photos.length) return;
     const perRange = this._splitEvenly(photos, ranges.length);
@@ -665,15 +690,16 @@ export class Gallery3DScene {
       const range = ranges[rangeIndex];
       const chunk = perRange[rangeIndex];
       if (!chunk.length) continue;
+      const prepared = [];
+      for (const photo of chunk) {
+        prepared.push(await this._prepareFramedPhoto(photo, loader));
+      }
       const span = range.max - range.min;
       let cursor = range.min + span / 2;
-      const totalWidth = chunk.reduce((sum, photo) => sum + frameSizeForPhoto(photo).width + 0.45, -0.45);
+      const totalWidth = prepared.reduce((sum, item) => sum + item.size.width + 0.45, -0.45);
       cursor -= totalWidth / 2;
-      for (const photo of chunk) {
-        const size = frameSizeForPhoto(photo);
-        const texture = await loader.loadAsync(photo.textureDataUrl);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        this._textures.push(texture);
+      for (const item of prepared) {
+        const { photo, texture, size } = item;
         const frame = createFrameMesh(size.width, size.height, texture, photo.id);
         const coord = cursor + size.width / 2;
         if (wall.axis === "x") {
@@ -737,10 +763,7 @@ export class Gallery3DScene {
       const photo = photos[index];
       const angle = angles[index] ?? (-Math.PI / 2 + (Math.PI * index) / Math.max(photos.length, 1));
       const normal = getRoundWallInwardNormal(angle);
-      const size = frameSizeForPhoto(photo);
-      const texture = await loader.loadAsync(photo.textureDataUrl);
-      texture.colorSpace = THREE.SRGBColorSpace;
-      this._textures.push(texture);
+      const { texture, size } = await this._prepareFramedPhoto(photo, loader);
       const frame = createFrameMesh(size.width, size.height, texture, photo.id);
       const hangRadius = radius - 0.12;
       frame.position.set(
@@ -784,16 +807,24 @@ export class Gallery3DScene {
   _onCanvasClick(event){
     if (!this.interactionEnabled || this._zoomAnimating) return;
     this._setPointerFromEvent(event);
+    const hits = this._raycaster.intersectObjects(this._clickables, false);
 
     if (this._zoomedArtworkId) {
       const artworkHit = this._pickArtworkHit();
-      if (!artworkHit || artworkHit.photoId === this._zoomedArtworkId) {
+      if (artworkHit && artworkHit.photoId === this._zoomedArtworkId) {
         this._zoomOutArtwork();
+        return;
+      }
+      for (const hit of hits) {
+        const data = this._resolveInteractiveData(hit.object);
+        if (data.type === "wall") {
+          this._stepBackAlongView();
+          return;
+        }
       }
       return;
     }
 
-    const hits = this._raycaster.intersectObjects(this._clickables, false);
     for (const hit of hits) {
       const data = this._resolveInteractiveData(hit.object);
       if (data.type === "door") {
@@ -813,11 +844,77 @@ export class Gallery3DScene {
 
     for (const hit of hits) {
       const data = this._resolveInteractiveData(hit.object);
+      if (data.type === "wall") {
+        this._stepBackAlongView();
+        return;
+      }
       if (data.type === "floor") {
         this._walkToward(hit.point);
         return;
       }
     }
+  }
+
+  _stepBackAlongView(){
+    const roomCenter = this._getRoomCenter();
+    const facingYaw = this.controls.yaw;
+    const facingPitch = this.controls.pitch;
+    const returnFov = this._zoomReturnFov || 68;
+    const forward = new THREE.Vector3();
+    this.camera.getWorldDirection(forward);
+    forward.y = 0;
+    if (forward.lengthSq() < 0.0001) {
+      forward.set(Math.sin(facingYaw), 0, Math.cos(facingYaw));
+    }
+    forward.normalize();
+
+    let target = this.camera.position.clone().add(
+      forward.multiplyScalar(-WALL_STEP_BACK_DISTANCE)
+    );
+    target.y = EYE_HEIGHT;
+
+    const toCenter = roomCenter.clone().sub(this.camera.position);
+    toCenter.y = 0;
+    const step = target.clone().sub(this.camera.position);
+    step.y = 0;
+    if (toCenter.lengthSq() > 0.0001 && step.dot(toCenter) > 0 && step.length() > toCenter.length()) {
+      target.copy(roomCenter);
+    }
+
+    this._clampCameraToRoom(target);
+    const atCenter = target.distanceTo(roomCenter) < 0.35;
+    const fromFov = this.camera.fov;
+    const toFov = atCenter ? returnFov : THREE.MathUtils.lerp(fromFov, returnFov, 0.38);
+
+    this._animateCameraState({
+      position: this.camera.position.clone(),
+      yaw: facingYaw,
+      pitch: facingPitch,
+      fov: fromFov
+    }, {
+      position: target,
+      yaw: facingYaw,
+      pitch: facingPitch,
+      fov: toFov
+    }, 480, () => {
+      if (atCenter) {
+        this._clearZoomState();
+      }
+    });
+  }
+
+  _clearZoomState(){
+    if (!this._zoomedArtworkId) return;
+    const group = this._artworkGroups.find(item => item.userData.photoId === this._zoomedArtworkId);
+    this._zoomedArtworkId = null;
+    this._zoomAnimating = false;
+    this.controls.locked = false;
+    if (this._hadGyroBeforeZoom) {
+      this.enableGyro();
+      this._hadGyroBeforeZoom = false;
+    }
+    if (group) group.userData.zoomed = false;
+    this.callbacks.onArtworkZoomChange?.(null);
   }
 
   _walkToward(point){
@@ -932,7 +1029,6 @@ export class Gallery3DScene {
   }
 
   _zoomOutArtwork(){
-    const group = this._artworkGroups.find(item => item.userData.photoId === this._zoomedArtworkId);
     const roomCenter = this._getRoomCenter();
     const facingYaw = this.controls.yaw;
     const facingPitch = this.controls.pitch;
@@ -949,16 +1045,8 @@ export class Gallery3DScene {
       pitch: facingPitch,
       fov: returnFov
     }, 900, () => {
-      this._zoomedArtworkId = null;
-      this._zoomAnimating = false;
-      this.controls.locked = false;
-      if (this._hadGyroBeforeZoom) {
-        this.enableGyro();
-        this._hadGyroBeforeZoom = false;
-      }
-      if (group) group.userData.zoomed = false;
       this.controls.setOrientation(facingYaw, facingPitch);
-      this.callbacks.onArtworkZoomChange?.(null);
+      this._clearZoomState();
     });
   }
 

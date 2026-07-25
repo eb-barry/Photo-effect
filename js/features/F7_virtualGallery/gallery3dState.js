@@ -1,9 +1,13 @@
 // F7 3D 展館 - 狀態管理 v0.3.0
 
 import { GALLERY3D_ROOM_COUNT } from "./gallery3dRooms.js";
+import {
+  GALLERY_DEFAULT_INNER_FRAME_ID,
+  GALLERY_DEFAULT_OUTER_FRAME_ID
+} from "./gallery3dFrames.js";
 
 export const GALLERY3D_FEATURE_ID = "F7_virtualGallery";
-export const GALLERY3D_FEATURE_VERSION = "0.3.11";
+export const GALLERY3D_FEATURE_VERSION = "0.3.12";
 export const GALLERY3D_DRAFT_KEY = "photoEffects.F7_virtualGallery.draft.v3";
 export const GALLERY3D_TUTORIAL_KEY = "photoEffects.F7_virtualGallery.tutorial.v1";
 export const GALLERY3D_MAX_PHOTOS = 100;
@@ -20,11 +24,15 @@ export function createPhotoId(){
   return `gallery-photo-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+export const GALLERY3D_SCENE_MATERIAL_TARGETS = ["floor", "wall", "outerFrame", "innerFrame"];
+
 export function createDefaultRoomSettings(){
   return Array.from({ length: GALLERY3D_ROOM_COUNT }, (_, index) => ({
     roomId: index + 1,
     wallTextureId: "wall-01",
-    floorTextureId: "floor-01"
+    floorTextureId: "floor-01",
+    outerFrameTypeId: GALLERY_DEFAULT_OUTER_FRAME_ID,
+    innerFrameTypeId: GALLERY_DEFAULT_INNER_FRAME_ID
   }));
 }
 
@@ -125,7 +133,7 @@ export function updateGallery3dState(currentState, partial){
 
   next.selectedRoomNumber = clampRoomNumber(next.selectedRoomNumber);
   next.currentRoomId = clampRoomNumber(next.currentRoomId);
-  next.sceneMaterialTarget = next.sceneMaterialTarget === "floor" || next.sceneMaterialTarget === "wall"
+  next.sceneMaterialTarget = GALLERY3D_SCENE_MATERIAL_TARGETS.includes(next.sceneMaterialTarget)
     ? next.sceneMaterialTarget
     : null;
 
@@ -170,7 +178,13 @@ function normalizeRooms(rooms){
     return {
       roomId: defaultRoom.roomId,
       wallTextureId: typeof saved.wallTextureId === "string" ? saved.wallTextureId : defaultRoom.wallTextureId,
-      floorTextureId: typeof saved.floorTextureId === "string" ? saved.floorTextureId : defaultRoom.floorTextureId
+      floorTextureId: typeof saved.floorTextureId === "string" ? saved.floorTextureId : defaultRoom.floorTextureId,
+      outerFrameTypeId: typeof saved.outerFrameTypeId === "string"
+        ? saved.outerFrameTypeId
+        : defaultRoom.outerFrameTypeId,
+      innerFrameTypeId: typeof saved.innerFrameTypeId === "string"
+        ? saved.innerFrameTypeId
+        : defaultRoom.innerFrameTypeId
     };
   });
 }
