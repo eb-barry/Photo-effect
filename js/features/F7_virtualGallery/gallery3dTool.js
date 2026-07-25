@@ -4,7 +4,6 @@ import { createScaledDataUrl } from "../F6_photoWall/photoWallTool.js";
 
 export const GALLERY_TEXTURE_MAX_EDGE = 2048;
 export const GALLERY_THUMB_MAX_EDGE = 192;
-export const ASPECT_TOLERANCE = 0.06;
 
 export function fileToDataUrl(file){
   return new Promise((resolve, reject) => {
@@ -24,23 +23,18 @@ function loadImageFromDataUrl(dataUrl){
   });
 }
 
-export function detectGalleryAspect(width, height){
-  if (!width || !height) return null;
-  const ratio = width / height;
-  const landscape = 4 / 3;
-  const portrait = 3 / 4;
-
-  if (Math.abs(ratio - landscape) <= ASPECT_TOLERANCE) return "4x3";
-  if (Math.abs(ratio - portrait) <= ASPECT_TOLERANCE) return "3x4";
-  return null;
+export function resolveGalleryAspect(width, height){
+  if (!width || !height) return "3x4";
+  return width >= height ? "4x3" : "3x4";
 }
 
 export async function prepareGalleryPhoto(file){
   const dataUrl = await fileToDataUrl(file);
   const image = await loadImageFromDataUrl(dataUrl);
-  const aspect = detectGalleryAspect(image.width, image.height);
-  if (!aspect) {
-    throw new Error("僅支援 4:3 橫向或 3:4 直向照片。");
+  const width = image.width;
+  const height = image.height;
+  if (!width || !height) {
+    throw new Error("無法讀取照片尺寸。");
   }
 
   const [textureDataUrl, thumbDataUrl] = await Promise.all([
@@ -52,9 +46,9 @@ export async function prepareGalleryPhoto(file){
     dataUrl,
     textureDataUrl,
     thumbDataUrl,
-    aspect,
-    width: image.width,
-    height: image.height
+    aspect: resolveGalleryAspect(width, height),
+    width,
+    height
   };
 }
 
