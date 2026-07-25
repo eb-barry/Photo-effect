@@ -260,7 +260,7 @@ export class Gallery3DScene {
     this._cameraTween = null;
     this._zoomedArtworkId = null;
     this._zoomReturnFov = 68;
-    this._zoomAnimating = false;
+    this._cameraAnimating = false;
     this._hadGyroBeforeZoom = false;
     this._frameSettings = null;
     this._raycaster = new THREE.Raycaster();
@@ -332,7 +332,7 @@ export class Gallery3DScene {
     this._textures = [];
     this._zoomedArtworkId = null;
     this._zoomReturnFov = 68;
-    this._zoomAnimating = false;
+    this._cameraAnimating = false;
     this.controls.locked = false;
   }
 
@@ -805,9 +805,20 @@ export class Gallery3DScene {
   }
 
   _onCanvasClick(event){
-    if (!this.interactionEnabled || this._zoomAnimating) return;
+    if (!this.interactionEnabled || this._cameraAnimating) return;
     this._setPointerFromEvent(event);
     const hits = this._raycaster.intersectObjects(this._clickables, false);
+
+    for (const hit of hits) {
+      const data = this._resolveInteractiveData(hit.object);
+      if (data.type === "door") {
+        this.callbacks.onDoorwaySelected?.({
+          doorwayId: data.doorwayId,
+          targetRoomId: data.targetRoomId
+        });
+        return;
+      }
+    }
 
     if (this._zoomedArtworkId) {
       const artworkHit = this._pickArtworkHit();
@@ -823,17 +834,6 @@ export class Gallery3DScene {
         }
       }
       return;
-    }
-
-    for (const hit of hits) {
-      const data = this._resolveInteractiveData(hit.object);
-      if (data.type === "door") {
-        this.callbacks.onDoorwaySelected?.({
-          doorwayId: data.doorwayId,
-          targetRoomId: data.targetRoomId
-        });
-        return;
-      }
     }
 
     const artworkHit = this._pickArtworkHit();
@@ -907,7 +907,6 @@ export class Gallery3DScene {
     if (!this._zoomedArtworkId) return;
     const group = this._artworkGroups.find(item => item.userData.photoId === this._zoomedArtworkId);
     this._zoomedArtworkId = null;
-    this._zoomAnimating = false;
     this.controls.locked = false;
     if (this._hadGyroBeforeZoom) {
       this.enableGyro();
@@ -1023,7 +1022,6 @@ export class Gallery3DScene {
       pitch: focus.pitch,
       fov: focus.targetFov
     }, 1050, () => {
-      this._zoomAnimating = false;
       this.controls.setOrientation(focus.yaw, focus.pitch);
     });
   }
@@ -1050,9 +1048,16 @@ export class Gallery3DScene {
     });
   }
 
+  _finishCameraAnimation(onComplete){
+    this._cameraTween = null;
+    this._cameraAnimating = false;
+    onComplete?.();
+  }
+
   _animateCameraState(fromState, toState, duration, onComplete){
+    if (this._cameraTween) cancelAnimationFrame(this._cameraTween);
     const startTime = performance.now();
-    this._zoomAnimating = true;
+    this._cameraAnimating = true;
     const step = now => {
       const t = Math.min(1, (now - startTime) / duration);
       const eased = t < 0.5
@@ -1069,25 +1074,27 @@ export class Gallery3DScene {
       if (t < 1) {
         this._cameraTween = requestAnimationFrame(step);
       } else {
-        this._cameraTween = null;
-        onComplete?.();
+        this._finishCameraAnimation(onComplete);
       }
     };
-    if (this._cameraTween) cancelAnimationFrame(this._cameraTween);
     this._cameraTween = requestAnimationFrame(step);
   }
 
   _animateCameraPosition(targetPosition, duration){
+    if (this._cameraTween) cancelAnimationFrame(this._cameraTween);
     const start = this.camera.position.clone();
     const startTime = performance.now();
+    this._cameraAnimating = true;
     const step = now => {
       const t = Math.min(1, (now - startTime) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
       this.camera.position.lerpVectors(start, targetPosition, eased);
-      if (t < 1) this._cameraTween = requestAnimationFrame(step);
-      else this._cameraTween = null;
+      if (t < 1) {
+        this._cameraTween = requestAnimationFrame(step);
+      } else {
+        this._finishCameraAnimation();
+      }
     };
-    if (this._cameraTween) cancelAnimationFrame(this._cameraTween);
     this._cameraTween = requestAnimationFrame(step);
   }
 
