@@ -191,7 +191,7 @@ export function renderScenePanel(state, {
 
   return `
     <div class="gallery3d-scene-panel">
-      <div class="segment gallery3d-material-segment gallery3d-material-row" role="group" aria-label="材質類型">
+      <div class="gallery3d-material-segment gallery3d-material-row" role="group" aria-label="材質類型">
         <button type="button" class="gallery3d-material-btn ${floorActive ? "active" : ""}" data-gallery3d-material="floor">地板</button>
         <button type="button" class="gallery3d-material-btn ${wallActive ? "active" : ""}" data-gallery3d-material="wall">牆面</button>
         <button type="button" class="gallery3d-material-btn ${frameActive ? "active" : ""}" data-gallery3d-material="frame">畫框</button>

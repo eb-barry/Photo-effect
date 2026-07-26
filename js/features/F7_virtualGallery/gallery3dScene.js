@@ -21,6 +21,11 @@ const WALL_STEP_BACK_DISTANCE = 1.15;
 const DOOR_FRAME_PADDING = 0.12;
 const DOOR_FRAME_WIDTH = DOOR_WIDTH + DOOR_FRAME_PADDING;
 const DOOR_FRAME_HEIGHT = DOOR_HEIGHT + DOOR_FRAME_PADDING;
+const ROUND_WALL_FRAME_SCALE = 0.78;
+const ROUND_WALL_FRAME_GAP = 0.22;
+const WALL_FRAME_GAP = 0.45;
+const WALL_HANG_HEIGHT = 2.2;
+const WALL_HANG_HEIGHT_WITH_DOOR = 2.55;
 
 function lerpAngle(from, to, t){
   let delta = to - from;
@@ -31,14 +36,15 @@ function lerpAngle(from, to, t){
 
 const FRAME_SCALE = 1.5;
 
-function frameSizeForPhoto(photo){
+function frameSizeForPhoto(photo, { roundWall = false } = {}){
   const legacyWidth = photo?.aspect === "4x3" ? 4 : 3;
   const legacyHeight = photo?.aspect === "4x3" ? 3 : 4;
   const sourceWidth = Number(photo?.width) > 0 ? Number(photo.width) : legacyWidth;
   const sourceHeight = Number(photo?.height) > 0 ? Number(photo.height) : legacyHeight;
   const ratio = sourceWidth / sourceHeight;
-  const maxHeight = 1.02 * FRAME_SCALE;
-  const maxWidth = 1.35 * FRAME_SCALE;
+  const scale = roundWall ? ROUND_WALL_FRAME_SCALE : 1;
+  const maxHeight = 1.02 * FRAME_SCALE * scale;
+  const maxWidth = 1.35 * FRAME_SCALE * scale;
 
   let width;
   let height;
@@ -670,14 +676,14 @@ export class Gallery3DScene {
     const half = SQUARE_ROOM_SIZE / 2 - 0.55;
     const doorway = room.doorways.find(item => item.side === wall.side);
     if (!doorway) return [{ min: -half, max: half }];
-    const gap = DOOR_WIDTH / 2 + 0.18;
+    const gap = DOOR_FRAME_WIDTH / 2 + 0.42;
     return [
       { min: -half, max: -gap },
       { min: gap, max: half }
     ];
   }
 
-  async _prepareFramedPhoto(photo, loader){
+  async _prepareFramedPhoto(photo, loader, { roundWall = false } = {}){
     const sourceTexture = await loader.loadAsync(photo.textureDataUrl);
     sourceTexture.colorSpace = THREE.SRGBColorSpace;
     const framedCanvas = await bakeGalleryFramedTexture(
@@ -692,15 +698,47 @@ export class Gallery3DScene {
     return {
       photo,
       texture,
-      size: frameSizeForPhoto({ width: framedCanvas.width, height: framedCanvas.height })
+      size: frameSizeForPhoto(
+        { width: framedCanvas.width, height: framedCanvas.height },
+        { roundWall }
+      )
     };
   }
 
-  async _placeFramesOnWall(wall, photos, loader, ranges){
+  _clampFrameCoord(coord, halfWidth, range){
+    const margin = 0.08;
+    const min = range.min + halfWidth + margin;
+    const max = range.max - halfWidth - margin;
+    if (min > max) return (range.min + range.max) / 2;
+    return Math.min(max, Math.max(min, coord));
+  }
+
+  _layoutFramesInRange(prepared, range, gap = WALL_FRAME_GAP){
+    if (!prepared.length) return [];
+
+    const span = range.max - range.min;
+    const totalWidth = prepared.reduce((sum, item, index) => (
+      sum + item.size.width + (index > 0 ? gap : 0)
+    ), 0);
+    const effectiveGap = totalWidth > span && prepared.length > 1
+      ? Math.max(0.12, (span - prepared.reduce((sum, item) => sum + item.size.width, 0)) / (prepared.length - 1))
+      : gap;
+
+    let cursor = range.min + span / 2 - totalWidth / 2;
+    return prepared.map((item, index) => {
+      if (index > 0) cursor += effectiveGap;
+      const coord = this._clampFrameCoord(cursor + item.size.width / 2, item.size.width / 2, range);
+      cursor = coord + item.size.width / 2;
+      return { ...item, coord };
+    });
+  }
+
+  async _placeFramesOnWall(wall, photos, loader, ranges, { hasDoorway = false } = {}){
     if (!photos.length) return;
     const perRange = this._splitEvenly(photos, ranges.length);
     const normal = getWallInwardNormal(wall.side);
     const surfaceInset = 0.12;
+    const hangY = hasDoorway ? WALL_HANG_HEIGHT_WITH_DOOR : WALL_HANG_HEIGHT;
 
     for (let rangeIndex = 0; rangeIndex < ranges.length; rangeIndex += 1) {
       const range = ranges[rangeIndex];
@@ -710,23 +748,18 @@ export class Gallery3DScene {
       for (const photo of chunk) {
         prepared.push(await this._prepareFramedPhoto(photo, loader));
       }
-      const span = range.max - range.min;
-      let cursor = range.min + span / 2;
-      const totalWidth = prepared.reduce((sum, item) => sum + item.size.width + 0.45, -0.45);
-      cursor -= totalWidth / 2;
-      for (const item of prepared) {
-        const { photo, texture, size } = item;
+      const placed = this._layoutFramesInRange(prepared, range);
+      for (const item of placed) {
+        const { photo, texture, size, coord } = item;
         const frame = createFrameMesh(size.width, size.height, texture, photo.id);
-        const coord = cursor + size.width / 2;
         if (wall.axis === "x") {
-          frame.position.set(coord, 2.2, wall.wallCoord + normal.z * surfaceInset);
+          frame.position.set(coord, hangY, wall.wallCoord + normal.z * surfaceInset);
         } else {
-          frame.position.set(wall.wallCoord + normal.x * surfaceInset, 2.2, coord);
+          frame.position.set(wall.wallCoord + normal.x * surfaceInset, hangY, coord);
         }
         alignMeshFacing(frame, normal);
         this._roomGroup.add(frame);
         this._artworkGroups.push(frame);
-        cursor += size.width + 0.45;
       }
     }
   }
@@ -741,50 +774,90 @@ export class Gallery3DScene {
       const wall = walls[wallIndex];
       const chunk = wallChunks[wallIndex];
       if (!chunk.length) continue;
+      const doorway = room.doorways.find(item => item.side === wall.side);
       const ranges = this._getWallHangRanges(wall, room);
-      await this._placeFramesOnWall(wall, chunk, loader, ranges);
+      await this._placeFramesOnWall(wall, chunk, loader, ranges, { hasDoorway: Boolean(doorway) });
     }
   }
 
-  _getRoundWallAngles(room, count){
+  _isAngleBlockedByDoor(angle, doorAngles, doorArc){
+    return doorAngles.some(doorAngle => {
+      let delta = angle - doorAngle;
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta < -Math.PI) delta += Math.PI * 2;
+      return Math.abs(delta) < doorArc;
+    });
+  }
+
+  _getRoundWallAngles(room, preparedFrames, hangRadius){
+    const count = preparedFrames.length;
     if (!count) return [];
+
     const doorAngles = room.doorways.map(item => item.angle || 0);
-    const doorArc = (DOOR_WIDTH / ROUND_ROOM_RADIUS) + 0.22;
-    const slots = [];
-    const steps = Math.max(count * 3, 24);
-    for (let index = 0; index < steps; index += 1) {
-      const angle = -Math.PI + (Math.PI * 2 * index) / steps;
-      const blocked = doorAngles.some(doorAngle => {
-        let delta = angle - doorAngle;
-        while (delta > Math.PI) delta -= Math.PI * 2;
-        while (delta < -Math.PI) delta += Math.PI * 2;
-        return Math.abs(delta) < doorArc;
-      });
-      if (!blocked) slots.push(angle);
+    const doorArc = (DOOR_FRAME_WIDTH / hangRadius) + 0.34;
+    const frameArcs = preparedFrames.map(item => item.size.width / hangRadius);
+    const totalArc = frameArcs.reduce((sum, arc, index) => (
+      sum + arc + (index > 0 ? ROUND_WALL_FRAME_GAP : 0)
+    ), 0);
+
+    const step = 0.03;
+    let bestStart = null;
+    for (let start = -Math.PI; start <= Math.PI - totalArc; start += step) {
+      let blocked = false;
+      for (let probe = start; probe <= start + totalArc; probe += step) {
+        if (this._isAngleBlockedByDoor(probe, doorAngles, doorArc)) {
+          blocked = true;
+          break;
+        }
+      }
+      if (!blocked) {
+        bestStart = start;
+        break;
+      }
     }
-    if (!slots.length) return [];
-    if (count === 1) return [slots[Math.floor(slots.length / 2)]];
-    return Array.from({ length: count }, (_, index) => (
-      slots[Math.round((index * (slots.length - 1)) / Math.max(count - 1, 1))]
-    ));
+
+    if (bestStart == null) {
+      for (let start = -Math.PI; start <= Math.PI - totalArc; start += step) {
+        let blockedCount = 0;
+        for (let probe = start; probe <= start + totalArc; probe += step) {
+          if (this._isAngleBlockedByDoor(probe, doorAngles, doorArc)) blockedCount += 1;
+        }
+        if (bestStart == null || blockedCount < bestStart.blockedCount) {
+          bestStart = { start, blockedCount };
+        }
+      }
+      bestStart = bestStart?.start ?? (-Math.PI / 2 - totalArc / 2);
+    }
+
+    const angles = [];
+    let cursor = bestStart;
+    for (let index = 0; index < count; index += 1) {
+      const arc = frameArcs[index];
+      angles.push(cursor + arc / 2);
+      cursor += arc + (index < count - 1 ? ROUND_WALL_FRAME_GAP : 0);
+    }
+    return angles;
   }
 
   async _hangPhotosOnRoundWall(photos, room){
     if (!photos.length) return;
     const loader = new THREE.TextureLoader();
     const radius = ROUND_ROOM_RADIUS - 0.1;
-    const angles = this._getRoundWallAngles(room, photos.length);
+    const hangRadius = radius - 0.12;
+    const prepared = [];
+    for (const photo of photos) {
+      prepared.push(await this._prepareFramedPhoto(photo, loader, { roundWall: true }));
+    }
+    const angles = this._getRoundWallAngles(room, prepared, hangRadius);
 
-    for (let index = 0; index < photos.length; index += 1) {
-      const photo = photos[index];
+    for (let index = 0; index < prepared.length; index += 1) {
+      const { photo, texture, size } = prepared[index];
       const angle = angles[index] ?? (-Math.PI / 2 + (Math.PI * index) / Math.max(photos.length, 1));
       const normal = getRoundWallInwardNormal(angle);
-      const { texture, size } = await this._prepareFramedPhoto(photo, loader);
       const frame = createFrameMesh(size.width, size.height, texture, photo.id);
-      const hangRadius = radius - 0.12;
       frame.position.set(
         Math.sin(angle) * hangRadius + normal.x * 0.08,
-        2.2,
+        WALL_HANG_HEIGHT,
         Math.cos(angle) * hangRadius + normal.z * 0.08
       );
       alignMeshFacing(frame, normal);

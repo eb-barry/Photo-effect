@@ -1,4 +1,4 @@
-// F7 3D 展館 - Page Controller v0.3.20
+// F7 3D 展館 - Page Controller v0.3.21
 
 import { downloadJson } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
