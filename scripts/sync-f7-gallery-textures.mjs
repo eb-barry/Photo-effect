@@ -42,10 +42,29 @@ function naturalCompare(a, b){
   return String(a).localeCompare(String(b), "en", { numeric: true, sensitivity: "base" });
 }
 
+/** Prefer lowercase filenames when both door-01.webp and Door-01.webp exist. */
+function dedupeCaseInsensitive(files){
+  const byKey = new Map();
+  for (const file of files) {
+    const key = file.toLowerCase();
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, file);
+      continue;
+    }
+    const preferred = existing === existing.toLowerCase() ? existing : file.toLowerCase();
+    if (preferred !== existing) {
+      console.warn(`[F7] duplicate filename (case): keeping ${preferred}, ignoring ${existing === preferred ? file : existing}`);
+      byKey.set(key, preferred);
+    }
+  }
+  return [...byKey.values()].sort(naturalCompare);
+}
+
 function syncTarget(target){
-  const files = fs.readdirSync(target.dir)
-    .filter(name => target.pattern.test(name))
-    .sort(naturalCompare);
+  const files = dedupeCaseInsensitive(
+    fs.readdirSync(target.dir).filter(name => target.pattern.test(name))
+  );
 
   const items = files.map(file => {
     const match = file.match(target.pattern);
