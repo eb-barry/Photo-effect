@@ -64,7 +64,6 @@ export async function renderGallery3dPage(root, navigate){
   if (state.activeTab === "gallery" && !state.photos.length) {
     state.activeTab = "scene";
   }
-  let zoomedPhotoId = null;
   let uiNotice = "";
 
   root.innerHTML = `
@@ -171,14 +170,9 @@ export async function renderGallery3dPage(root, navigate){
         const fromRoomId = state.currentRoomId;
         scene?.prepareForRoomTransition();
         Object.assign(state, updateGallery3dState(state, { currentRoomId: targetRoomId }));
-        zoomedPhotoId = null;
         ui.refreshOverlay();
         persistDraft();
         await loadActiveRoom(targetRoomId, fromRoomId);
-      },
-      onArtworkZoomChange: photoId => {
-        zoomedPhotoId = photoId;
-        ui.refreshOverlay();
       }
     });
     return scene;
@@ -330,7 +324,6 @@ export async function renderGallery3dPage(root, navigate){
       gyroEnabled: false,
       activeTab: "scene"
     }));
-    zoomedPhotoId = null;
     uiNotice = "";
     ui.showGyroPrompt(false);
     ui.showTutorial(false);
@@ -346,7 +339,6 @@ export async function renderGallery3dPage(root, navigate){
       gyroEnabled: false,
       activeTab: "scene"
     }));
-    zoomedPhotoId = null;
     ui?.showGyroPrompt(false);
     ui?.showTutorial(false);
     scene?.stop();
@@ -404,7 +396,6 @@ export async function renderGallery3dPage(root, navigate){
       const imported = applyGallery3dProject(state, raw);
       Object.assign(state, imported);
       normalizeImportedRoomTextures();
-      zoomedPhotoId = null;
       uiNotice = "";
       ui?.refreshAll();
       await ui?.refreshMaterialPreview();
@@ -538,7 +529,6 @@ export async function renderGallery3dPage(root, navigate){
     getDoorTextures: () => getDoorTextureCatalog(),
     getOuterFrameTextures: () => getGalleryOuterFrameCatalog(),
     getInnerFrameTextures: () => getGalleryInnerFrameCatalog(),
-    getZoomedPhotoId: () => zoomedPhotoId,
     getUiNotice: () => uiNotice,
     onTabChange: async tab => {
       if (tab !== "gallery" && state.gallerySessionReady) {
@@ -607,7 +597,6 @@ export async function renderGallery3dPage(root, navigate){
       if (!roomId || roomId === state.currentRoomId) return;
       const fromRoomId = state.currentRoomId;
       scene?.prepareForRoomTransition();
-      zoomedPhotoId = null;
       Object.assign(state, updateGallery3dState(state, { currentRoomId: roomId }));
       ui.refreshOverlay();
       persistDraft();
@@ -630,7 +619,6 @@ export async function renderGallery3dPage(root, navigate){
     },
     onUploadRequest: () => requestPhotoUpload(),
     onResetView: () => {
-      zoomedPhotoId = null;
       scene?.resetView();
       ui.refreshOverlay();
     }
@@ -638,7 +626,6 @@ export async function renderGallery3dPage(root, navigate){
 
   root.querySelector("#gallery3dResetViewBtn")?.addEventListener("click", event => {
     event.preventDefault();
-    zoomedPhotoId = null;
     scene?.resetView();
     ui.refreshOverlay();
   });

@@ -226,7 +226,6 @@ export function renderGalleryTutorial(){
           <li>拖曳畫面（或轉動手機）環顧四周</li>
           <li>點<strong>牆面</strong>往後退一步（可連點多次）</li>
           <li>點<strong>地板</strong>向前移動</li>
-          <li>點<strong>畫作</strong>放大，再點一次縮小</li>
           <li>點<strong>門口</strong>切換展間</li>
         </ul>
         <button type="button" class="gallery3d-enter-btn" id="gallery3dTutorialDismissBtn">開始參觀</button>
