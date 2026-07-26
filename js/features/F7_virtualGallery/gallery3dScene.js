@@ -1,4 +1,4 @@
-// F7 3D 展館 - Three.js 多房間場景、行走、門口切換
+// F7 3D 展館 - Three.js 多房間場景、行走、門口切換（圓形展間使用曲面畫框）
 
 import * as THREE from "https://esm.sh/three@0.170.0";
 import {
@@ -118,6 +118,54 @@ function createFrameMesh(width, height, texture, photoId){
   hitPlane.position.z = FRAME_DEPTH * 0.52;
   hitPlane.userData = { type: "artwork", photoId };
   group.add(hitPlane);
+
+  return group;
+}
+
+function createCurvedFrameGeometry(width, height, surfaceRadius, centerAngle, hangY){
+  const angularWidth = width / surfaceRadius;
+  const widthSegments = Math.max(
+    12,
+    Math.min(48, Math.ceil(angularWidth * 32))
+  );
+  const geometry = new THREE.PlaneGeometry(width, height, widthSegments, 1);
+  const position = geometry.attributes.position;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const x = position.getX(index);
+    const y = position.getY(index);
+    const theta = centerAngle + x / surfaceRadius;
+    position.setXYZ(
+      index,
+      Math.sin(theta) * surfaceRadius,
+      hangY + y,
+      Math.cos(theta) * surfaceRadius
+    );
+  }
+
+  position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function createCurvedFrameMesh(width, height, texture, photoId, surfaceRadius, centerAngle, hangY, slotIndex){
+  const group = new THREE.Group();
+  group.userData = { type: "artwork", photoId, artWidth: width, artHeight: height };
+
+  const geometry = createCurvedFrameGeometry(width, height, surfaceRadius, centerAngle, hangY);
+  const picture = new THREE.Mesh(
+    geometry,
+    new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      toneMapped: false,
+      side: THREE.DoubleSide
+    })
+  );
+  picture.renderOrder = 10 + slotIndex;
+  picture.userData = { type: "artwork", photoId };
+  group.add(picture);
+  group.userData.pictureMesh = picture;
 
   return group;
 }
@@ -841,30 +889,19 @@ export class Gallery3DScene {
 
   _placeRoundWallFrame(prepared, angle, hangRadius, slotIndex){
     const { photo, texture, size } = prepared;
-    const hangY = WALL_HANG_HEIGHT;
-    const anchor = new THREE.Object3D();
-    const radius = hangRadius - 0.015 * (slotIndex % 3);
-    anchor.position.set(
-      Math.sin(angle) * radius,
-      hangY,
-      Math.cos(angle) * radius
+    const surfaceRadius = hangRadius - 0.02 - (slotIndex % 3) * 0.01;
+    const frame = createCurvedFrameMesh(
+      size.width,
+      size.height,
+      texture,
+      photo.id,
+      surfaceRadius,
+      angle,
+      WALL_HANG_HEIGHT,
+      slotIndex
     );
-    anchor.lookAt(0, hangY, 0);
-
-    const frame = createFrameMesh(size.width, size.height, texture, photo.id);
-    frame.position.z = 0.05;
-    frame.renderOrder = 10 + slotIndex;
-    anchor.add(frame);
-    anchor.userData = {
-      type: "artwork",
-      photoId: photo.id,
-      artWidth: size.width,
-      artHeight: size.height,
-      pictureMesh: frame.userData.pictureMesh
-    };
-
-    this._roomGroup.add(anchor);
-    this._artworkGroups.push(anchor);
+    this._roomGroup.add(frame);
+    this._artworkGroups.push(frame);
   }
 
   async _hangPhotosOnRoundWall(photos, room){
