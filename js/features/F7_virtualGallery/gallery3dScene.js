@@ -21,8 +21,8 @@ const WALL_STEP_BACK_DISTANCE = 1.15;
 const DOOR_FRAME_PADDING = 0.12;
 const DOOR_FRAME_WIDTH = DOOR_WIDTH + DOOR_FRAME_PADDING;
 const DOOR_FRAME_HEIGHT = DOOR_HEIGHT + DOOR_FRAME_PADDING;
-const ROUND_WALL_FRAME_SCALE = 0.78;
-const ROUND_WALL_FRAME_GAP = 0.22;
+const ROUND_WALL_FRAME_SCALE = 0.72;
+const ROUND_WALL_FRAME_GAP = 0.28;
 const WALL_FRAME_GAP = 0.45;
 const WALL_HANG_HEIGHT = 2.2;
 const WALL_HANG_HEIGHT_WITH_DOOR = 2.55;
@@ -168,6 +168,7 @@ class RoomControls {
   }
 
   async enableGyro(){
+    if (this.gyroEnabled) return true;
     const ok = await this.requestGyroPermission();
     if (!ok) return false;
     window.addEventListener("deviceorientation", this._onOrient, true);
@@ -354,17 +355,40 @@ export class Gallery3DScene {
     this._roomTextures = [];
   }
 
+  _cancelCameraAnimation(){
+    if (this._cameraTween) {
+      cancelAnimationFrame(this._cameraTween);
+      this._cameraTween = null;
+    }
+    this._cameraAnimating = false;
+  }
+
+  _resetZoomInteraction({ notify = true } = {}){
+    if (!this._zoomedArtworkId) {
+      this.controls.locked = false;
+      return;
+    }
+    this._zoomedArtworkId = null;
+    this.controls.locked = false;
+    this._hadGyroBeforeZoom = false;
+    if (notify) this.callbacks.onArtworkZoomChange?.(null);
+  }
+
+  prepareForRoomTransition(){
+    this._cancelCameraAnimation();
+    this._resetZoomInteraction();
+  }
+
   _clearArtworks(){
+    this._cancelCameraAnimation();
     this._artworkGroups = [];
     this._textures.forEach(texture => texture.dispose());
     this._textures = [];
-    this._zoomedArtworkId = null;
+    this._resetZoomInteraction();
     this._zoomReturnFov = 68;
     this._zoomFocusYaw = 0;
     this._zoomFocusPitch = 0;
-    this._cameraAnimating = false;
     this._doorTexture = null;
-    this.controls.locked = false;
   }
 
   async loadRoom({
@@ -376,6 +400,7 @@ export class Gallery3DScene {
     frameSettings = null,
     doorTextureCanvas = null
   }){
+    this.prepareForRoomTransition();
     this._disposeRoom();
     this._frameSettings = frameSettings;
     this.currentRoomId = Number(roomId);
@@ -789,52 +814,75 @@ export class Gallery3DScene {
     });
   }
 
+  _getRoundWallFreeSegments(doorAngles, doorArc){
+    const step = 0.03;
+    const samples = [];
+    for (let index = 0; index <= Math.ceil((Math.PI * 2) / step); index += 1) {
+      const angle = -Math.PI + index * step;
+      samples.push({
+        angle,
+        blocked: this._isAngleBlockedByDoor(angle, doorAngles, doorArc)
+      });
+    }
+
+    const segments = [];
+    let start = null;
+    for (const sample of samples) {
+      if (!sample.blocked && start === null) start = sample.angle;
+      if (sample.blocked && start !== null) {
+        segments.push({ start, end: sample.angle });
+        start = null;
+      }
+    }
+    if (start !== null) {
+      segments.push({ start, end: Math.PI });
+    }
+    return segments.filter(segment => segment.end - segment.start > 0.2);
+  }
+
   _getRoundWallAngles(room, preparedFrames, hangRadius){
     const count = preparedFrames.length;
     if (!count) return [];
 
     const doorAngles = room.doorways.map(item => item.angle || 0);
-    const doorArc = (DOOR_FRAME_WIDTH / hangRadius) + 0.34;
+    const doorArc = (DOOR_FRAME_WIDTH / hangRadius) + 0.45;
+    const segments = this._getRoundWallFreeSegments(doorAngles, doorArc);
+    if (!segments.length) {
+      return preparedFrames.map((_, index) => (
+        -Math.PI / 2 + ((index - (count - 1) / 2) * 0.55)
+      ));
+    }
+
+    const segment = segments.sort((a, b) => {
+      const spanDiff = (b.end - b.start) - (a.end - a.start);
+      if (Math.abs(spanDiff) > 0.02) return spanDiff;
+      const midA = (a.start + a.end) / 2;
+      const midB = (b.start + b.end) / 2;
+      const doorDistance = mid => doorAngles.reduce((max, doorAngle) => {
+        let delta = Math.abs(mid - doorAngle);
+        delta = Math.min(delta, Math.PI * 2 - delta);
+        return Math.max(max, delta);
+      }, 0);
+      return doorDistance(midB) - doorDistance(midA);
+    })[0];
+    const span = segment.end - segment.start;
     const frameArcs = preparedFrames.map(item => item.size.width / hangRadius);
-    const totalArc = frameArcs.reduce((sum, arc, index) => (
-      sum + arc + (index > 0 ? ROUND_WALL_FRAME_GAP : 0)
-    ), 0);
+    const gaps = Math.max(0, count - 1);
+    let gap = ROUND_WALL_FRAME_GAP;
+    let totalArc = frameArcs.reduce((sum, arc) => sum + arc, 0) + gap * gaps;
 
-    const step = 0.03;
-    let bestStart = null;
-    for (let start = -Math.PI; start <= Math.PI - totalArc; start += step) {
-      let blocked = false;
-      for (let probe = start; probe <= start + totalArc; probe += step) {
-        if (this._isAngleBlockedByDoor(probe, doorAngles, doorArc)) {
-          blocked = true;
-          break;
-        }
-      }
-      if (!blocked) {
-        bestStart = start;
-        break;
-      }
+    if (totalArc > span && gaps > 0) {
+      gap = Math.max(0.1, (span - frameArcs.reduce((sum, arc) => sum + arc, 0)) / gaps);
+      totalArc = frameArcs.reduce((sum, arc) => sum + arc, 0) + gap * gaps;
     }
 
-    if (bestStart == null) {
-      for (let start = -Math.PI; start <= Math.PI - totalArc; start += step) {
-        let blockedCount = 0;
-        for (let probe = start; probe <= start + totalArc; probe += step) {
-          if (this._isAngleBlockedByDoor(probe, doorAngles, doorArc)) blockedCount += 1;
-        }
-        if (bestStart == null || blockedCount < bestStart.blockedCount) {
-          bestStart = { start, blockedCount };
-        }
-      }
-      bestStart = bestStart?.start ?? (-Math.PI / 2 - totalArc / 2);
-    }
-
+    let cursor = segment.start + Math.max(0, (span - totalArc) / 2);
     const angles = [];
-    let cursor = bestStart;
     for (let index = 0; index < count; index += 1) {
       const arc = frameArcs[index];
-      angles.push(cursor + arc / 2);
-      cursor += arc + (index < count - 1 ? ROUND_WALL_FRAME_GAP : 0);
+      const center = cursor + arc / 2;
+      angles.push(center);
+      cursor += arc + (index < count - 1 ? gap : 0);
     }
     return angles;
   }
@@ -971,14 +1019,13 @@ export class Gallery3DScene {
   _clearZoomState(){
     if (!this._zoomedArtworkId) return;
     const group = this._artworkGroups.find(item => item.userData.photoId === this._zoomedArtworkId);
+    const restoreGyro = this._hadGyroBeforeZoom;
     this._zoomedArtworkId = null;
     this.controls.locked = false;
-    if (this._hadGyroBeforeZoom) {
-      this.enableGyro();
-      this._hadGyroBeforeZoom = false;
-    }
+    this._hadGyroBeforeZoom = false;
     if (group) group.userData.zoomed = false;
     this.callbacks.onArtworkZoomChange?.(null);
+    if (restoreGyro) void this.enableGyro();
   }
 
   _walkToward(point){
@@ -1132,7 +1179,7 @@ export class Gallery3DScene {
   }
 
   _animateCameraState(fromState, toState, duration, onComplete){
-    if (this._cameraTween) cancelAnimationFrame(this._cameraTween);
+    this._cancelCameraAnimation();
     const startTime = performance.now();
     this._cameraAnimating = true;
     const step = now => {
@@ -1158,7 +1205,7 @@ export class Gallery3DScene {
   }
 
   _animateCameraPosition(targetPosition, duration, options = {}){
-    if (this._cameraTween) cancelAnimationFrame(this._cameraTween);
+    this._cancelCameraAnimation();
     const start = this.camera.position.clone();
     const startFov = this.camera.fov;
     const targetFov = options.fov ?? startFov;
@@ -1247,7 +1294,7 @@ export class Gallery3DScene {
 
   dispose(){
     this.stop();
-    if (this._cameraTween) cancelAnimationFrame(this._cameraTween);
+    this._cancelCameraAnimation();
     this.renderer.domElement.removeEventListener("click", this._onCanvasClick);
     this._resizeObserver?.disconnect();
     this._disposeRoom();
