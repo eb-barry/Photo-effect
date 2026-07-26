@@ -7,7 +7,7 @@ import {
 } from "./gallery3dFrames.js";
 
 export const GALLERY3D_FEATURE_ID = "F7_virtualGallery";
-export const GALLERY3D_FEATURE_VERSION = "0.3.21";
+export const GALLERY3D_FEATURE_VERSION = "0.3.22";
 export const GALLERY3D_DRAFT_KEY = "photoEffects.F7_virtualGallery.draft.v3";
 export const GALLERY3D_TUTORIAL_KEY = "photoEffects.F7_virtualGallery.tutorial.v1";
 export const GALLERY3D_MAX_PHOTOS = 100;

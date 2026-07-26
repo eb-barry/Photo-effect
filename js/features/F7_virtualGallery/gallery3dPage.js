@@ -169,6 +169,7 @@ export async function renderGallery3dPage(root, navigate){
       onDoorwaySelected: async ({ targetRoomId }) => {
         if (!targetRoomId || targetRoomId === state.currentRoomId) return;
         const fromRoomId = state.currentRoomId;
+        scene?.prepareForRoomTransition();
         Object.assign(state, updateGallery3dState(state, { currentRoomId: targetRoomId }));
         zoomedPhotoId = null;
         ui.refreshOverlay();
@@ -218,6 +219,16 @@ export async function renderGallery3dPage(root, navigate){
 
       scene.resize();
       scene.start();
+
+      if (state.gyroEnabled) {
+        scene.disableGyro();
+        const gyroOk = await scene.enableGyro();
+        if (!gyroOk) {
+          Object.assign(state, updateGallery3dState(state, { gyroEnabled: false }));
+        }
+      } else {
+        scene.disableGyro();
+      }
     } finally {
       if (serial === rebuildSerial) ui.setLoading(false);
     }
@@ -595,6 +606,7 @@ export async function renderGallery3dPage(root, navigate){
     onJumpToRoom: async roomId => {
       if (!roomId || roomId === state.currentRoomId) return;
       const fromRoomId = state.currentRoomId;
+      scene?.prepareForRoomTransition();
       zoomedPhotoId = null;
       Object.assign(state, updateGallery3dState(state, { currentRoomId: roomId }));
       ui.refreshOverlay();
