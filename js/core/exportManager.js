@@ -14,4 +14,18 @@ export async function downloadCanvas(canvas, type = "image/jpeg", quality = 0.92
   document.body.appendChild(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1200);
 }
+
+export function downloadJson(data, filename = `photo-effects-${Date.now()}.json`){
+  const json = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1200);
+}
 function canvasToBlob(canvas, type, quality){ return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Canvas export failed")), type, quality)); }

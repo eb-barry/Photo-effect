@@ -1,4 +1,4 @@
-// F7 3D 展館 - 狀態管理 v0.3.0
+// F7 3D 展館 - 狀態管理 v0.3.20
 
 import { GALLERY3D_ROOM_COUNT } from "./gallery3dRooms.js";
 import {
@@ -7,7 +7,7 @@ import {
 } from "./gallery3dFrames.js";
 
 export const GALLERY3D_FEATURE_ID = "F7_virtualGallery";
-export const GALLERY3D_FEATURE_VERSION = "0.3.19";
+export const GALLERY3D_FEATURE_VERSION = "0.3.20";
 export const GALLERY3D_DRAFT_KEY = "photoEffects.F7_virtualGallery.draft.v3";
 export const GALLERY3D_TUTORIAL_KEY = "photoEffects.F7_virtualGallery.tutorial.v1";
 export const GALLERY3D_MAX_PHOTOS = 100;
@@ -127,7 +127,7 @@ export function markGalleryTutorialSeen(){
   }
 }
 
-export function updateGallery3dState(currentState, partial){
+export function updateGallery3dState(currentState, partial, options = {}){
   const next = {
     ...currentState,
     ...partial,
@@ -147,9 +147,8 @@ export function updateGallery3dState(currentState, partial){
 
   if (Array.isArray(next.photos)) {
     const trimmed = next.photos.slice(0, GALLERY3D_MAX_PHOTOS).map(normalizePhotoRecord);
-    next.photos = partial && "photos" in partial
-      ? distributePhotosToRooms(trimmed)
-      : trimmed;
+    const shouldDistribute = partial && "photos" in partial && !options.preservePhotoRoomIds;
+    next.photos = shouldDistribute ? distributePhotosToRooms(trimmed) : trimmed;
   } else {
     next.photos = [];
   }

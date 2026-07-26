@@ -5,6 +5,15 @@ import { createScaledDataUrl } from "../F6_photoWall/photoWallTool.js";
 export const GALLERY_TEXTURE_MAX_EDGE = 2048;
 export const GALLERY_THUMB_MAX_EDGE = 192;
 
+export function readFileAsText(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("讀取檔案失敗"));
+    reader.readAsText(file);
+  });
+}
+
 export function fileToDataUrl(file){
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
