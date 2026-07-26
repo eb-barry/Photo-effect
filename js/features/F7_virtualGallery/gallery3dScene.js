@@ -5,6 +5,7 @@ import {
   DOOR_HEIGHT,
   DOOR_WIDTH,
   EYE_HEIGHT,
+  ROUND_ROOM_MAX_WALL_PHOTOS,
   ROUND_ROOM_RADIUS,
   ROOM_WALL_HEIGHT,
   SQUARE_ROOM_SIZE,
@@ -22,20 +23,27 @@ const DOOR_FRAME_PADDING = 0.12;
 const DOOR_FRAME_WIDTH = DOOR_WIDTH + DOOR_FRAME_PADDING;
 const DOOR_FRAME_HEIGHT = DOOR_HEIGHT + DOOR_FRAME_PADDING;
 const ROUND_WALL_FRAME_SCALE = 0.72;
+const ROUND_WALL_FRAME_MIN_SCALE = 0.38;
 const ROUND_WALL_FRAME_GAP = 0.28;
+const ROUND_WALL_MIN_FRAME_GAP = 0.14;
+const ROUND_WALL_DOOR_SIDE_MARGIN = 0.55;
+
+function getRoundWallDoorBlockHalfArc(hangRadius){
+  return (DOOR_FRAME_WIDTH / hangRadius) + ROUND_WALL_DOOR_SIDE_MARGIN;
+}
 const WALL_FRAME_GAP = 0.45;
 const WALL_HANG_HEIGHT = 2.2;
 const WALL_HANG_HEIGHT_WITH_DOOR = 2.55;
 
 const FRAME_SCALE = 1.5;
 
-function frameSizeForPhoto(photo, { roundWall = false } = {}){
+function frameSizeForPhoto(photo, { roundWall = false, roundWallScale = ROUND_WALL_FRAME_SCALE } = {}){
   const legacyWidth = photo?.aspect === "4x3" ? 4 : 3;
   const legacyHeight = photo?.aspect === "4x3" ? 3 : 4;
   const sourceWidth = Number(photo?.width) > 0 ? Number(photo.width) : legacyWidth;
   const sourceHeight = Number(photo?.height) > 0 ? Number(photo.height) : legacyHeight;
   const ratio = sourceWidth / sourceHeight;
-  const scale = roundWall ? ROUND_WALL_FRAME_SCALE : 1;
+  const scale = roundWall ? roundWallScale : 1;
   const maxHeight = 1.02 * FRAME_SCALE * scale;
   const maxWidth = 1.35 * FRAME_SCALE * scale;
 
@@ -58,6 +66,29 @@ function frameSizeForPhoto(photo, { roundWall = false } = {}){
   }
 
   return { width, height };
+}
+
+function computeRoundWallFitScale(frameCount, segmentSpan, hangRadius){
+  if (!frameCount || segmentSpan <= 0) return ROUND_WALL_FRAME_SCALE;
+
+  const gaps = Math.max(0, frameCount - 1);
+  const availableArc = segmentSpan - gaps * ROUND_WALL_MIN_FRAME_GAP;
+  if (availableArc <= 0) return ROUND_WALL_FRAME_MIN_SCALE;
+
+  const maxFrameWidth = 1.35 * FRAME_SCALE;
+  const fitScale = (availableArc * hangRadius) / (frameCount * maxFrameWidth);
+  return Math.min(
+    ROUND_WALL_FRAME_SCALE,
+    Math.max(ROUND_WALL_FRAME_MIN_SCALE, fitScale)
+  );
+}
+
+function splitPhotosEvenly(photos, bucketCount){
+  const buckets = Array.from({ length: bucketCount }, () => []);
+  photos.forEach((photo, index) => {
+    buckets[index % bucketCount].push(photo);
+  });
+  return buckets;
 }
 
 function createSurfaceTexture(sourceCanvas, repeatX, repeatY){
@@ -730,7 +761,7 @@ export class Gallery3DScene {
     ];
   }
 
-  async _prepareFramedPhoto(photo, loader, { roundWall = false } = {}){
+  async _prepareFramedPhoto(photo, loader, { roundWall = false, roundWallScale = ROUND_WALL_FRAME_SCALE } = {}){
     const sourceTexture = await loader.loadAsync(photo.textureDataUrl);
     sourceTexture.colorSpace = THREE.SRGBColorSpace;
     const framedCanvas = await bakeGalleryFramedTexture(
@@ -747,7 +778,7 @@ export class Gallery3DScene {
       texture,
       size: frameSizeForPhoto(
         { width: framedCanvas.width, height: framedCanvas.height },
-        { roundWall }
+        { roundWall, roundWallScale }
       )
     };
   }
@@ -863,28 +894,49 @@ export class Gallery3DScene {
   }
 
   _layoutAnglesInSegment(segment, preparedFrames, hangRadius){
-    const count = preparedFrames.length;
-    if (!count) return [];
-
+    let frames = preparedFrames;
     const span = segment.end - segment.start;
-    const frameArcs = preparedFrames.map(item => item.size.width / hangRadius);
-    const gaps = Math.max(0, count - 1);
-    let gap = ROUND_WALL_FRAME_GAP;
-    let totalArc = frameArcs.reduce((sum, arc) => sum + arc, 0) + gap * gaps;
+    if (!frames.length || span <= 0) return [];
 
-    if (totalArc > span && gaps > 0) {
-      gap = Math.max(0.12, (span - frameArcs.reduce((sum, arc) => sum + arc, 0)) / gaps);
-      totalArc = frameArcs.reduce((sum, arc) => sum + arc, 0) + gap * gaps;
+    while (frames.length > 0) {
+      const frameArcs = frames.map(item => item.size.width / hangRadius);
+      const gaps = Math.max(0, frames.length - 1);
+      let gap = ROUND_WALL_FRAME_GAP;
+      let totalArc = frameArcs.reduce((sum, arc) => sum + arc, 0) + gap * gaps;
+
+      if (totalArc <= span) {
+        let cursor = segment.start + Math.max(0, (span - totalArc) / 2);
+        const angles = [];
+        for (let index = 0; index < frames.length; index += 1) {
+          const arc = frameArcs[index];
+          angles.push(cursor + arc / 2);
+          cursor += arc + (index < frames.length - 1 ? gap : 0);
+        }
+        return angles;
+      }
+
+      if (gaps > 0) {
+        gap = Math.max(
+          ROUND_WALL_MIN_FRAME_GAP,
+          (span - frameArcs.reduce((sum, arc) => sum + arc, 0)) / gaps
+        );
+        totalArc = frameArcs.reduce((sum, arc) => sum + arc, 0) + gap * gaps;
+        if (totalArc <= span) {
+          let cursor = segment.start + Math.max(0, (span - totalArc) / 2);
+          const angles = [];
+          for (let index = 0; index < frames.length; index += 1) {
+            const arc = frameArcs[index];
+            angles.push(cursor + arc / 2);
+            cursor += arc + (index < frames.length - 1 ? gap : 0);
+          }
+          return angles;
+        }
+      }
+
+      frames = frames.slice(0, -1);
     }
 
-    let cursor = segment.start + Math.max(0, (span - totalArc) / 2);
-    const angles = [];
-    for (let index = 0; index < count; index += 1) {
-      const arc = frameArcs[index];
-      angles.push(cursor + arc / 2);
-      cursor += arc + (index < count - 1 ? gap : 0);
-    }
-    return angles;
+    return [];
   }
 
   _placeRoundWallFrame(prepared, angle, hangRadius, slotIndex){
@@ -905,46 +957,41 @@ export class Gallery3DScene {
   }
 
   async _hangPhotosOnRoundWall(photos, room){
-    if (!photos.length) return;
+    const wallPhotos = photos.slice(0, ROUND_ROOM_MAX_WALL_PHOTOS);
+    if (!wallPhotos.length) return;
+
     const loader = new THREE.TextureLoader();
     const radius = ROUND_ROOM_RADIUS - 0.1;
     const hangRadius = radius - 0.12;
     const doorAngles = room.doorways.map(item => item.angle || 0);
-    const doorArc = (DOOR_FRAME_WIDTH / hangRadius) + 0.5;
+    const doorArc = getRoundWallDoorBlockHalfArc(hangRadius);
     const segments = this._getRoundWallFreeSegments(doorAngles, doorArc)
-      .filter(segment => segment.end - segment.start > 0.4)
+      .filter(segment => segment.end - segment.start > 0.55)
       .sort((a, b) => a.start - b.start);
 
-    if (!segments.length) {
-      const prepared = [];
-      for (const photo of photos) {
-        prepared.push(await this._prepareFramedPhoto(photo, loader, { roundWall: true }));
-      }
-      const fallbackSegment = { start: -Math.PI * 0.75, end: Math.PI * 0.75 };
-      const angles = this._layoutAnglesInSegment(fallbackSegment, prepared, hangRadius);
-      prepared.forEach((item, index) => {
-        this._placeRoundWallFrame(item, angles[index], hangRadius, index);
-      });
-      return;
-    }
+    if (!segments.length) return;
 
-    const buckets = segments.map(() => []);
-    photos.forEach((photo, index) => {
-      buckets[index % segments.length].push(photo);
-    });
-
+    const buckets = splitPhotosEvenly(wallPhotos, segments.length);
     let slotIndex = 0;
+
     for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
       const chunk = buckets[segmentIndex];
       if (!chunk.length) continue;
 
+      const segment = segments[segmentIndex];
+      const segmentSpan = segment.end - segment.start;
+      const fitScale = computeRoundWallFitScale(chunk.length, segmentSpan, hangRadius);
       const prepared = [];
       for (const photo of chunk) {
-        prepared.push(await this._prepareFramedPhoto(photo, loader, { roundWall: true }));
+        prepared.push(await this._prepareFramedPhoto(photo, loader, {
+          roundWall: true,
+          roundWallScale: fitScale
+        }));
       }
 
-      const angles = this._layoutAnglesInSegment(segments[segmentIndex], prepared, hangRadius);
-      for (let index = 0; index < prepared.length; index += 1) {
+      const angles = this._layoutAnglesInSegment(segment, prepared, hangRadius);
+      const placeCount = Math.min(prepared.length, angles.length);
+      for (let index = 0; index < placeCount; index += 1) {
         this._placeRoundWallFrame(
           prepared[index],
           angles[index],

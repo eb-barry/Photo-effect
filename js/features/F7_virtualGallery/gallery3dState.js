@@ -1,17 +1,22 @@
-// F7 3D 展館 - 狀態管理 v0.3.21
+// F7 3D 展館 - 狀態管理 v0.3.25
 
-import { GALLERY3D_ROOM_COUNT } from "./gallery3dRooms.js";
+import {
+  GALLERY3D_ROOM_COUNT,
+  ROUND_ROOM_ID,
+  ROUND_ROOM_MAX_WALL_PHOTOS
+} from "./gallery3dRooms.js";
 import {
   GALLERY_DEFAULT_INNER_FRAME_ID,
   GALLERY_DEFAULT_OUTER_FRAME_ID
 } from "./gallery3dFrames.js";
 
 export const GALLERY3D_FEATURE_ID = "F7_virtualGallery";
-export const GALLERY3D_FEATURE_VERSION = "0.3.24";
+export const GALLERY3D_FEATURE_VERSION = "0.3.25";
 export const GALLERY3D_DRAFT_KEY = "photoEffects.F7_virtualGallery.draft.v3";
 export const GALLERY3D_TUTORIAL_KEY = "photoEffects.F7_virtualGallery.tutorial.v1";
 export const GALLERY3D_MAX_PHOTOS = 100;
 export const GALLERY3D_RECOMMENDED_PHOTOS_PER_ROOM = 10;
+export const GALLERY3D_ROUND_ROOM_MAX_PHOTOS = ROUND_ROOM_MAX_WALL_PHOTOS;
 
 export const GALLERY3D_TABS = [
   { id: "scene", label: "展間佈置" }
@@ -77,24 +82,50 @@ function normalizeSceneMaterialTarget(value){
   return GALLERY3D_LAYOUT_MATERIAL_TARGETS.includes(value) ? value : "floor";
 }
 
+function getRoomPhotoCapacity(roomId){
+  return Number(roomId) === ROUND_ROOM_ID ? ROUND_ROOM_MAX_WALL_PHOTOS : Infinity;
+}
+
+export function enforceRoundRoomPhotoLimit(photos){
+  const list = photos.map(photo => ({ ...photo }));
+  const counts = getPhotoCountsByRoom(list);
+  const overflow = counts[ROUND_ROOM_ID] - ROUND_ROOM_MAX_WALL_PHOTOS;
+  if (overflow <= 0) return list;
+
+  let moved = 0;
+  for (let index = list.length - 1; index >= 0 && moved < overflow; index -= 1) {
+    if (clampRoomNumber(list[index].roomId) !== ROUND_ROOM_ID) continue;
+    const targetRoom = counts[1] <= counts[3] ? 1 : 3;
+    list[index] = { ...list[index], roomId: targetRoom };
+    counts[ROUND_ROOM_ID] -= 1;
+    counts[targetRoom] += 1;
+    moved += 1;
+  }
+  return list;
+}
+
 export function distributePhotosToRooms(photos){
   const total = photos.length;
   if (!total) return [];
 
-  const base = Math.floor(total / GALLERY3D_ROOM_COUNT);
-  const extra = total % GALLERY3D_ROOM_COUNT;
+  const roomCounts = Array.from({ length: GALLERY3D_ROOM_COUNT }, () => 0);
   const result = [];
-  let index = 0;
 
-  for (let roomIndex = 0; roomIndex < GALLERY3D_ROOM_COUNT; roomIndex += 1) {
-    const roomId = roomIndex + 1;
-    const quota = base + (roomIndex < extra ? 1 : 0);
-    for (let slot = 0; slot < quota; slot += 1) {
-      const photo = photos[index];
-      if (!photo) break;
-      result.push({ ...photo, roomId });
-      index += 1;
+  for (const photo of photos) {
+    let targetRoomId = 1;
+    let lowestCount = Infinity;
+
+    for (let roomIndex = 0; roomIndex < GALLERY3D_ROOM_COUNT; roomIndex += 1) {
+      const roomId = roomIndex + 1;
+      if (roomCounts[roomIndex] >= getRoomPhotoCapacity(roomId)) continue;
+      if (roomCounts[roomIndex] < lowestCount) {
+        lowestCount = roomCounts[roomIndex];
+        targetRoomId = roomId;
+      }
     }
+
+    result.push({ ...photo, roomId: targetRoomId });
+    roomCounts[targetRoomId - 1] += 1;
   }
 
   return result;
@@ -148,7 +179,9 @@ export function updateGallery3dState(currentState, partial, options = {}){
   if (Array.isArray(next.photos)) {
     const trimmed = next.photos.slice(0, GALLERY3D_MAX_PHOTOS).map(normalizePhotoRecord);
     const shouldDistribute = partial && "photos" in partial && !options.preservePhotoRoomIds;
-    next.photos = shouldDistribute ? distributePhotosToRooms(trimmed) : trimmed;
+    next.photos = shouldDistribute
+      ? distributePhotosToRooms(trimmed)
+      : enforceRoundRoomPhotoLimit(trimmed);
   } else {
     next.photos = [];
   }
