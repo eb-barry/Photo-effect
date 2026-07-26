@@ -1,4 +1,4 @@
-// F7 3D 展館 - Three.js 多房間場景、行走、畫作縮放、門口切換
+// F7 3D 展館 - Three.js 多房間場景、行走、門口切換
 
 import * as THREE from "https://esm.sh/three@0.170.0";
 import {
@@ -26,13 +26,6 @@ const ROUND_WALL_FRAME_GAP = 0.28;
 const WALL_FRAME_GAP = 0.45;
 const WALL_HANG_HEIGHT = 2.2;
 const WALL_HANG_HEIGHT_WITH_DOOR = 2.55;
-
-function lerpAngle(from, to, t){
-  let delta = to - from;
-  while (delta > Math.PI) delta -= Math.PI * 2;
-  while (delta < -Math.PI) delta += Math.PI * 2;
-  return from + delta * t;
-}
 
 const FRAME_SCALE = 1.5;
 
@@ -98,7 +91,7 @@ function alignMeshFacing(mesh, normal){
 
 function createFrameMesh(width, height, texture, photoId){
   const group = new THREE.Group();
-  group.userData = { type: "artwork", photoId, zoomed: false, artWidth: width, artHeight: height };
+  group.userData = { type: "artwork", photoId, artWidth: width, artHeight: height };
 
   const picture = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
@@ -284,12 +277,7 @@ export class Gallery3DScene {
     this._clickables = [];
     this._animationId = 0;
     this._cameraTween = null;
-    this._zoomedArtworkId = null;
-    this._zoomReturnFov = 68;
-    this._zoomFocusYaw = 0;
-    this._zoomFocusPitch = 0;
     this._cameraAnimating = false;
-    this._hadGyroBeforeZoom = false;
     this._doorTexture = null;
     this._frameSettings = null;
     this._raycaster = new THREE.Raycaster();
@@ -363,20 +351,9 @@ export class Gallery3DScene {
     this._cameraAnimating = false;
   }
 
-  _resetZoomInteraction({ notify = true } = {}){
-    if (!this._zoomedArtworkId) {
-      this.controls.locked = false;
-      return;
-    }
-    this._zoomedArtworkId = null;
-    this.controls.locked = false;
-    this._hadGyroBeforeZoom = false;
-    if (notify) this.callbacks.onArtworkZoomChange?.(null);
-  }
-
   prepareForRoomTransition(){
     this._cancelCameraAnimation();
-    this._resetZoomInteraction();
+    this.controls.locked = false;
   }
 
   _clearArtworks(){
@@ -384,10 +361,7 @@ export class Gallery3DScene {
     this._artworkGroups = [];
     this._textures.forEach(texture => texture.dispose());
     this._textures = [];
-    this._resetZoomInteraction();
-    this._zoomReturnFov = 68;
-    this._zoomFocusYaw = 0;
-    this._zoomFocusPitch = 0;
+    this.controls.locked = false;
     this._doorTexture = null;
   }
 
@@ -840,31 +814,10 @@ export class Gallery3DScene {
     return segments.filter(segment => segment.end - segment.start > 0.2);
   }
 
-  _getRoundWallAngles(room, preparedFrames, hangRadius){
+  _layoutAnglesInSegment(segment, preparedFrames, hangRadius){
     const count = preparedFrames.length;
     if (!count) return [];
 
-    const doorAngles = room.doorways.map(item => item.angle || 0);
-    const doorArc = (DOOR_FRAME_WIDTH / hangRadius) + 0.45;
-    const segments = this._getRoundWallFreeSegments(doorAngles, doorArc);
-    if (!segments.length) {
-      return preparedFrames.map((_, index) => (
-        -Math.PI / 2 + ((index - (count - 1) / 2) * 0.55)
-      ));
-    }
-
-    const segment = segments.sort((a, b) => {
-      const spanDiff = (b.end - b.start) - (a.end - a.start);
-      if (Math.abs(spanDiff) > 0.02) return spanDiff;
-      const midA = (a.start + a.end) / 2;
-      const midB = (b.start + b.end) / 2;
-      const doorDistance = mid => doorAngles.reduce((max, doorAngle) => {
-        let delta = Math.abs(mid - doorAngle);
-        delta = Math.min(delta, Math.PI * 2 - delta);
-        return Math.max(max, delta);
-      }, 0);
-      return doorDistance(midB) - doorDistance(midA);
-    })[0];
     const span = segment.end - segment.start;
     const frameArcs = preparedFrames.map(item => item.size.width / hangRadius);
     const gaps = Math.max(0, count - 1);
@@ -872,7 +825,7 @@ export class Gallery3DScene {
     let totalArc = frameArcs.reduce((sum, arc) => sum + arc, 0) + gap * gaps;
 
     if (totalArc > span && gaps > 0) {
-      gap = Math.max(0.1, (span - frameArcs.reduce((sum, arc) => sum + arc, 0)) / gaps);
+      gap = Math.max(0.12, (span - frameArcs.reduce((sum, arc) => sum + arc, 0)) / gaps);
       totalArc = frameArcs.reduce((sum, arc) => sum + arc, 0) + gap * gaps;
     }
 
@@ -880,11 +833,38 @@ export class Gallery3DScene {
     const angles = [];
     for (let index = 0; index < count; index += 1) {
       const arc = frameArcs[index];
-      const center = cursor + arc / 2;
-      angles.push(center);
+      angles.push(cursor + arc / 2);
       cursor += arc + (index < count - 1 ? gap : 0);
     }
     return angles;
+  }
+
+  _placeRoundWallFrame(prepared, angle, hangRadius, slotIndex){
+    const { photo, texture, size } = prepared;
+    const hangY = WALL_HANG_HEIGHT;
+    const anchor = new THREE.Object3D();
+    const radius = hangRadius - 0.015 * (slotIndex % 3);
+    anchor.position.set(
+      Math.sin(angle) * radius,
+      hangY,
+      Math.cos(angle) * radius
+    );
+    anchor.lookAt(0, hangY, 0);
+
+    const frame = createFrameMesh(size.width, size.height, texture, photo.id);
+    frame.position.z = 0.05;
+    frame.renderOrder = 10 + slotIndex;
+    anchor.add(frame);
+    anchor.userData = {
+      type: "artwork",
+      photoId: photo.id,
+      artWidth: size.width,
+      artHeight: size.height,
+      pictureMesh: frame.userData.pictureMesh
+    };
+
+    this._roomGroup.add(anchor);
+    this._artworkGroups.push(anchor);
   }
 
   async _hangPhotosOnRoundWall(photos, room){
@@ -892,25 +872,50 @@ export class Gallery3DScene {
     const loader = new THREE.TextureLoader();
     const radius = ROUND_ROOM_RADIUS - 0.1;
     const hangRadius = radius - 0.12;
-    const prepared = [];
-    for (const photo of photos) {
-      prepared.push(await this._prepareFramedPhoto(photo, loader, { roundWall: true }));
-    }
-    const angles = this._getRoundWallAngles(room, prepared, hangRadius);
+    const doorAngles = room.doorways.map(item => item.angle || 0);
+    const doorArc = (DOOR_FRAME_WIDTH / hangRadius) + 0.5;
+    const segments = this._getRoundWallFreeSegments(doorAngles, doorArc)
+      .filter(segment => segment.end - segment.start > 0.4)
+      .sort((a, b) => a.start - b.start);
 
-    for (let index = 0; index < prepared.length; index += 1) {
-      const { photo, texture, size } = prepared[index];
-      const angle = angles[index] ?? (-Math.PI / 2 + (Math.PI * index) / Math.max(photos.length, 1));
-      const normal = getRoundWallInwardNormal(angle);
-      const frame = createFrameMesh(size.width, size.height, texture, photo.id);
-      frame.position.set(
-        Math.sin(angle) * hangRadius + normal.x * 0.08,
-        WALL_HANG_HEIGHT,
-        Math.cos(angle) * hangRadius + normal.z * 0.08
-      );
-      alignMeshFacing(frame, normal);
-      this._roomGroup.add(frame);
-      this._artworkGroups.push(frame);
+    if (!segments.length) {
+      const prepared = [];
+      for (const photo of photos) {
+        prepared.push(await this._prepareFramedPhoto(photo, loader, { roundWall: true }));
+      }
+      const fallbackSegment = { start: -Math.PI * 0.75, end: Math.PI * 0.75 };
+      const angles = this._layoutAnglesInSegment(fallbackSegment, prepared, hangRadius);
+      prepared.forEach((item, index) => {
+        this._placeRoundWallFrame(item, angles[index], hangRadius, index);
+      });
+      return;
+    }
+
+    const buckets = segments.map(() => []);
+    photos.forEach((photo, index) => {
+      buckets[index % segments.length].push(photo);
+    });
+
+    let slotIndex = 0;
+    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+      const chunk = buckets[segmentIndex];
+      if (!chunk.length) continue;
+
+      const prepared = [];
+      for (const photo of chunk) {
+        prepared.push(await this._prepareFramedPhoto(photo, loader, { roundWall: true }));
+      }
+
+      const angles = this._layoutAnglesInSegment(segments[segmentIndex], prepared, hangRadius);
+      for (let index = 0; index < prepared.length; index += 1) {
+        this._placeRoundWallFrame(
+          prepared[index],
+          angles[index],
+          hangRadius,
+          slotIndex
+        );
+        slotIndex += 1;
+      }
     }
   }
 
@@ -930,17 +935,6 @@ export class Gallery3DScene {
     this._raycaster.setFromCamera(this._pointer, this.camera);
   }
 
-  _pickArtworkHit(){
-    const hits = this._raycaster.intersectObjects(this._artworkGroups, true);
-    for (const hit of hits) {
-      const data = this._resolveInteractiveData(hit.object);
-      if (data.type !== "artwork" || !data.photoId) continue;
-      const group = this._artworkGroups.find(item => item.userData.photoId === data.photoId);
-      if (group) return { group, photoId: data.photoId };
-    }
-    return null;
-  }
-
   _onCanvasClick(event){
     if (!this.interactionEnabled || this._cameraAnimating) return;
     this._setPointerFromEvent(event);
@@ -955,32 +949,6 @@ export class Gallery3DScene {
         });
         return;
       }
-    }
-
-    if (this._zoomedArtworkId) {
-      const artworkHit = this._pickArtworkHit();
-      if (artworkHit && artworkHit.photoId === this._zoomedArtworkId) {
-        this._zoomOutArtwork();
-        return;
-      }
-      for (const hit of hits) {
-        const data = this._resolveInteractiveData(hit.object);
-        if (data.type === "wall") {
-          this._stepBackAlongView();
-          return;
-        }
-      }
-      return;
-    }
-
-    const artworkHit = this._pickArtworkHit();
-    if (artworkHit) {
-      this._zoomInArtwork(artworkHit.group);
-      return;
-    }
-
-    for (const hit of hits) {
-      const data = this._resolveInteractiveData(hit.object);
       if (data.type === "wall") {
         this._stepBackAlongView();
         return;
@@ -1004,32 +972,10 @@ export class Gallery3DScene {
     const target = this.camera.position.clone().addScaledVector(forward, -WALL_STEP_BACK_DISTANCE);
     target.y = EYE_HEIGHT;
     this._clampCameraToRoom(target);
-
-    const zoomed = Boolean(this._zoomedArtworkId);
-    const targetFov = zoomed ? (this._zoomReturnFov || 68) : null;
-
-    this._animateCameraPosition(target, 500, {
-      fov: targetFov,
-      onComplete: () => {
-        if (zoomed) this._clearZoomState();
-      }
-    });
-  }
-
-  _clearZoomState(){
-    if (!this._zoomedArtworkId) return;
-    const group = this._artworkGroups.find(item => item.userData.photoId === this._zoomedArtworkId);
-    const restoreGyro = this._hadGyroBeforeZoom;
-    this._zoomedArtworkId = null;
-    this.controls.locked = false;
-    this._hadGyroBeforeZoom = false;
-    if (group) group.userData.zoomed = false;
-    this.callbacks.onArtworkZoomChange?.(null);
-    if (restoreGyro) void this.enableGyro();
+    this._animateCameraPosition(target, 500);
   }
 
   _walkToward(point){
-    if (this._zoomedArtworkId) return;
     const next = point.clone();
     next.y = EYE_HEIGHT;
     const dx = next.x - this.camera.position.x;
@@ -1065,143 +1011,10 @@ export class Gallery3DScene {
     return position;
   }
 
-  _getRoomCenter(){
-    return new THREE.Vector3(0, EYE_HEIGHT, 0);
-  }
-
-  _getArtworkFocus(group){
-    const pictureMesh = group.userData.pictureMesh;
-    const artWidth = Number(group.userData.artWidth) || 1;
-    const artHeight = Number(group.userData.artHeight) || 1;
-
-    pictureMesh.updateWorldMatrix(true, false);
-    const worldPos = new THREE.Vector3();
-    pictureMesh.getWorldPosition(worldPos);
-
-    const roomCenter = this._getRoomCenter();
-    const inward = new THREE.Vector3().subVectors(roomCenter, worldPos);
-    inward.y = 0;
-    if (inward.lengthSq() < 0.0001) inward.set(0, 0, 1);
-    inward.normalize();
-
-    const fill = 0.98;
-    const aspect = this.camera.aspect;
-    const minDistance = 0.42;
-    const maxDistance = 4.2;
-    const halfWidth = artWidth * fill * 0.5;
-
-    let distance = Math.max(minDistance, halfWidth / Math.tan(THREE.MathUtils.degToRad(34)));
-    let targetFov = 40;
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const hFovRad = 2 * Math.atan(halfWidth / distance);
-      let vFovRad = 2 * Math.atan(Math.tan(hFovRad / 2) / aspect);
-      const visibleHeight = 2 * distance * Math.tan(vFovRad / 2);
-      if (visibleHeight + 0.02 < artHeight * fill && distance < maxDistance) {
-        distance = Math.min(maxDistance, distance + 0.12);
-        continue;
-      }
-      targetFov = THREE.MathUtils.radToDeg(vFovRad);
-      if (targetFov > 72 && distance < maxDistance) {
-        distance = Math.min(maxDistance, distance + 0.12);
-        continue;
-      }
-      break;
-    }
-    targetFov = THREE.MathUtils.clamp(targetFov, 12, 72);
-
-    const targetPos = worldPos.clone().addScaledVector(inward, distance);
-    targetPos.y = worldPos.y;
-
-    const lookDx = worldPos.x - targetPos.x;
-    const lookDy = worldPos.y - targetPos.y;
-    const lookDz = worldPos.z - targetPos.z;
-    const horizontal = Math.hypot(lookDx, lookDz);
-    const yaw = Math.atan2(lookDx, lookDz);
-    const pitch = THREE.MathUtils.clamp(Math.atan2(lookDy, horizontal), -0.35, 0.35);
-
-    return { worldPos, yaw, pitch, targetFov, targetPos };
-  }
-
-  _zoomInArtwork(group){
-    const photoId = group.userData.photoId;
-    const focus = this._getArtworkFocus(group);
-    this._zoomReturnFov = this.camera.fov;
-    this._zoomFocusYaw = focus.yaw;
-    this._zoomFocusPitch = focus.pitch;
-    this._zoomedArtworkId = photoId;
-    group.userData.zoomed = true;
-    this.controls.locked = true;
-    this._hadGyroBeforeZoom = this.controls.gyroEnabled;
-    if (this._hadGyroBeforeZoom) this.controls.disableGyro();
-    this.callbacks.onArtworkZoomChange?.(photoId);
-
-    this._animateCameraState({
-      position: this.camera.position.clone(),
-      yaw: this.controls.yaw,
-      pitch: this.controls.pitch,
-      fov: this.camera.fov
-    }, {
-      position: focus.targetPos,
-      yaw: focus.yaw,
-      pitch: focus.pitch,
-      fov: focus.targetFov
-    }, 1100, () => {
-      this.controls.setOrientation(focus.yaw, focus.pitch);
-    });
-  }
-
-  _zoomOutArtwork(){
-    const roomCenter = this._getRoomCenter();
-    const facingYaw = this._zoomFocusYaw;
-    const facingPitch = this._zoomFocusPitch;
-    const returnFov = this._zoomReturnFov || 68;
-
-    this._animateCameraState({
-      position: this.camera.position.clone(),
-      yaw: facingYaw,
-      pitch: facingPitch,
-      fov: this.camera.fov
-    }, {
-      position: roomCenter,
-      yaw: facingYaw,
-      pitch: facingPitch,
-      fov: returnFov
-    }, 950, () => {
-      this.controls.setOrientation(facingYaw, facingPitch);
-      this._clearZoomState();
-    });
-  }
-
   _finishCameraAnimation(onComplete){
     this._cameraTween = null;
     this._cameraAnimating = false;
     onComplete?.();
-  }
-
-  _animateCameraState(fromState, toState, duration, onComplete){
-    this._cancelCameraAnimation();
-    const startTime = performance.now();
-    this._cameraAnimating = true;
-    const step = now => {
-      const t = Math.min(1, (now - startTime) / duration);
-      const eased = t < 0.5
-        ? 4 * t * t * t
-        : 1 - Math.pow(-2 * t + 2, 3) / 2;
-
-      this.camera.position.lerpVectors(fromState.position, toState.position, eased);
-      const nextYaw = lerpAngle(fromState.yaw, toState.yaw, eased);
-      const nextPitch = THREE.MathUtils.lerp(fromState.pitch, toState.pitch, eased);
-      this.camera.fov = THREE.MathUtils.lerp(fromState.fov, toState.fov, eased);
-      this.camera.updateProjectionMatrix();
-      this.controls.setOrientation(nextYaw, nextPitch);
-
-      if (t < 1) {
-        this._cameraTween = requestAnimationFrame(step);
-      } else {
-        this._finishCameraAnimation(onComplete);
-      }
-    };
-    this._cameraTween = requestAnimationFrame(step);
   }
 
   _animateCameraPosition(targetPosition, duration, options = {}){
@@ -1257,10 +1070,6 @@ export class Gallery3DScene {
   }
 
   resetView(){
-    if (this._zoomedArtworkId) {
-      this._zoomOutArtwork();
-      return;
-    }
     const spawn = getSpawnPose(this.currentRoomId);
     this.camera.fov = 68;
     this.camera.updateProjectionMatrix();
