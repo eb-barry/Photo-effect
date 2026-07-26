@@ -1,5 +1,6 @@
-// F7 3D 展館 - Page Controller v0.3.3
+// F7 3D 展館 - Page Controller v0.3.20
 
+import { downloadJson } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
 import {
   getFloorTextureCatalog,
@@ -34,7 +35,13 @@ import {
   updateGallery3dState,
   updateRoomSettings
 } from "./gallery3dState.js";
-import { prepareGalleryPhoto, shouldOfferGyro } from "./gallery3dTool.js";
+import {
+  applyGallery3dProject,
+  buildGalleryProjectFilename,
+  isGalleryProjectFile,
+  serializeGallery3dProject
+} from "./gallery3dProject.js";
+import { prepareGalleryPhoto, readFileAsText, shouldOfferGyro } from "./gallery3dTool.js";
 import { setupGallery3dUI } from "./gallery3dUI.js";
 
 export function initGallery3dPage(root, shared = {}){
@@ -79,7 +86,8 @@ export async function renderGallery3dPage(root, navigate){
         </div>
 
         <div class="topbar-actions gallery3d-photo-actions" id="gallery3dPhotoActions" aria-label="照片操作">
-          ${iconButton({ icon: "openPhoto", label: "新增照片", id: "openPhotoBtn" })}
+          ${iconButton({ icon: "openPhoto", label: "開啟照片", id: "openPhotoBtn" })}
+          ${iconButton({ icon: "savePhoto", label: "儲存展館", id: "saveGalleryBtn" })}
         </div>
       </nav>
 
@@ -107,7 +115,7 @@ export async function renderGallery3dPage(root, navigate){
         id="gallery3dImageInput"
         class="file-input-hidden gallery3d-image-input"
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif,application/json,.json"
         multiple
       />
     </main>
@@ -342,6 +350,64 @@ export async function renderGallery3dPage(root, navigate){
     imageInput.click();
   };
 
+  const normalizeImportedRoomTextures = () => {
+    Object.assign(state, updateGallery3dState(state, {
+      rooms: state.rooms.map(room => ({
+        ...room,
+        wallTextureId: pickDefaultTextureId(getWallTextureCatalog(), room.wallTextureId),
+        floorTextureId: pickDefaultTextureId(getFloorTextureCatalog(), room.floorTextureId),
+        doorTextureId: pickDefaultTextureId(getDoorTextureCatalog(), room.doorTextureId),
+        outerFrameTypeId: pickDefaultFrameId(
+          getGalleryOuterFrameCatalog(),
+          room.outerFrameTypeId,
+          GALLERY_DEFAULT_OUTER_FRAME_ID
+        ),
+        innerFrameTypeId: pickDefaultFrameId(
+          getGalleryInnerFrameCatalog(),
+          room.innerFrameTypeId,
+          GALLERY_DEFAULT_INNER_FRAME_ID
+        )
+      }))
+    }, { preservePhotoRoomIds: true }));
+  };
+
+  const handleProjectImport = async file => {
+    pauseGallerySessionForUpload();
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+      } catch (error) {
+        console.warn("[F7 3D 展館] 無法離開全螢幕：", error);
+      }
+    }
+
+    const hasExistingContent = state.photos.length > 0;
+    if (hasExistingContent) {
+      const confirmed = window.confirm("匯入專案會取代目前的照片與展間設定，確定要繼續嗎？");
+      if (!confirmed) return;
+    }
+
+    ui?.setLoading(true);
+    try {
+      const raw = await readFileAsText(file);
+      const imported = applyGallery3dProject(state, raw);
+      Object.assign(state, imported);
+      normalizeImportedRoomTextures();
+      zoomedPhotoId = null;
+      uiNotice = "";
+      ui?.refreshAll();
+      await ui?.refreshMaterialPreview();
+      persistDraft();
+      await rebuildScene();
+    } catch (error) {
+      console.error("[F7 3D 展館] 匯入專案失敗：", error);
+      alert(`無法匯入專案：${error.message || "請確認檔案格式是否正確"}`);
+    } finally {
+      ui?.setLoading(false);
+      imageInput.value = "";
+    }
+  };
+
   const handlePhotoUpload = async event => {
     const files = [...(event.target.files || [])];
     if (!files.length) return;
@@ -414,6 +480,35 @@ export async function renderGallery3dPage(root, navigate){
     } finally {
       ui?.setLoading(false);
       imageInput.value = "";
+    }
+  };
+
+  const handleFileInput = async event => {
+    const files = [...(event.target.files || [])];
+    if (!files.length) return;
+
+    const jsonFiles = files.filter(isGalleryProjectFile);
+    if (jsonFiles.length === 1 && files.length === 1) {
+      await handleProjectImport(jsonFiles[0]);
+      return;
+    }
+    if (jsonFiles.length > 0) {
+      alert("請單獨選擇專案 JSON 檔，或僅選擇照片檔案。");
+      imageInput.value = "";
+      return;
+    }
+
+    await handlePhotoUpload(event);
+  };
+
+  const handleSaveProject = async () => {
+    try {
+      const project = serializeGallery3dProject(state);
+      downloadJson(project, buildGalleryProjectFilename());
+      persistDraft();
+    } catch (error) {
+      console.error("[F7 3D 展館] 儲存專案失敗：", error);
+      alert("儲存失敗，請再試一次。");
     }
   };
 
@@ -567,12 +662,17 @@ export async function renderGallery3dPage(root, navigate){
     requestPhotoUpload();
   });
 
+  root.querySelector("#saveGalleryBtn")?.addEventListener("click", async event => {
+    event.preventDefault();
+    await handleSaveProject();
+  });
+
   root.querySelector("#gallery3dGalleryAddPhotoBtn")?.addEventListener("click", event => {
     event.preventDefault();
     requestPhotoUpload();
   });
 
-  imageInput.addEventListener("change", handlePhotoUpload);
+  imageInput.addEventListener("change", handleFileInput);
 
   if (state.activeTab === "gallery" && state.gallerySessionReady) {
     await enterGallerySession();
