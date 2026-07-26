@@ -1592,20 +1592,27 @@ body.magic-sky-scroll-locked {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   margin-bottom: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .gallery3d-material-row .gallery3d-material-btn {
   width: 100%;
+  min-width: 0;
   min-height: 36px;
-  padding: 8px 4px;
-  font-size: 0.8rem;
-  letter-spacing: -0.02em;
+  padding: 8px 2px;
+  font-size: clamp(0.68rem, 2.8vw, 0.8rem);
+  letter-spacing: -0.03em;
   border: 0;
   border-radius: 14px;
   background: #fff;
   color: var(--base-dark);
   font-weight: 800;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gallery3d-material-row .gallery3d-material-btn.active {
@@ -1618,11 +1625,6 @@ body.magic-sky-scroll-locked {
   font-size: 0.78rem;
   font-weight: 800;
   color: var(--base-dark);
-}
-
-.gallery3d-frame-pickers {
-  display: grid;
-  gap: 4px;
 }
 
 .gallery3d-canvas-wrap {
@@ -1790,9 +1792,46 @@ body.magic-sky-scroll-locked {
   cursor: not-allowed;
 }
 
+.gallery3d-panel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.gallery3d-tab-panels {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
 .gallery3d-scene-panel {
   display: grid;
   gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.gallery3d-scene-panel .crystal-asset-carousel {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.gallery3d-scene-panel .crystal-asset-track {
+  max-width: 100%;
+}
+
+.gallery3d-frame-pickers {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.gallery3d-scene-panel .gallery3d-texture-button {
+  flex: 0 0 clamp(72px, 22vw, 88px);
 }
 
 .gallery3d-scene-thumb {
