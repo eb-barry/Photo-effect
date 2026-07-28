@@ -34,6 +34,9 @@ function getRoundWallDoorBlockHalfArc(hangRadius){
 const WALL_FRAME_GAP = 0.45;
 const WALL_HANG_HEIGHT = 2.2;
 const WALL_HANG_HEIGHT_WITH_DOOR = 2.55;
+const PHOTO_FOCUS_WIDTH_FILL = 0.98; // fill ~98% of screen width
+const PHOTO_FOCUS_MIN_DISTANCE = 0.55;
+const PHOTO_FOCUS_MAX_DISTANCE = 4.5;
 
 const FRAME_SCALE = 1.5;
 
@@ -358,10 +361,17 @@ export class Gallery3DScene {
     this._cameraTween = null;
     this._cameraAnimating = false;
     this._doorTexture = null;
+    this._entryFromRoomId = null;
     this._frameSettings = null;
+    this._focusedPhotoId = null;
+    this._focusReturnPosition = null;
+    this._focusLockedGyro = false;
     this._raycaster = new THREE.Raycaster();
     this._pointer = new THREE.Vector2();
     this._resizeObserver = null;
+    this._focusTarget = new THREE.Vector3();
+    this._focusNormal = new THREE.Vector3();
+    this._tmpLook = new THREE.Vector3();
 
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -432,11 +442,13 @@ export class Gallery3DScene {
 
   prepareForRoomTransition(){
     this._cancelCameraAnimation();
+    this._clearPhotoFocusState();
     this.controls.locked = false;
   }
 
   _clearArtworks(){
     this._cancelCameraAnimation();
+    this._clearPhotoFocusState();
     this._artworkGroups = [];
     this._textures.forEach(texture => texture.dispose());
     this._textures = [];
@@ -457,6 +469,7 @@ export class Gallery3DScene {
     this._disposeRoom();
     this._frameSettings = frameSettings;
     this.currentRoomId = Number(roomId);
+    this._entryFromRoomId = fromRoomId;
     this.interactionEnabled = interactionEnabled;
     if (doorTextureCanvas) {
       this._doorTexture = createDoorTexture(doorTextureCanvas);
@@ -836,6 +849,12 @@ export class Gallery3DScene {
           frame.position.set(wall.wallCoord + normal.x * surfaceInset, hangY, coord);
         }
         alignMeshFacing(frame, normal);
+        this._registerArtwork(frame, {
+          photoId: photo.id,
+          artWidth: size.width,
+          artHeight: size.height,
+          normal
+        });
         this._roomGroup.add(frame);
         this._artworkGroups.push(frame);
       }
@@ -952,6 +971,19 @@ export class Gallery3DScene {
       WALL_HANG_HEIGHT,
       slotIndex
     );
+    const normal = getRoundWallInwardNormal(angle);
+    const focusPoint = {
+      x: Math.sin(angle) * surfaceRadius,
+      y: WALL_HANG_HEIGHT,
+      z: Math.cos(angle) * surfaceRadius
+    };
+    this._registerArtwork(frame, {
+      photoId: photo.id,
+      artWidth: size.width,
+      artHeight: size.height,
+      normal,
+      focusPoint
+    });
     this._roomGroup.add(frame);
     this._artworkGroups.push(frame);
   }
@@ -1022,11 +1054,16 @@ export class Gallery3DScene {
   _onCanvasClick(event){
     if (!this.interactionEnabled || this._cameraAnimating) return;
     this._setPointerFromEvent(event);
-    const hits = this._raycaster.intersectObjects(this._clickables, false);
+    const hits = this._raycaster.intersectObjects(this._clickables, true);
 
     for (const hit of hits) {
       const data = this._resolveInteractiveData(hit.object);
+      if (data.type === "artwork") {
+        this._togglePhotoFocus(data.photoId);
+        return;
+      }
       if (data.type === "door") {
+        if (this._focusedPhotoId) this._exitPhotoFocus({ keepView: true });
         this.callbacks.onDoorwaySelected?.({
           doorwayId: data.doorwayId,
           targetRoomId: data.targetRoomId
@@ -1034,13 +1071,182 @@ export class Gallery3DScene {
         return;
       }
       if (data.type === "wall") {
+        if (this._focusedPhotoId) {
+          this._exitPhotoFocus({ keepView: true });
+          return;
+        }
         this._stepBackAlongView();
         return;
       }
       if (data.type === "floor") {
+        if (this._focusedPhotoId) {
+          this._exitPhotoFocus({ keepView: true });
+          return;
+        }
         this._walkToward(hit.point);
         return;
       }
+    }
+  }
+
+  _registerArtwork(frame, {
+    photoId,
+    artWidth,
+    artHeight,
+    normal,
+    focusPoint = null
+  }){
+    const normalVector = {
+      x: Number(normal?.x) || 0,
+      y: Number(normal?.y) || 0,
+      z: Number(normal?.z) || 0
+    };
+    frame.userData = {
+      ...frame.userData,
+      type: "artwork",
+      photoId,
+      artWidth,
+      artHeight,
+      focusNormal: normalVector,
+      focusPoint
+    };
+
+    frame.traverse(node => {
+      if (!node.isMesh) return;
+      node.userData = {
+        ...node.userData,
+        type: "artwork",
+        photoId,
+        artWidth,
+        artHeight
+      };
+      this._clickables.push(node);
+    });
+  }
+
+  _findArtworkGroup(photoId){
+    return this._artworkGroups.find(group => group.userData?.photoId === photoId) || null;
+  }
+
+  _getArtworkFocusPose(frame){
+    const artWidth = Number(frame.userData?.artWidth) || 1;
+    const normal = frame.userData?.focusNormal || { x: 0, y: 0, z: 1 };
+    this._focusNormal.set(normal.x, normal.y, normal.z).normalize();
+
+    if (frame.userData?.focusPoint) {
+      this._focusTarget.set(
+        frame.userData.focusPoint.x,
+        frame.userData.focusPoint.y,
+        frame.userData.focusPoint.z
+      );
+    } else {
+      frame.getWorldPosition(this._focusTarget);
+    }
+
+    const vFov = THREE.MathUtils.degToRad(this.camera.fov);
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(this.camera.aspect, 0.01));
+    let distance = (artWidth * 0.5) / Math.tan(hFov * 0.5);
+    distance /= PHOTO_FOCUS_WIDTH_FILL;
+    distance = THREE.MathUtils.clamp(distance, PHOTO_FOCUS_MIN_DISTANCE, PHOTO_FOCUS_MAX_DISTANCE);
+
+    const position = this._focusTarget.clone().addScaledVector(this._focusNormal, distance);
+    position.y = this._focusTarget.y;
+    this._clampCameraToRoom(position);
+
+    // Three.js cameras look down -Z at yaw=0, so forward is
+    // (-sin(yaw), *, -cos(yaw)). Match that when aiming at the artwork.
+    this._tmpLook.copy(this._focusTarget).sub(position);
+    const yaw = Math.atan2(-this._tmpLook.x, -this._tmpLook.z);
+    const planar = Math.hypot(this._tmpLook.x, this._tmpLook.z) || 0.0001;
+    // Positive camera pitch tips the nose down; invert look.y accordingly.
+    const pitch = THREE.MathUtils.clamp(Math.atan2(-this._tmpLook.y, planar), -0.65, 0.65);
+
+    return { position, yaw, pitch, target: this._focusTarget.clone() };
+  }
+
+  _togglePhotoFocus(photoId){
+    if (!photoId) return;
+    if (this._focusedPhotoId === photoId) {
+      this._exitPhotoFocus({ keepView: true });
+      return;
+    }
+    this._enterPhotoFocus(photoId);
+  }
+
+  _enterPhotoFocus(photoId){
+    const frame = this._findArtworkGroup(photoId);
+    if (!frame) return;
+    const pose = this._getArtworkFocusPose(frame);
+
+    this._focusedPhotoId = photoId;
+    this._focusReturnPosition = this.camera.position.clone();
+    this._lockFocusLook(true);
+    this._syncControlsFromCamera();
+
+    this._animateCameraPose(pose.position, pose.yaw, pose.pitch, 650);
+  }
+
+  _syncControlsFromCamera(){
+    this._tmpLook.set(0, 0, 0);
+    const euler = new THREE.Euler().setFromQuaternion(this.camera.quaternion, "YXZ");
+    this.controls.setOrientation(euler.y, euler.x);
+  }
+
+  _exitPhotoFocus({ keepView = true } = {}){
+    if (!this._focusedPhotoId) return;
+
+    let returnPosition;
+    if (this._focusReturnPosition) {
+      returnPosition = this._focusReturnPosition.clone();
+    } else {
+      const back = new THREE.Vector3();
+      this.camera.getWorldDirection(back);
+      back.y = 0;
+      if (back.lengthSq() < 0.0001) back.set(0, 0, 1);
+      back.normalize().multiplyScalar(-WALL_STEP_BACK_DISTANCE);
+      returnPosition = this.camera.position.clone().add(back);
+    }
+
+    this._clampCameraToRoom(returnPosition);
+    returnPosition.y = EYE_HEIGHT;
+
+    const yaw = this.controls.yaw;
+    const pitch = this.controls.pitch;
+    this._focusedPhotoId = null;
+    this._focusReturnPosition = null;
+
+    if (keepView) {
+      this.controls.setOrientation(yaw, pitch);
+    }
+
+    this._animateCameraPosition(returnPosition, 550, {
+      onComplete: () => this._lockFocusLook(false)
+    });
+  }
+
+  _lockFocusLook(locked){
+    if (locked) {
+      if (this.controls.gyroEnabled) {
+        this.controls.disableGyro();
+        this._focusLockedGyro = true;
+      }
+      this.controls.locked = true;
+      return;
+    }
+
+    this.controls.locked = false;
+    if (this._focusLockedGyro) {
+      this._focusLockedGyro = false;
+      this.controls.enableGyro().catch(() => {});
+    }
+  }
+
+  _clearPhotoFocusState(){
+    this._focusedPhotoId = null;
+    this._focusReturnPosition = null;
+    if (this._focusLockedGyro || this.controls.locked) {
+      this._focusLockedGyro = false;
+      this.controls.locked = false;
     }
   }
 
@@ -1049,7 +1255,7 @@ export class Gallery3DScene {
     this.camera.getWorldDirection(forward);
     forward.y = 0;
     if (forward.lengthSq() < 0.0001) {
-      forward.set(Math.sin(this.controls.yaw), 0, Math.cos(this.controls.yaw));
+      forward.set(-Math.sin(this.controls.yaw), 0, -Math.cos(this.controls.yaw));
     }
     forward.normalize();
 
@@ -1126,22 +1332,35 @@ export class Gallery3DScene {
     this._cameraTween = requestAnimationFrame(step);
   }
 
+  _shortestAngleDelta(from, to){
+    let delta = to - from;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    return delta;
+  }
+
   _animateCameraPose(targetPosition, yaw, pitch, duration){
+    this._cancelCameraAnimation();
     const startPos = this.camera.position.clone();
     const startYaw = this.controls.yaw;
     const startPitch = this.controls.pitch;
+    const yawDelta = this._shortestAngleDelta(startYaw, yaw);
     const startTime = performance.now();
+    this._cameraAnimating = true;
     const step = now => {
       const t = Math.min(1, (now - startTime) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
       this.camera.position.lerpVectors(startPos, targetPosition, eased);
-      const nextYaw = THREE.MathUtils.lerp(startYaw, yaw, eased);
+      const nextYaw = startYaw + yawDelta * eased;
       const nextPitch = THREE.MathUtils.lerp(startPitch, pitch, eased);
       this.controls.setOrientation(nextYaw, nextPitch);
-      if (t < 1) this._cameraTween = requestAnimationFrame(step);
-      else this._cameraTween = null;
+      if (t < 1) {
+        this._cameraTween = requestAnimationFrame(step);
+      } else {
+        this.controls.setOrientation(yaw, pitch);
+        this._finishCameraAnimation();
+      }
     };
-    if (this._cameraTween) cancelAnimationFrame(this._cameraTween);
     this._cameraTween = requestAnimationFrame(step);
   }
 
@@ -1154,11 +1373,16 @@ export class Gallery3DScene {
   }
 
   resetView(){
-    const spawn = getSpawnPose(this.currentRoomId);
+    this._clearPhotoFocusState();
+    const spawn = getSpawnPose(this.currentRoomId, this._entryFromRoomId);
     this.camera.fov = 68;
     this.camera.updateProjectionMatrix();
     this.camera.position.set(spawn.x, spawn.y, spawn.z);
     this.controls.resetView();
+    this.controls.setOrientation(spawn.yaw, 0);
+    if (this.controls.gyroEnabled) {
+      this.controls._orientBaseline = null;
+    }
   }
 
   start(){

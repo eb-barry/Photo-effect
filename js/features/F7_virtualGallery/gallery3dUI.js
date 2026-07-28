@@ -224,6 +224,7 @@ export function renderGalleryTutorial(){
         <p class="gallery3d-tutorial-title">歡迎來到 3D 展館</p>
         <ul class="gallery3d-tutorial-list">
           <li>拖曳畫面（或轉動手機）環顧四周</li>
+          <li>點<strong>照片</strong>放大到螢幕寬度檢視；再點同一張則退回</li>
           <li>點<strong>牆面</strong>往後退一步（可連點多次）</li>
           <li>點<strong>地板</strong>向前移動</li>
           <li>點<strong>門口</strong>切換展間</li>
