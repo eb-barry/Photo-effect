@@ -1,5 +1,5 @@
-// F8 小行星 - 渲染核心 v0.1.1
-// 極座標投影（小行星／隧道）+ 左右接縫融合 + 暈影 + 大氣散射。
+// F8 小行星 - 渲染核心 v0.2.0
+// 極座標投影（小行星／隧道）+ 左右融合 + 接縫高低對齊 + 暈影 + 大氣散射。
 
 export const TINY_PLANET_OUTPUT_SIZE = 1080;
 export const TINY_PLANET_WORK_SIZE = 720;
@@ -84,6 +84,8 @@ function applyPolarPlanetEffect(sourceImage, size, state){
   const seamAmt = clamp(Number(state.seamBlend ?? 0), 0, 100) / 100;
   // Blend zone as fraction of circumference (about 2%–22%)
   const seamWidth = seamAmt > 0.001 ? 0.02 + seamAmt * 0.20 : 0;
+  // Vertical shear so left/right edges can be aligned at the wrap join
+  const seamHeightAmt = clamp(Number(state.seamHeight ?? 0), -50, 50) / 100;
   const vignetteAmt = clamp(Number(state.vignette ?? 0), 0, 100) / 100;
   const atmoAmt = clamp(Number(state.atmosphere ?? 0), 0, 100) / 100;
 
@@ -122,7 +124,15 @@ function applyPolarPlanetEffect(sourceImage, size, state){
       // Equator offset shifts which band of the source becomes the planet surface
       radial = clamp(radial - equator * 0.85, 0, 1);
 
-      const sy = radial * (srcH - 1);
+      // 接縫高低：左右邊緣朝相反方向垂直錯位，用來對齊兩端高低落差。
+      // 正值：右邊朝球心方向拉近、左邊拉遠；負值相反。
+      let sampleRadial = radial;
+      if (Math.abs(seamHeightAmt) > 0.001) {
+        const edgeFactor = (0.5 - u) * 2; // +1 at left edge, -1 at right edge
+        sampleRadial = clamp(radial - edgeFactor * seamHeightAmt * 0.42, 0, 1);
+      }
+
+      const sy = sampleRadial * (srcH - 1);
       const sample = sampleWithSeamFusion(src, srcW, srcH, u, sy, seamWidth, seamAmt);
 
       let red = sample[0];

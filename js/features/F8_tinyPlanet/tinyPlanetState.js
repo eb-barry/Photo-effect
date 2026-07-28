@@ -1,31 +1,33 @@
-// F8 小行星 - 狀態管理 v0.1.1
-// 子功能：投影模式／畫面變形／氛圍光影
+// F8 小行星 - 狀態管理 v0.2.0
+// 第一排：小行星／隧道；第二排：畫面變形／氛圍光影；其下為調整項目 + 滑桿。
 
 export const TINY_PLANET_FEATURE_ID = "F8_tinyPlanet";
-export const TINY_PLANET_FEATURE_VERSION = "0.1.1";
-export const TINY_PLANET_DRAFT_KEY = "photoEffects.F8_tinyPlanet.draft.v1";
+export const TINY_PLANET_FEATURE_VERSION = "0.2.0";
+export const TINY_PLANET_DRAFT_KEY = "photoEffects.F8_tinyPlanet.draft.v2";
 
+/** 第二排：調整類別（可收合） */
 export const TINY_PLANET_CONTROL_TABS = [
-  { id: "mode", label: "投影模式" },
   { id: "warp", label: "畫面變形" },
   { id: "atmosphere", label: "氛圍光影" }
 ];
 
+/** 第一排：投影子功能 */
 export const PROJECTION_MODES = [
   { id: "planet", label: "小行星" },
   { id: "tunnel", label: "隧道" }
 ];
 
-/** 畫面變形參數：旋轉、彎曲、地平線、左右融合、縮放 */
+/** 畫面變形參數 */
 export const WARP_PARAMETERS = [
   { id: "rotation", label: "旋轉角度", min: 0, max: 360, step: 1, suffix: "°" },
   { id: "bendStrength", label: "彎曲強度", min: 0, max: 100, step: 1, suffix: "%" },
   { id: "equatorOffset", label: "地平線位置", min: -50, max: 50, step: 1, suffix: "%" },
   { id: "seamBlend", label: "左右融合", min: 0, max: 100, step: 1, suffix: "%" },
+  { id: "seamHeight", label: "接縫高低", min: -50, max: 50, step: 1, suffix: "%" },
   { id: "zoom", label: "行星縮放", min: 60, max: 160, step: 1, suffix: "%" }
 ];
 
-/** 氛圍光影參數：暈影、大氣 */
+/** 氛圍光影參數 */
 export const ATMOSPHERE_PARAMETERS = [
   { id: "vignette", label: "邊緣暈影", min: 0, max: 100, step: 1, suffix: "%" },
   { id: "atmosphere", label: "大氣散射", min: 0, max: 100, step: 1, suffix: "%" }
@@ -36,16 +38,16 @@ export function normalizeProjectionMode(mode){
 }
 
 export function normalizeActiveControlTab(tab){
-  if (tab === null || tab === "none" || tab === "") return null;
+  if (tab === null || tab === "none" || tab === "" || tab === "mode") return null;
   if (TINY_PLANET_CONTROL_TABS.some(item => item.id === tab)) return tab;
-  return "mode";
+  return "warp";
 }
 
 export function createDefaultTinyPlanetState(){
   return {
     featureId: TINY_PLANET_FEATURE_ID,
     featureVersion: TINY_PLANET_FEATURE_VERSION,
-    activeControlTab: "mode",
+    activeControlTab: "warp",
     sourceImageDataUrl: null,
 
     projectionMode: "planet",
@@ -55,6 +57,7 @@ export function createDefaultTinyPlanetState(){
     bendStrength: 55,
     equatorOffset: 0,
     seamBlend: 35,
+    seamHeight: 0,
     zoom: 100,
 
     selectedAtmosphereParameter: "vignette",
@@ -75,6 +78,7 @@ export function resetTinyPlanetAdjustments(currentState){
     bendStrength: defaults.bendStrength,
     equatorOffset: defaults.equatorOffset,
     seamBlend: defaults.seamBlend,
+    seamHeight: defaults.seamHeight,
     zoom: defaults.zoom,
     selectedAtmosphereParameter: defaults.selectedAtmosphereParameter,
     vignette: defaults.vignette,
@@ -126,7 +130,8 @@ export function saveTinyPlanetDraft(state){
 
 export function loadTinyPlanetDraft(){
   try {
-    const raw = localStorage.getItem(TINY_PLANET_DRAFT_KEY);
+    const raw = localStorage.getItem(TINY_PLANET_DRAFT_KEY)
+      || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v1");
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed?.featureId !== TINY_PLANET_FEATURE_ID) return null;
@@ -140,6 +145,7 @@ export function loadTinyPlanetDraft(){
 export function clearTinyPlanetDraft(){
   try {
     localStorage.removeItem(TINY_PLANET_DRAFT_KEY);
+    localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v1");
   } catch (error) {
     console.warn("[F8 小行星] 無法清除草稿：", error);
   }
