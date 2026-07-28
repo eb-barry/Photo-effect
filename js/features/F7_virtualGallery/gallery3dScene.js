@@ -22,10 +22,10 @@ const WALL_STEP_BACK_DISTANCE = 1.15;
 const DOOR_FRAME_PADDING = 0.12;
 const DOOR_FRAME_WIDTH = DOOR_WIDTH + DOOR_FRAME_PADDING;
 const DOOR_FRAME_HEIGHT = DOOR_HEIGHT + DOOR_FRAME_PADDING;
-const ROUND_WALL_FRAME_SCALE = 0.72;
-const ROUND_WALL_FRAME_MIN_SCALE = 0.38;
-const ROUND_WALL_FRAME_GAP = 0.28;
-const ROUND_WALL_MIN_FRAME_GAP = 0.14;
+const ROUND_WALL_FRAME_SCALE = 0.95;
+const ROUND_WALL_FRAME_MIN_SCALE = 0.62;
+const ROUND_WALL_FRAME_GAP = 0.22;
+const ROUND_WALL_MIN_FRAME_GAP = 0.12;
 const ROUND_WALL_DOOR_SIDE_MARGIN = 0.55;
 
 function getRoundWallDoorBlockHalfArc(hangRadius){
@@ -78,8 +78,10 @@ function computeRoundWallFitScale(frameCount, segmentSpan, hangRadius){
   const availableArc = segmentSpan - gaps * ROUND_WALL_MIN_FRAME_GAP;
   if (availableArc <= 0) return ROUND_WALL_FRAME_MIN_SCALE;
 
-  const maxFrameWidth = 1.35 * FRAME_SCALE;
-  const fitScale = (availableArc * hangRadius) / (frameCount * maxFrameWidth);
+  // Prefer near-square-room visual size; only shrink when the arc is crowded.
+  // Use ~85% of max landscape width as a mixed-aspect packing estimate.
+  const typicalFrameWidth = 1.35 * FRAME_SCALE * 0.85;
+  const fitScale = (availableArc * hangRadius) / (frameCount * typicalFrameWidth);
   return Math.min(
     ROUND_WALL_FRAME_SCALE,
     Math.max(ROUND_WALL_FRAME_MIN_SCALE, fitScale)
@@ -1187,7 +1189,6 @@ export class Gallery3DScene {
   }
 
   _syncControlsFromCamera(){
-    this._tmpLook.set(0, 0, 0);
     const euler = new THREE.Euler().setFromQuaternion(this.camera.quaternion, "YXZ");
     this.controls.setOrientation(euler.y, euler.x);
   }
