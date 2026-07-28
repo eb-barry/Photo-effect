@@ -1,5 +1,5 @@
-// F8 小行星 - Page Controller v0.1.1
-// Topbar + canvas + 三按鈕分頁（投影模式／畫面變形／氛圍光影）。
+// F8 小行星 - Page Controller v0.2.0
+// 第一排：小行星／隧道；第二排：畫面變形／氛圍光影；第三排調整項目；第四排滑桿。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -17,10 +17,9 @@ import {
   resolveOutputSize
 } from "./tinyPlanetTool.js";
 import {
-  renderAtmospherePanel,
+  renderAdjustPanel,
   renderControlTabs,
-  renderModePanel,
-  renderWarpPanel,
+  renderModeRow,
   setupTinyPlanetUI
 } from "./tinyPlanetUI.js";
 
@@ -38,7 +37,7 @@ export async function renderTinyPlanetPage(root, navigate){
 
         <div class="topbar-title">
           <h1>小行星</h1>
-          <p class="crystal-version" aria-hidden="true">v0.1.1</p>
+          <p class="crystal-version" aria-hidden="true">v0.2.0</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -65,22 +64,16 @@ export async function renderTinyPlanetPage(root, navigate){
 
         <p class="note hidden" id="tinyPlanetHint">建議使用全景或寬幅風景照片，效果更接近小行星</p>
 
-        <div class="crystal-tab-bar hidden" id="tinyPlanetTabBar" role="tablist" aria-label="小行星功能">
+        <div class="hidden" id="tinyPlanetModeBar" aria-label="小行星模式">
+          ${renderModeRow()}
+        </div>
+
+        <div class="crystal-tab-bar hidden" id="tinyPlanetTabBar" role="tablist" aria-label="調整類別">
           ${renderControlTabs()}
         </div>
 
-        <div class="crystal-tab-panels hidden" id="tinyPlanetTabPanels">
-          <div id="modePanel" class="crystal-tab-panel" role="tabpanel" aria-label="投影模式">
-            ${renderModePanel()}
-          </div>
-
-          <div id="warpPanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="畫面變形">
-            ${renderWarpPanel()}
-          </div>
-
-          <div id="atmospherePanel" class="crystal-tab-panel hidden" role="tabpanel" aria-label="氛圍光影">
-            ${renderAtmospherePanel()}
-          </div>
+        <div id="tinyPlanetAdjustPanel" class="crystal-tab-panels tiny-planet-adjust-panel hidden" aria-label="參數調整">
+          ${renderAdjustPanel()}
         </div>
       </section>
 
@@ -127,11 +120,12 @@ export async function renderTinyPlanetPage(root, navigate){
   const showEditor = () => {
     root.querySelector("#emptyCanvas")?.classList.add("hidden");
     canvas.classList.remove("hidden");
+    root.querySelector("#tinyPlanetModeBar")?.classList.remove("hidden");
     root.querySelector("#tinyPlanetTabBar")?.classList.remove("hidden");
     root.querySelector("#tinyPlanetHint")?.classList.remove("hidden");
     root.querySelector("#resetTinyPlanetSettingsBtn")?.classList.remove("hidden");
     if (!state.activeControlTab) {
-      Object.assign(state, updateTinyPlanetState(state, { activeControlTab: "mode" }));
+      Object.assign(state, updateTinyPlanetState(state, { activeControlTab: "warp" }));
     }
   };
 
@@ -146,8 +140,9 @@ export async function renderTinyPlanetPage(root, navigate){
     Object.assign(state, updateTinyPlanetState(createDefaultTinyPlanetState(), {}));
     root.querySelector("#emptyCanvas")?.classList.remove("hidden");
     canvas.classList.add("hidden");
+    root.querySelector("#tinyPlanetModeBar")?.classList.add("hidden");
     root.querySelector("#tinyPlanetTabBar")?.classList.add("hidden");
-    root.querySelector("#tinyPlanetTabPanels")?.classList.add("hidden");
+    root.querySelector("#tinyPlanetAdjustPanel")?.classList.add("hidden");
     root.querySelector("#tinyPlanetHint")?.classList.add("hidden");
     root.querySelector("#resetTinyPlanetSettingsBtn")?.classList.add("hidden");
     tinyPlanetUi?.refreshAllControls?.();
@@ -194,7 +189,7 @@ export async function renderTinyPlanetPage(root, navigate){
       const dataUrl = await fileToDataUrl(file);
       const applied = await openPhoto(dataUrl, {
         sourceImageDataUrl: dataUrl,
-        activeControlTab: "mode"
+        activeControlTab: "warp"
       });
       if (!applied) return;
       showEditor();

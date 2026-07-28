@@ -1,5 +1,5 @@
-// F8 小行星 - UI v0.1.1
-// 三按鈕分頁（投影模式／畫面變形／氛圍光影）+ 下拉選單 + 單一滑桿。
+// F8 小行星 - UI v0.2.0
+// 第一排：小行星／隧道；第二排：畫面變形／氛圍光影；第三排調整項目；第四排滑桿。
 
 import {
   ATMOSPHERE_PARAMETERS,
@@ -11,22 +11,14 @@ import {
 } from "./tinyPlanetState.js";
 
 export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
-  const tabButtons = root.querySelectorAll("[data-control-tab]");
-  const tabPanels = root.querySelector("#tinyPlanetTabPanels");
-  const modePanel = root.querySelector("#modePanel");
-  const warpPanel = root.querySelector("#warpPanel");
-  const atmospherePanel = root.querySelector("#atmospherePanel");
-
   const modeButtons = root.querySelectorAll("[data-projection-mode]");
-  const warpParamSelect = root.querySelector("#warpParamSelect");
-  const warpSlider = root.querySelector("#warpSlider");
-  const warpSliderLabel = root.querySelector("#warpSliderLabel");
-  const warpSliderValue = root.querySelector("#warpSliderValue");
+  const tabButtons = root.querySelectorAll("[data-control-tab]");
+  const adjustPanel = root.querySelector("#tinyPlanetAdjustPanel");
 
-  const atmosphereParamSelect = root.querySelector("#atmosphereParamSelect");
-  const atmosphereSlider = root.querySelector("#atmosphereSlider");
-  const atmosphereSliderLabel = root.querySelector("#atmosphereSliderLabel");
-  const atmosphereSliderValue = root.querySelector("#atmosphereSliderValue");
+  const paramSelect = root.querySelector("#adjustParamSelect");
+  const slider = root.querySelector("#adjustSlider");
+  const sliderLabel = root.querySelector("#adjustSliderLabel");
+  const sliderValue = root.querySelector("#adjustSliderValue");
 
   const resetSettingsButton = root.querySelector("#resetTinyPlanetSettingsBtn");
 
@@ -36,21 +28,19 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
     renderTimer = setTimeout(() => render(), delay);
   };
 
-  function refreshTabBar(){
-    tabButtons.forEach(button => {
-      const active = state.activeControlTab === button.dataset.controlTab;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", String(active));
-    });
+  function getActiveParameters(){
+    return state.activeControlTab === "atmosphere" ? ATMOSPHERE_PARAMETERS : WARP_PARAMETERS;
   }
 
-  function refreshTabPanels(){
-    const tab = state.activeControlTab;
-    const expanded = Boolean(tab);
-    tabPanels?.classList.toggle("hidden", !expanded);
-    modePanel?.classList.toggle("hidden", tab !== "mode");
-    warpPanel?.classList.toggle("hidden", tab !== "warp");
-    atmospherePanel?.classList.toggle("hidden", tab !== "atmosphere");
+  function getSelectedParameterId(){
+    if (state.activeControlTab === "atmosphere") return state.selectedAtmosphereParameter;
+    return state.selectedWarpParameter;
+  }
+
+  function getCurrentConfig(){
+    const list = getActiveParameters();
+    const id = getSelectedParameterId();
+    return list.find(item => item.id === id) || list[0];
   }
 
   function refreshModeButtons(){
@@ -61,60 +51,47 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
     });
   }
 
-  function getWarpConfig(){
-    return WARP_PARAMETERS.find(item => item.id === state.selectedWarpParameter) || WARP_PARAMETERS[0];
+  function refreshTabBar(){
+    tabButtons.forEach(button => {
+      const active = state.activeControlTab === button.dataset.controlTab;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
   }
 
-  function refreshWarpSelect(){
-    if (!warpParamSelect) return;
-    warpParamSelect.innerHTML = WARP_PARAMETERS
-      .map(item => `<option value="${item.id}" ${item.id === state.selectedWarpParameter ? "selected" : ""}>${item.label}</option>`)
+  function refreshAdjustPanel(){
+    const expanded = Boolean(state.activeControlTab);
+    adjustPanel?.classList.toggle("hidden", !expanded);
+  }
+
+  function refreshParamSelect(){
+    if (!paramSelect || !state.activeControlTab) return;
+    const list = getActiveParameters();
+    const selected = getSelectedParameterId();
+    paramSelect.innerHTML = list
+      .map(item => `<option value="${item.id}" ${item.id === selected ? "selected" : ""}>${item.label}</option>`)
       .join("");
-    warpParamSelect.classList.add("selected");
+    paramSelect.classList.add("selected");
   }
 
-  function refreshWarpSlider(){
-    const config = getWarpConfig();
+  function refreshSlider(){
+    if (!slider || !state.activeControlTab) return;
+    const config = getCurrentConfig();
     const value = Number(state[config.id]);
-    warpSlider.min = config.min;
-    warpSlider.max = config.max;
-    warpSlider.step = config.step;
-    warpSlider.value = value;
-    warpSliderLabel.textContent = config.label;
-    warpSliderValue.textContent = formatParameterValue(value, config);
-  }
-
-  function getAtmosphereConfig(){
-    return ATMOSPHERE_PARAMETERS.find(item => item.id === state.selectedAtmosphereParameter) || ATMOSPHERE_PARAMETERS[0];
-  }
-
-  function refreshAtmosphereSelect(){
-    if (!atmosphereParamSelect) return;
-    atmosphereParamSelect.innerHTML = ATMOSPHERE_PARAMETERS
-      .map(item => `<option value="${item.id}" ${item.id === state.selectedAtmosphereParameter ? "selected" : ""}>${item.label}</option>`)
-      .join("");
-    atmosphereParamSelect.classList.add("selected");
-  }
-
-  function refreshAtmosphereSlider(){
-    const config = getAtmosphereConfig();
-    const value = Number(state[config.id]);
-    atmosphereSlider.min = config.min;
-    atmosphereSlider.max = config.max;
-    atmosphereSlider.step = config.step;
-    atmosphereSlider.value = value;
-    atmosphereSliderLabel.textContent = config.label;
-    atmosphereSliderValue.textContent = formatParameterValue(value, config);
+    slider.min = config.min;
+    slider.max = config.max;
+    slider.step = config.step;
+    slider.value = value;
+    if (sliderLabel) sliderLabel.textContent = config.label;
+    if (sliderValue) sliderValue.textContent = formatParameterValue(value, config);
   }
 
   function refreshAllControls(){
-    refreshTabBar();
-    refreshTabPanels();
     refreshModeButtons();
-    refreshWarpSelect();
-    refreshWarpSlider();
-    refreshAtmosphereSelect();
-    refreshAtmosphereSlider();
+    refreshTabBar();
+    refreshAdjustPanel();
+    refreshParamSelect();
+    refreshSlider();
   }
 
   function toggleControlTab(tabId){
@@ -123,11 +100,6 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
     refreshAllControls();
     persistDraft();
   }
-
-  tabButtons.forEach(button => button.addEventListener("click", event => {
-    event.preventDefault();
-    toggleControlTab(button.dataset.controlTab);
-  }));
 
   modeButtons.forEach(button => button.addEventListener("click", event => {
     event.preventDefault();
@@ -139,37 +111,33 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
     persistDraft();
   }));
 
-  warpParamSelect?.addEventListener("change", () => {
-    Object.assign(state, updateTinyPlanetState(state, {
-      selectedWarpParameter: warpParamSelect.value
-    }));
-    refreshWarpSlider();
+  tabButtons.forEach(button => button.addEventListener("click", event => {
+    event.preventDefault();
+    toggleControlTab(button.dataset.controlTab);
+  }));
+
+  paramSelect?.addEventListener("change", () => {
+    if (state.activeControlTab === "atmosphere") {
+      Object.assign(state, updateTinyPlanetState(state, {
+        selectedAtmosphereParameter: paramSelect.value
+      }));
+    } else {
+      Object.assign(state, updateTinyPlanetState(state, {
+        selectedWarpParameter: paramSelect.value
+      }));
+    }
+    refreshSlider();
     persistDraft();
   });
 
-  warpSlider?.addEventListener("input", () => {
-    const config = getWarpConfig();
-    Object.assign(state, updateTinyPlanetState(state, { [config.id]: Number(warpSlider.value) }));
-    warpSliderValue.textContent = formatParameterValue(state[config.id], config);
-    scheduleRender(config.id === "rotation" ? 16 : 48);
+  slider?.addEventListener("input", () => {
+    const config = getCurrentConfig();
+    Object.assign(state, updateTinyPlanetState(state, { [config.id]: Number(slider.value) }));
+    if (sliderValue) sliderValue.textContent = formatParameterValue(state[config.id], config);
+    const fast = config.id === "rotation" || config.id === "seamHeight";
+    scheduleRender(fast ? 16 : 48);
   });
-  warpSlider?.addEventListener("change", () => persistDraft());
-
-  atmosphereParamSelect?.addEventListener("change", () => {
-    Object.assign(state, updateTinyPlanetState(state, {
-      selectedAtmosphereParameter: atmosphereParamSelect.value
-    }));
-    refreshAtmosphereSlider();
-    persistDraft();
-  });
-
-  atmosphereSlider?.addEventListener("input", () => {
-    const config = getAtmosphereConfig();
-    Object.assign(state, updateTinyPlanetState(state, { [config.id]: Number(atmosphereSlider.value) }));
-    atmosphereSliderValue.textContent = formatParameterValue(state[config.id], config);
-    scheduleRender(48);
-  });
-  atmosphereSlider?.addEventListener("change", () => persistDraft());
+  slider?.addEventListener("change", () => persistDraft());
 
   resetSettingsButton?.addEventListener("click", event => {
     event.preventDefault();
@@ -180,11 +148,25 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
   });
 
   if (!state.activeControlTab) {
-    Object.assign(state, updateTinyPlanetState(state, { activeControlTab: "mode" }));
+    Object.assign(state, updateTinyPlanetState(state, { activeControlTab: "warp" }));
   }
 
   refreshAllControls();
   return { refreshAllControls };
+}
+
+export function renderModeRow(){
+  return `
+    <div class="segment segment-cols-2 tiny-planet-mode-row" role="group" aria-label="小行星模式">
+      ${PROJECTION_MODES.map(mode => `
+        <button
+          type="button"
+          data-projection-mode="${mode.id}"
+          aria-pressed="false"
+        >${mode.label}</button>
+      `).join("")}
+    </div>
+  `;
 }
 
 export function renderControlTabs(){
@@ -198,49 +180,18 @@ export function renderControlTabs(){
   `).join("");
 }
 
-export function renderModePanel(){
-  return `
-    <div class="segment segment-cols-2 tiny-planet-mode-row" role="group" aria-label="投影模式">
-      ${PROJECTION_MODES.map(mode => `
-        <button
-          type="button"
-          data-projection-mode="${mode.id}"
-          aria-pressed="false"
-        >${mode.label}</button>
-      `).join("")}
-    </div>
-    <p class="note" id="tinyPlanetModeHint">小行星：地面收斂球心；隧道：天空收進中心</p>
-  `;
-}
-
-export function renderWarpPanel(){
+export function renderAdjustPanel(){
   return `
     <div class="selection-row crystal-adjust-row">
-      <label for="warpParamSelect" class="selection-label">調整項目</label>
-      <select id="warpParamSelect" class="select-control" aria-label="畫面變形調整項目"></select>
+      <label for="adjustParamSelect" class="selection-label">調整項目</label>
+      <select id="adjustParamSelect" class="select-control" aria-label="調整項目"></select>
     </div>
-    <div class="slider-row" id="warpSliderRow">
+    <div class="slider-row" id="adjustSliderRow">
       <div class="slider-head">
-        <span id="warpSliderLabel">旋轉角度</span>
-        <span id="warpSliderValue">0°</span>
+        <span id="adjustSliderLabel">旋轉角度</span>
+        <span id="adjustSliderValue">0°</span>
       </div>
-      <input id="warpSlider" type="range" />
-    </div>
-  `;
-}
-
-export function renderAtmospherePanel(){
-  return `
-    <div class="selection-row crystal-adjust-row">
-      <label for="atmosphereParamSelect" class="selection-label">調整項目</label>
-      <select id="atmosphereParamSelect" class="select-control" aria-label="氛圍光影調整項目"></select>
-    </div>
-    <div class="slider-row" id="atmosphereSliderRow">
-      <div class="slider-head">
-        <span id="atmosphereSliderLabel">邊緣暈影</span>
-        <span id="atmosphereSliderValue">42%</span>
-      </div>
-      <input id="atmosphereSlider" type="range" />
+      <input id="adjustSlider" type="range" />
     </div>
   `;
 }
