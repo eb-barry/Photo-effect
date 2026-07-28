@@ -1,5 +1,5 @@
-// F8 小行星 - 渲染核心 v0.1.0
-// 極座標投影（小行星／隧道）+ 暈影 + 大氣散射。
+// F8 小行星 - 渲染核心 v0.1.1
+// 極座標投影（小行星／隧道）+ 左右接縫融合 + 暈影 + 大氣散射。
 
 export const TINY_PLANET_OUTPUT_SIZE = 1080;
 export const TINY_PLANET_WORK_SIZE = 720;
@@ -81,6 +81,9 @@ function applyPolarPlanetEffect(sourceImage, size, state){
   const bend = 0.35 + (clamp(Number(state.bendStrength ?? 55), 0, 100) / 100) * 1.65;
   const zoom = clamp(Number(state.zoom ?? 100), 60, 160) / 100;
   const equator = clamp(Number(state.equatorOffset ?? 0), -50, 50) / 100;
+  const seamAmt = clamp(Number(state.seamBlend ?? 0), 0, 100) / 100;
+  // Blend zone as fraction of circumference (about 2%–22%)
+  const seamWidth = seamAmt > 0.001 ? 0.02 + seamAmt * 0.20 : 0;
   const vignetteAmt = clamp(Number(state.vignette ?? 0), 0, 100) / 100;
   const atmoAmt = clamp(Number(state.atmosphere ?? 0), 0, 100) / 100;
 
@@ -119,9 +122,8 @@ function applyPolarPlanetEffect(sourceImage, size, state){
       // Equator offset shifts which band of the source becomes the planet surface
       radial = clamp(radial - equator * 0.85, 0, 1);
 
-      const sx = u * srcW;
       const sy = radial * (srcH - 1);
-      const sample = sampleBilinearWrapX(src, srcW, srcH, sx, sy);
+      const sample = sampleWithSeamFusion(src, srcW, srcH, u, sy, seamWidth, seamAmt);
 
       let red = sample[0];
       let green = sample[1];
@@ -192,6 +194,52 @@ function sampleBilinearWrapX(data, width, height, x, y){
     const bottom = data[i01 + c] + (data[i11 + c] - data[i01 + c]) * fx;
     out[c] = top + (bottom - top) * fy;
   }
+  return out;
+}
+
+/**
+ * 左右接縫融合：在 u=0/1 交界處，與鏡像另一側取樣混合，並做輕微角度方向柔化。
+ * 用來淡化全景（或非 360）左右邊對不齊的硬接縫。
+ */
+function sampleWithSeamFusion(data, width, height, u, y, seamWidth, strength){
+  const primary = sampleBilinearWrapX(data, width, height, u * width, y);
+  if (seamWidth <= 0.0005 || strength <= 0.001) return primary;
+
+  const distToSeam = Math.min(u, 1 - u);
+  if (distToSeam >= seamWidth) return primary;
+
+  const proximity = 1 - distToSeam / seamWidth; // 1 at seam, 0 at zone edge
+  const mixAmt = Math.pow(smoothstep(0, 1, proximity), 1.1) * strength;
+
+  // Mirror across the wrap seam → average left-edge with right-edge content
+  const mirrorU = 1 - u;
+  const mirror = sampleBilinearWrapX(data, width, height, mirrorU * width, y);
+  const averaged = [
+    (primary[0] + mirror[0]) * 0.5,
+    (primary[1] + mirror[1]) * 0.5,
+    (primary[2] + mirror[2]) * 0.5,
+    (primary[3] + mirror[3]) * 0.5
+  ];
+
+  let out = [
+    lerp(primary[0], averaged[0], mixAmt),
+    lerp(primary[1], averaged[1], mixAmt),
+    lerp(primary[2], averaged[2], mixAmt),
+    lerp(primary[3], averaged[3], mixAmt)
+  ];
+
+  // Soft angular blur near the seam to further hide structural mismatch
+  const blurMix = mixAmt * (0.35 + 0.55 * strength);
+  if (blurMix > 0.02) {
+    const spread = seamWidth * proximity * (0.45 + 0.55 * strength);
+    const left = sampleBilinearWrapX(data, width, height, ((u - spread + 1) % 1) * width, y);
+    const right = sampleBilinearWrapX(data, width, height, ((u + spread) % 1) * width, y);
+    for (let c = 0; c < 4; c++) {
+      const soft = (left[c] + out[c] + right[c]) / 3;
+      out[c] = lerp(out[c], soft, blurMix);
+    }
+  }
+
   return out;
 }
 
