@@ -1,8 +1,8 @@
-// F8 小行星 - 狀態管理 v0.1.0
+// F8 小行星 - 狀態管理 v0.1.1
 // 子功能：投影模式／畫面變形／氛圍光影
 
 export const TINY_PLANET_FEATURE_ID = "F8_tinyPlanet";
-export const TINY_PLANET_FEATURE_VERSION = "0.1.0";
+export const TINY_PLANET_FEATURE_VERSION = "0.1.1";
 export const TINY_PLANET_DRAFT_KEY = "photoEffects.F8_tinyPlanet.draft.v1";
 
 export const TINY_PLANET_CONTROL_TABS = [
@@ -16,11 +16,12 @@ export const PROJECTION_MODES = [
   { id: "tunnel", label: "隧道" }
 ];
 
-/** 畫面變形參數：旋轉、彎曲、地平線、縮放 */
+/** 畫面變形參數：旋轉、彎曲、地平線、左右融合、縮放 */
 export const WARP_PARAMETERS = [
   { id: "rotation", label: "旋轉角度", min: 0, max: 360, step: 1, suffix: "°" },
   { id: "bendStrength", label: "彎曲強度", min: 0, max: 100, step: 1, suffix: "%" },
   { id: "equatorOffset", label: "地平線位置", min: -50, max: 50, step: 1, suffix: "%" },
+  { id: "seamBlend", label: "左右融合", min: 0, max: 100, step: 1, suffix: "%" },
   { id: "zoom", label: "行星縮放", min: 60, max: 160, step: 1, suffix: "%" }
 ];
 
@@ -53,6 +54,7 @@ export function createDefaultTinyPlanetState(){
     rotation: 0,
     bendStrength: 55,
     equatorOffset: 0,
+    seamBlend: 35,
     zoom: 100,
 
     selectedAtmosphereParameter: "vignette",
@@ -72,6 +74,7 @@ export function resetTinyPlanetAdjustments(currentState){
     rotation: defaults.rotation,
     bendStrength: defaults.bendStrength,
     equatorOffset: defaults.equatorOffset,
+    seamBlend: defaults.seamBlend,
     zoom: defaults.zoom,
     selectedAtmosphereParameter: defaults.selectedAtmosphereParameter,
     vignette: defaults.vignette,

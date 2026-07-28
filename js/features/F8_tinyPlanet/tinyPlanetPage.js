@@ -1,4 +1,4 @@
-// F8 小行星 - Page Controller v0.1.0
+// F8 小行星 - Page Controller v0.1.1
 // Topbar + canvas + 三按鈕分頁（投影模式／畫面變形／氛圍光影）。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -38,7 +38,7 @@ export async function renderTinyPlanetPage(root, navigate){
 
         <div class="topbar-title">
           <h1>小行星</h1>
-          <p class="crystal-version" aria-hidden="true">v0.1.0</p>
+          <p class="crystal-version" aria-hidden="true">v0.1.1</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
