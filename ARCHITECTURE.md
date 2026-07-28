@@ -154,6 +154,6 @@ changes.
 
 Phase 1: Core + F1--F7
 
-Phase 2: F8--F28
+Phase 2: F8 小行星（進行中）+ F9--F28
 
 Phase 3: Undo/Redo, Batch Processing, Final v1.0

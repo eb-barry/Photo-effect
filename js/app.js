@@ -30,6 +30,9 @@ const routeLoaders = {
   })),
   F7_virtualGallery: () => import("./features/F7_virtualGallery/gallery3dPage.js").then(mod => ({
     run: (root, navigate) => mod.initGallery3dPage(root, { goHome: () => navigate("home") })
+  })),
+  F8_tinyPlanet: () => import("./features/F8_tinyPlanet/tinyPlanetPage.js").then(mod => ({
+    run: (root, navigate) => mod.initTinyPlanetPage(root, { goHome: () => navigate("home") })
   }))
 };
 

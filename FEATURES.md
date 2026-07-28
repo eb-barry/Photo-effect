@@ -42,7 +42,11 @@ application.
   F7         浮水印 (Watermark)     📋                   Text & image
                                                          watermark
 
-  F8--F28    Reserved               📋                   Future modules
+  F8         小行星 (Tiny Planet)   🚧                   Polar projection,
+                                                         planet/tunnel,
+                                                         warp & atmosphere
+
+  F9--F28    Reserved               📋                   Future modules
   ------------------------------------------------------------------------
 
 ------------------------------------------------------------------------
