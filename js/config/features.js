@@ -5,7 +5,8 @@ export const FEATURE_FILES = [
   "F4-星芒鏡.webp",
   "F5-畫框.webp",
   "F6-照片牆.webp",
-  "F7-3D展館.webp"
+  "F7-3D展館.webp",
+  "F8-小行星.webp"
 ];
 
 const FEATURE_ROUTES = {
@@ -15,7 +16,8 @@ const FEATURE_ROUTES = {
   F4: "F4_starburst",
   F5: "F5_frame",
   F6: "F6_photoWall",
-  F7: "F7_virtualGallery"
+  F7: "F7_virtualGallery",
+  F8: "F8_tinyPlanet"
 };
 
 /** Override display labels when filename label differs from product name. */
