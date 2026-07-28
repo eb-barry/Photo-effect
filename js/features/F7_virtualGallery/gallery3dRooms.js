@@ -4,6 +4,8 @@ export const GALLERY3D_ROOM_COUNT = 3;
 
 export const SQUARE_ROOM_SIZE = 12;
 export const ROUND_ROOM_RADIUS = 6;
+export const ROUND_ROOM_ID = 2;
+export const ROUND_ROOM_MAX_WALL_PHOTOS = 16;
 export const ROOM_WALL_HEIGHT = 4.5;
 export const EYE_HEIGHT = 1.65;
 export const DOOR_WIDTH = 0.85;
