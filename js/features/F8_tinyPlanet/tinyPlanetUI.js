@@ -1,8 +1,9 @@
-// F8 小行星 - UI v0.2.0
-// 第一排：小行星／隧道；第二排：畫面變形／氛圍光影；第三排調整項目；第四排滑桿。
+// F8 小行星 - UI v0.3.0
+// 第一排：小行星／隧道；第二排：畫面變形／氛圍光影／魚眼畸變；第三排調整項目；第四排滑桿。
 
 import {
   ATMOSPHERE_PARAMETERS,
+  FISHEYE_PARAMETERS,
   PROJECTION_MODES,
   TINY_PLANET_CONTROL_TABS,
   WARP_PARAMETERS,
@@ -29,11 +30,14 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
   };
 
   function getActiveParameters(){
-    return state.activeControlTab === "atmosphere" ? ATMOSPHERE_PARAMETERS : WARP_PARAMETERS;
+    if (state.activeControlTab === "atmosphere") return ATMOSPHERE_PARAMETERS;
+    if (state.activeControlTab === "fisheye") return FISHEYE_PARAMETERS;
+    return WARP_PARAMETERS;
   }
 
   function getSelectedParameterId(){
     if (state.activeControlTab === "atmosphere") return state.selectedAtmosphereParameter;
+    if (state.activeControlTab === "fisheye") return state.selectedFisheyeParameter;
     return state.selectedWarpParameter;
   }
 
@@ -121,6 +125,10 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
       Object.assign(state, updateTinyPlanetState(state, {
         selectedAtmosphereParameter: paramSelect.value
       }));
+    } else if (state.activeControlTab === "fisheye") {
+      Object.assign(state, updateTinyPlanetState(state, {
+        selectedFisheyeParameter: paramSelect.value
+      }));
     } else {
       Object.assign(state, updateTinyPlanetState(state, {
         selectedWarpParameter: paramSelect.value
@@ -134,7 +142,7 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
     const config = getCurrentConfig();
     Object.assign(state, updateTinyPlanetState(state, { [config.id]: Number(slider.value) }));
     if (sliderValue) sliderValue.textContent = formatParameterValue(state[config.id], config);
-    const fast = config.id === "rotation" || config.id === "seamHeight";
+    const fast = config.id === "rotation" || config.id === "seamHeight" || config.id === "fisheyeFocalLength";
     scheduleRender(fast ? 16 : 48);
   });
   slider?.addEventListener("change", () => persistDraft());
@@ -200,5 +208,6 @@ function formatParameterValue(value, config){
   const number = Number(value ?? 0);
   if (config.suffix === "°") return `${Math.round(number)}°`;
   if (config.suffix === "%") return `${Math.round(number)}%`;
+  if (config.suffix === "mm") return `${Math.round(number)}mm`;
   return `${Math.round(number)}${config.suffix || ""}`;
 }

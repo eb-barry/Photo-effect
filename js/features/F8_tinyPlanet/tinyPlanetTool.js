@@ -1,5 +1,5 @@
-// F8 小行星 - 渲染核心 v0.2.0
-// 極座標投影（小行星／隧道）+ 左右融合 + 接縫高低對齊 + 暈影 + 大氣散射。
+// F8 小行星 - 渲染核心 v0.3.0
+// 極座標投影 + 魚眼焦距畸變 + 左右融合 + 接縫高低 + 暈影 + 大氣散射。
 
 export const TINY_PLANET_OUTPUT_SIZE = 1080;
 export const TINY_PLANET_WORK_SIZE = 720;
@@ -86,6 +86,7 @@ function applyPolarPlanetEffect(sourceImage, size, state){
   const seamWidth = seamAmt > 0.001 ? 0.02 + seamAmt * 0.20 : 0;
   // Vertical shear so left/right edges can be aligned at the wrap join
   const seamHeightAmt = clamp(Number(state.seamHeight ?? 0), -50, 50) / 100;
+  const fisheyeFocalMm = clamp(Number(state.fisheyeFocalLength ?? 16), 2, 200);
   const vignetteAmt = clamp(Number(state.vignette ?? 0), 0, 100) / 100;
   const atmoAmt = clamp(Number(state.atmosphere ?? 0), 0, 100) / 100;
 
@@ -116,7 +117,9 @@ function applyPolarPlanetEffect(sourceImage, size, state){
       // Radius → vertical sampling (power curve = bend strength)
       // planet: center = image bottom (nadir), rim = image top (sky)
       // tunnel: center = image top (sky), rim = image bottom
-      const rr = Math.min(1, Math.max(0, r));
+      // Apply fisheye focal remapping to unit radius before bend curve.
+      const rrRaw = Math.min(1, Math.max(0, r));
+      const rr = applyFisheyeRadius(rrRaw, fisheyeFocalMm);
       let radial = Math.pow(rr, bend);
       if (mode === "planet") {
         radial = 1 - radial;
@@ -179,6 +182,20 @@ function applyPolarPlanetEffect(sourceImage, size, state){
 
   destCtx.putImageData(destImage, 0, 0);
   return destCanvas;
+}
+
+/**
+ * 魚眼鏡頭焦距映射：焦距愈短，徑向畸變愈強；愈長愈接近線性。
+ * focalMm 對應 UI 的 2–200mm 大範圍。
+ */
+function applyFisheyeRadius(r, focalMm){
+  const rr = clamp(r, 0, 1);
+  // Normalize focal length so short mm → strong curve, long mm → nearly identity
+  const f = Math.max(0.04, focalMm / 50);
+  const maxAngle = Math.atan(1 / f);
+  if (maxAngle < 0.0001) return rr;
+  const angle = Math.atan(rr / f);
+  return clamp(angle / maxAngle, 0, 1);
 }
 
 /** Bilinear sample with horizontal wrap (panorama-friendly) and vertical clamp. */
