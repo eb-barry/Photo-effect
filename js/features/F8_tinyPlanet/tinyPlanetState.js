@@ -1,25 +1,25 @@
-// F8 小行星 - 狀態管理 v0.3.0
-// 第一排：小行星／隧道；第二排：畫面變形／氛圍光影／魚眼畸變；其下為調整項目 + 滑桿。
+// F8 小行星 - 狀態管理 v0.3.1
+// 第一排：小行星／隧道／魚眼畸變；第二排：畫面變形／氛圍光影；其下為調整項目 + 滑桿。
 
 export const TINY_PLANET_FEATURE_ID = "F8_tinyPlanet";
-export const TINY_PLANET_FEATURE_VERSION = "0.3.0";
-export const TINY_PLANET_DRAFT_KEY = "photoEffects.F8_tinyPlanet.draft.v3";
+export const TINY_PLANET_FEATURE_VERSION = "0.3.1";
+export const TINY_PLANET_DRAFT_KEY = "photoEffects.F8_tinyPlanet.draft.v4";
 
 /** 第二排：調整類別（可收合） */
 export const TINY_PLANET_CONTROL_TABS = [
   { id: "warp", label: "畫面變形" },
-  { id: "atmosphere", label: "氛圍光影" },
+  { id: "atmosphere", label: "氛圍光影" }
+];
+
+/** 第一排：獨立子功能 */
+export const PROJECTION_MODES = [
+  { id: "planet", label: "小行星" },
+  { id: "tunnel", label: "隧道" },
   { id: "fisheye", label: "魚眼畸變" }
 ];
 
-/** 第一排：投影子功能 */
-export const PROJECTION_MODES = [
-  { id: "planet", label: "小行星" },
-  { id: "tunnel", label: "隧道" }
-];
-
-/** 畫面變形參數 */
-export const WARP_PARAMETERS = [
+/** 小行星／隧道 的畫面變形參數 */
+export const PLANET_WARP_PARAMETERS = [
   { id: "rotation", label: "旋轉角度", min: 0, max: 360, step: 1, suffix: "°" },
   { id: "bendStrength", label: "彎曲強度", min: 0, max: 100, step: 1, suffix: "%" },
   { id: "equatorOffset", label: "地平線位置", min: -50, max: 50, step: 1, suffix: "%" },
@@ -28,26 +28,35 @@ export const WARP_PARAMETERS = [
   { id: "zoom", label: "行星縮放", min: 60, max: 160, step: 1, suffix: "%" }
 ];
 
-/** 氛圍光影參數 */
+/**
+ * 魚眼畸變模式的畫面變形參數。
+ * 焦距範圍刻意加大（2–200mm）：愈短畸變愈強，愈長愈接近原圖。
+ */
+export const FISHEYE_WARP_PARAMETERS = [
+  { id: "fisheyeFocalLength", label: "魚眼鏡頭焦距", min: 2, max: 200, step: 1, suffix: "mm" },
+  { id: "zoom", label: "畫面縮放", min: 60, max: 200, step: 1, suffix: "%" },
+  { id: "rotation", label: "旋轉角度", min: 0, max: 360, step: 1, suffix: "°" }
+];
+
+/** @deprecated 相容舊名稱 */
+export const WARP_PARAMETERS = PLANET_WARP_PARAMETERS;
+
+/** 氛圍光影參數（各模式共用） */
 export const ATMOSPHERE_PARAMETERS = [
   { id: "vignette", label: "邊緣暈影", min: 0, max: 100, step: 1, suffix: "%" },
   { id: "atmosphere", label: "大氣散射", min: 0, max: 100, step: 1, suffix: "%" }
 ];
 
-/**
- * 魚眼畸變參數：焦距愈短畸變愈強。
- * 範圍刻意加大（2–200mm），涵蓋超廣魚眼到近似無畸變。
- */
-export const FISHEYE_PARAMETERS = [
-  { id: "fisheyeFocalLength", label: "魚眼鏡頭焦距", min: 2, max: 200, step: 1, suffix: "mm" }
-];
+export function getWarpParametersForMode(mode){
+  return mode === "fisheye" ? FISHEYE_WARP_PARAMETERS : PLANET_WARP_PARAMETERS;
+}
 
 export function normalizeProjectionMode(mode){
   return PROJECTION_MODES.some(item => item.id === mode) ? mode : "planet";
 }
 
 export function normalizeActiveControlTab(tab){
-  if (tab === null || tab === "none" || tab === "" || tab === "mode") return null;
+  if (tab === null || tab === "none" || tab === "" || tab === "mode" || tab === "fisheye") return null;
   if (TINY_PLANET_CONTROL_TABS.some(item => item.id === tab)) return tab;
   return "warp";
 }
@@ -68,13 +77,11 @@ export function createDefaultTinyPlanetState(){
     seamBlend: 35,
     seamHeight: 0,
     zoom: 100,
+    fisheyeFocalLength: 16,
 
     selectedAtmosphereParameter: "vignette",
     vignette: 42,
     atmosphere: 28,
-
-    selectedFisheyeParameter: "fisheyeFocalLength",
-    fisheyeFocalLength: 16,
 
     updatedAt: Date.now()
   };
@@ -92,11 +99,10 @@ export function resetTinyPlanetAdjustments(currentState){
     seamBlend: defaults.seamBlend,
     seamHeight: defaults.seamHeight,
     zoom: defaults.zoom,
+    fisheyeFocalLength: defaults.fisheyeFocalLength,
     selectedAtmosphereParameter: defaults.selectedAtmosphereParameter,
     vignette: defaults.vignette,
-    atmosphere: defaults.atmosphere,
-    selectedFisheyeParameter: defaults.selectedFisheyeParameter,
-    fisheyeFocalLength: defaults.fisheyeFocalLength
+    atmosphere: defaults.atmosphere
   });
 }
 
@@ -110,23 +116,23 @@ export function updateTinyPlanetState(currentState, partial){
   next.activeControlTab = normalizeActiveControlTab(next.activeControlTab);
   next.projectionMode = normalizeProjectionMode(next.projectionMode);
 
-  next.selectedWarpParameter = WARP_PARAMETERS.some(item => item.id === next.selectedWarpParameter)
-    ? next.selectedWarpParameter
-    : "rotation";
+  const warpParams = getWarpParametersForMode(next.projectionMode);
+  if (!warpParams.some(item => item.id === next.selectedWarpParameter)) {
+    next.selectedWarpParameter = warpParams[0].id;
+  }
   next.selectedAtmosphereParameter = ATMOSPHERE_PARAMETERS.some(item => item.id === next.selectedAtmosphereParameter)
     ? next.selectedAtmosphereParameter
     : "vignette";
-  next.selectedFisheyeParameter = FISHEYE_PARAMETERS.some(item => item.id === next.selectedFisheyeParameter)
-    ? next.selectedFisheyeParameter
-    : "fisheyeFocalLength";
 
-  for (const parameter of WARP_PARAMETERS) {
+  for (const parameter of [...PLANET_WARP_PARAMETERS, ...FISHEYE_WARP_PARAMETERS]) {
+    if (parameter.id === "zoom" || parameter.id === "rotation") continue;
     next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, createDefaultValue(parameter.id));
   }
+  for (const parameter of warpParams) {
+    next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, createDefaultValue(parameter.id));
+  }
+
   for (const parameter of ATMOSPHERE_PARAMETERS) {
-    next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, createDefaultValue(parameter.id));
-  }
-  for (const parameter of FISHEYE_PARAMETERS) {
     next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, createDefaultValue(parameter.id));
   }
 
@@ -151,6 +157,7 @@ export function saveTinyPlanetDraft(state){
 export function loadTinyPlanetDraft(){
   try {
     const raw = localStorage.getItem(TINY_PLANET_DRAFT_KEY)
+      || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v3")
       || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v2")
       || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v1");
     if (!raw) return null;
@@ -166,6 +173,7 @@ export function loadTinyPlanetDraft(){
 export function clearTinyPlanetDraft(){
   try {
     localStorage.removeItem(TINY_PLANET_DRAFT_KEY);
+    localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v3");
     localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v2");
     localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v1");
   } catch (error) {
