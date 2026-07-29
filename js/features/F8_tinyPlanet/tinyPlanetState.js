@@ -101,11 +101,13 @@ export function updateTinyPlanetState(currentState, partial){
     updatedAt: Date.now()
   };
 
-  // Migrate selected parameter from old warp/atmosphere keys before dropping them.
-  let selectedParameter = next.selectedParameter
-    || next.selectedWarpParameter
-    || next.selectedAtmosphereParameter
-    || "rotation";
+  // Prefer explicit / legacy selection from this update, then current value.
+  let selectedParameter = (partial && Object.prototype.hasOwnProperty.call(partial, "selectedParameter"))
+    ? partial.selectedParameter
+    : (partial?.selectedWarpParameter
+      || partial?.selectedAtmosphereParameter
+      || next.selectedParameter
+      || "rotation");
   if (selectedParameter === "mysticGlow") {
     selectedParameter = "temperatureRing";
   }
