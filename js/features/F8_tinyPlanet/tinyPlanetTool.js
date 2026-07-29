@@ -1,10 +1,8 @@
-// F8 小行星 - 渲染核心 v0.3.1
-// 小行星／隧道極座標投影；魚眼畸變為獨立的一般照片即時焦距變形。
+// F8 小行星 - 渲染核心 v0.3.2
+// 小行星／隧道極座標投影 + 左右融合 + 接縫高低 + 暈影 + 大氣散射。
 
 export const TINY_PLANET_OUTPUT_SIZE = 1080;
 export const TINY_PLANET_WORK_SIZE = 720;
-export const FISHEYE_MAX_EDGE = 1280;
-export const FISHEYE_WORK_MAX_EDGE = 720;
 
 export function fileToDataUrl(file){
   return new Promise((resolve, reject) => {
@@ -28,23 +26,8 @@ export function loadImageFromDataUrl(dataUrl){
   });
 }
 
-/**
- * 依模式決定輸出尺寸：
- * - 小行星／隧道：固定正方形
- * - 魚眼畸變：保留原圖比例
- */
-export function resolveOutputSize(image, projectionMode = "planet"){
-  if (projectionMode === "fisheye" && image?.width && image?.height) {
-    const ratio = image.width / image.height;
-    if (ratio >= 1) {
-      const width = Math.min(image.width, FISHEYE_MAX_EDGE);
-      const height = Math.max(1, Math.round(width / ratio));
-      return { width, height };
-    }
-    const height = Math.min(image.height, FISHEYE_MAX_EDGE);
-    const width = Math.max(1, Math.round(height * ratio));
-    return { width, height };
-  }
+/** 小行星／隧道輸出固定正方形。 */
+export function resolveOutputSize(){
   return { width: TINY_PLANET_OUTPUT_SIZE, height: TINY_PLANET_OUTPUT_SIZE };
 }
 
@@ -59,143 +42,16 @@ export async function renderTinyPlanet(ctx, sourceImage, state){
     return;
   }
 
+  const workSize = Math.min(TINY_PLANET_WORK_SIZE, width, height);
+  const warped = applyPolarPlanetEffect(sourceImage, workSize, state);
+
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-
-  if (state.projectionMode === "fisheye") {
-    ctx.fillStyle = "#101820";
-    ctx.fillRect(0, 0, width, height);
-    const work = resolveFisheyeWorkSize(width, height);
-    const warped = applyFisheyePhotoEffect(sourceImage, work.width, work.height, state);
-    ctx.drawImage(warped, 0, 0, work.width, work.height, 0, 0, width, height);
-  } else {
-    const workSize = Math.min(TINY_PLANET_WORK_SIZE, width, height);
-    const warped = applyPolarPlanetEffect(sourceImage, workSize, state);
-    ctx.fillStyle = "#0b1520";
-    ctx.fillRect(0, 0, width, height);
-    ctx.drawImage(warped, 0, 0, workSize, workSize, 0, 0, width, height);
-  }
-
+  ctx.fillStyle = "#0b1520";
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(warped, 0, 0, workSize, workSize, 0, 0, width, height);
   ctx.restore();
-}
-
-function resolveFisheyeWorkSize(width, height){
-  const maxEdge = Math.max(width, height);
-  if (maxEdge <= FISHEYE_WORK_MAX_EDGE) return { width, height };
-  const scale = FISHEYE_WORK_MAX_EDGE / maxEdge;
-  return {
-    width: Math.max(1, Math.round(width * scale)),
-    height: Math.max(1, Math.round(height * scale))
-  };
-}
-
-/**
- * 魚眼畸變：在一般照片上依焦距做即時桶形／魚眼映射。
- * 焦距愈短畸變愈強；愈長愈接近原圖。
- */
-function applyFisheyePhotoEffect(sourceImage, width, height, state){
-  const srcW = sourceImage.naturalWidth || sourceImage.width;
-  const srcH = sourceImage.naturalHeight || sourceImage.height;
-  const srcCanvas = document.createElement("canvas");
-  srcCanvas.width = srcW;
-  srcCanvas.height = srcH;
-  const srcCtx = srcCanvas.getContext("2d", { willReadFrequently: true });
-  srcCtx.drawImage(sourceImage, 0, 0);
-  const src = srcCtx.getImageData(0, 0, srcW, srcH).data;
-
-  const destCanvas = document.createElement("canvas");
-  destCanvas.width = width;
-  destCanvas.height = height;
-  const destCtx = destCanvas.getContext("2d", { willReadFrequently: true });
-  const destImage = destCtx.createImageData(width, height);
-  const dest = destImage.data;
-
-  const focalMm = clamp(Number(state.fisheyeFocalLength ?? 16), 2, 200);
-  const zoom = clamp(Number(state.zoom ?? 100), 60, 200) / 100;
-  const rotationRad = (Number(state.rotation || 0) * Math.PI) / 180;
-  const vignetteAmt = clamp(Number(state.vignette ?? 0), 0, 100) / 100;
-  const atmoAmt = clamp(Number(state.atmosphere ?? 0), 0, 100) / 100;
-
-  // Relative focal: short mm → strong fisheye; long mm → nearly rectilinear
-  const f = Math.max(0.045, focalMm / 50);
-  const maxAngle = Math.atan(1 / f);
-
-  const cx = width / 2;
-  const cy = height / 2;
-  const normScale = Math.max(cx, cy);
-  const cosR = Math.cos(rotationRad);
-  const sinR = Math.sin(rotationRad);
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const di = (y * width + x) * 4;
-      let ndx = (x - cx) / normScale;
-      let ndy = (y - cy) / normScale;
-
-      // Optional view rotation
-      if (rotationRad !== 0) {
-        const rx = ndx * cosR - ndy * sinR;
-        const ry = ndx * sinR + ndy * cosR;
-        ndx = rx;
-        ndy = ry;
-      }
-
-      const r = Math.sqrt(ndx * ndx + ndy * ndy);
-      let sampleX;
-      let sampleY;
-
-      if (r < 0.00001) {
-        sampleX = srcW / 2;
-        sampleY = srcH / 2;
-      } else {
-        // Inverse fisheye: short focal → strong barrel; long focal → nearly linear.
-        // At unit radius, mapping stays ~1 so frame edges stay anchored.
-        const theta = Math.min(r, 1.45) * maxAngle;
-        const rSrc = (f * Math.tan(Math.min(theta, maxAngle * 0.999))) / zoom;
-        const ux = (ndx / r) * rSrc;
-        const uy = (ndy / r) * rSrc;
-        sampleX = (ux * 0.5 + 0.5) * (srcW - 1);
-        sampleY = (uy * 0.5 + 0.5) * (srcH - 1);
-      }
-
-      if (sampleX < 0 || sampleY < 0 || sampleX > srcW - 1 || sampleY > srcH - 1) {
-        dest[di + 3] = 0;
-        continue;
-      }
-
-      const sample = sampleBilinearClamp(src, srcW, srcH, sampleX, sampleY);
-      let red = sample[0];
-      let green = sample[1];
-      let blue = sample[2];
-      let alpha = sample[3];
-
-      const rr = Math.min(1, r);
-
-      if (atmoAmt > 0.01) {
-        const rim = smoothstep(0.4, 1.15, r);
-        const haze = rim * atmoAmt;
-        red = lerp(red, 168, haze * 0.5);
-        green = lerp(green, 198, haze * 0.58);
-        blue = lerp(blue, 235, haze * 0.72);
-      }
-
-      if (vignetteAmt > 0.01) {
-        const shade = 1 - Math.pow(Math.min(1, r), 1.25) * vignetteAmt * 0.88;
-        red *= shade;
-        green *= shade;
-        blue *= shade;
-      }
-
-      dest[di] = red;
-      dest[di + 1] = green;
-      dest[di + 2] = blue;
-      dest[di + 3] = alpha;
-    }
-  }
-
-  destCtx.putImageData(destImage, 0, 0);
-  return destCanvas;
 }
 
 /**
@@ -309,31 +165,6 @@ function applyPolarPlanetEffect(sourceImage, size, state){
 
   destCtx.putImageData(destImage, 0, 0);
   return destCanvas;
-}
-
-/** Bilinear sample with clamp (no wrap) — for normal photo fisheye. */
-function sampleBilinearClamp(data, width, height, x, y){
-  const cx = clamp(x, 0, width - 1.0001);
-  const cy = clamp(y, 0, height - 1.0001);
-  const x0 = Math.floor(cx);
-  const y0 = Math.floor(cy);
-  const x1 = Math.min(width - 1, x0 + 1);
-  const y1 = Math.min(height - 1, y0 + 1);
-  const fx = cx - x0;
-  const fy = cy - y0;
-
-  const i00 = (y0 * width + x0) * 4;
-  const i10 = (y0 * width + x1) * 4;
-  const i01 = (y1 * width + x0) * 4;
-  const i11 = (y1 * width + x1) * 4;
-
-  const out = [0, 0, 0, 0];
-  for (let c = 0; c < 4; c++) {
-    const top = data[i00 + c] + (data[i10 + c] - data[i00 + c]) * fx;
-    const bottom = data[i01 + c] + (data[i11 + c] - data[i01 + c]) * fx;
-    out[c] = top + (bottom - top) * fy;
-  }
-  return out;
 }
 
 /** Bilinear sample with horizontal wrap (panorama-friendly) and vertical clamp. */
