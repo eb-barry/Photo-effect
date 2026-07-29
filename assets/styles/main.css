@@ -2221,23 +2221,111 @@ body.magic-sky-scroll-locked {
   font-weight: 700;
 }
 
-/* F8 小行星 v0.3.2 */
-.tiny-planet-page .tiny-planet-mode-row {
-  margin: 0 0 10px;
+/* F8 小行星 v0.5.0 */
+.tiny-planet-page {
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
 }
 
-.tiny-planet-page #tinyPlanetModeBar {
-  margin-bottom: 4px;
+.tiny-planet-page .tiny-planet-tab-bar {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 4px 0 0;
+}
+
+.tiny-planet-page .tiny-planet-panel {
+  padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+  touch-action: pan-y;
 }
 
 .tiny-planet-page .tiny-planet-adjust-panel {
   display: grid;
   gap: 12px;
   margin-top: 10px;
+  padding-bottom: 8px;
 }
 
 .tiny-planet-page .tiny-planet-adjust-panel.hidden {
   display: none !important;
+}
+
+.tiny-planet-page .tiny-planet-slider-row {
+  padding: 14px 16px 28px;
+  margin: 0 0 12px;
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  position: relative;
+  z-index: 2;
+}
+
+.tiny-planet-page .tiny-planet-slider-track {
+  display: flex;
+  align-items: center;
+  min-height: 64px;
+  padding: 10px 8px 16px;
+  margin: 0 -4px;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+.tiny-planet-page .tiny-planet-slider-track input[type="range"],
+.tiny-planet-page #adjustSlider {
+  width: 100%;
+  height: 56px;
+  margin: 0;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.tiny-planet-page #adjustSlider::-webkit-slider-runnable-track {
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(7, 63, 61, 0.14);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.tiny-planet-page #adjustSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 52px;
+  height: 52px;
+  margin-top: -18px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.16) 18%, transparent 38%),
+    radial-gradient(circle at 50% 62%, var(--base-dark) 0%, var(--base) 55%, color-mix(in srgb, var(--base) 70%, var(--base-dark)) 100%);
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.24),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.18),
+    inset 0 3px 5px rgba(255, 255, 255, 0.35);
+}
+
+.tiny-planet-page #adjustSlider::-moz-range-track {
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(7, 63, 61, 0.14);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.tiny-planet-page #adjustSlider::-moz-range-thumb {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.16) 18%, transparent 38%),
+    radial-gradient(circle at 50% 62%, var(--base-dark) 0%, var(--base) 55%, color-mix(in srgb, var(--base) 70%, var(--base-dark)) 100%);
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.24),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.18),
+    inset 0 3px 5px rgba(255, 255, 255, 0.35);
 }
 
 .tiny-planet-page .tiny-planet-canvas-wrap {
@@ -2256,10 +2344,6 @@ body.magic-sky-scroll-locked {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
-}
-
-.tiny-planet-page input[type="range"] {
-  touch-action: manipulation;
 }
 
 .tiny-planet-page select,
