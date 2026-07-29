@@ -1,4 +1,4 @@
-// F8 小行星 - Feature entry metadata v0.3.0
+// F8 小行星 - Feature entry metadata v0.3.1
 
 import { initTinyPlanetPage } from "./tinyPlanetPage.js";
 
@@ -8,8 +8,8 @@ export const tinyPlanetFeature = {
   code: "F8",
   title: "小行星",
   name: "小行星",
-  subtitle: "全景彎折・行星旋轉",
-  description: "將全景或風景照片彎折成小行星／隧道效果，並調整變形、魚眼焦距、接縫對齊與氛圍光影。",
+  subtitle: "全景彎折・魚眼畸變",
+  description: "小行星／隧道極座標效果，以及獨立的魚眼焦距即時畸變。",
   icon: "assets/icons/features/F8-小行星.webp",
   route: "#/feature/F8_tinyPlanet",
   modulePath: "./features/F8_tinyPlanet/tinyPlanetPage.js",
@@ -17,7 +17,7 @@ export const tinyPlanetFeature = {
   enabled: true,
   disabled: false,
   isAvailable: true,
-  version: "0.3.0",
+  version: "0.3.1",
   mount: initTinyPlanetPage
 };
 

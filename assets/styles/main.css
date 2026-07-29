@@ -2221,9 +2221,14 @@ body.magic-sky-scroll-locked {
   font-weight: 700;
 }
 
-/* F8 小行星 v0.3.0 */
+/* F8 小行星 v0.3.1 */
 .tiny-planet-page .tiny-planet-mode-row {
   margin: 0 0 10px;
+}
+
+.tiny-planet-page .tiny-planet-mode-row button {
+  font-size: 0.88rem;
+  padding: 12px 8px;
 }
 
 .tiny-planet-page #tinyPlanetModeBar {
@@ -2241,7 +2246,7 @@ body.magic-sky-scroll-locked {
 }
 
 .tiny-planet-page .tiny-planet-canvas-wrap {
-  aspect-ratio: 1 / 1;
+  /* aspect-ratio is set inline from resolveOutputSize */
 }
 
 .tiny-planet-page .tiny-planet-canvas {
