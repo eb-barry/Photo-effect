@@ -1,4 +1,4 @@
-// F8 小行星 - UI v0.3.2
+// F8 小行星 - UI v0.4.0
 // 第一排：小行星／隧道；第二排：畫面變形／氛圍光影；第三排調整項目；第四排滑桿。
 
 import {
@@ -134,7 +134,11 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
     const config = getCurrentConfig();
     Object.assign(state, updateTinyPlanetState(state, { [config.id]: Number(slider.value) }));
     if (sliderValue) sliderValue.textContent = formatParameterValue(state[config.id], config);
-    const fast = config.id === "rotation" || config.id === "seamHeight" || config.id === "zoom";
+    const fast = config.id === "rotation"
+      || config.id === "seamHeight"
+      || config.id === "zoom"
+      || config.id === "swirlTwist"
+      || config.id === "temperatureRing";
     scheduleRender(fast ? 16 : 48);
   });
   slider?.addEventListener("change", () => persistDraft());

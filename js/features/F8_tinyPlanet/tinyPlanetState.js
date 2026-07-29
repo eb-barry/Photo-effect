@@ -1,9 +1,9 @@
-// F8 小行星 - 狀態管理 v0.3.2
+// F8 小行星 - 狀態管理 v0.4.0
 // 第一排：小行星／隧道；第二排：畫面變形／氛圍光影；其下為調整項目 + 滑桿。
 
 export const TINY_PLANET_FEATURE_ID = "F8_tinyPlanet";
-export const TINY_PLANET_FEATURE_VERSION = "0.3.2";
-export const TINY_PLANET_DRAFT_KEY = "photoEffects.F8_tinyPlanet.draft.v5";
+export const TINY_PLANET_FEATURE_VERSION = "0.4.0";
+export const TINY_PLANET_DRAFT_KEY = "photoEffects.F8_tinyPlanet.draft.v6";
 
 /** 第二排：調整類別（可收合） */
 export const TINY_PLANET_CONTROL_TABS = [
@@ -24,13 +24,19 @@ export const WARP_PARAMETERS = [
   { id: "equatorOffset", label: "地平線位置", min: -50, max: 50, step: 1, suffix: "%" },
   { id: "seamBlend", label: "左右融合", min: 0, max: 100, step: 1, suffix: "%" },
   { id: "seamHeight", label: "接縫高低", min: -50, max: 50, step: 1, suffix: "%" },
-  { id: "zoom", label: "行星縮放", min: 60, max: 160, step: 1, suffix: "%" }
+  { id: "zoom", label: "行星縮放", min: 60, max: 160, step: 1, suffix: "%" },
+  { id: "perspectiveSquash", label: "透視壓扁", min: 0, max: 100, step: 1, suffix: "%" },
+  { id: "perspectiveLift", label: "拉高", min: 0, max: 100, step: 1, suffix: "%" },
+  { id: "centerRimStretch", label: "中心偏移外圈拉伸", min: 0, max: 100, step: 1, suffix: "%" },
+  { id: "swirlTwist", label: "漩渦扭曲", min: -100, max: 100, step: 1, suffix: "%" }
 ];
 
 /** 氛圍光影參數 */
 export const ATMOSPHERE_PARAMETERS = [
   { id: "vignette", label: "邊緣暈影", min: 0, max: 100, step: 1, suffix: "%" },
-  { id: "atmosphere", label: "大氣散射", min: 0, max: 100, step: 1, suffix: "%" }
+  { id: "atmosphere", label: "大氣散射", min: 0, max: 100, step: 1, suffix: "%" },
+  { id: "temperatureRing", label: "日月色溫環", min: -100, max: 100, step: 1, suffix: "%" },
+  { id: "mysticGlow", label: "光暈神秘光", min: 0, max: 100, step: 1, suffix: "%" }
 ];
 
 export function normalizeProjectionMode(mode){
@@ -61,10 +67,16 @@ export function createDefaultTinyPlanetState(){
     seamBlend: 35,
     seamHeight: 0,
     zoom: 100,
+    perspectiveSquash: 0,
+    perspectiveLift: 0,
+    centerRimStretch: 0,
+    swirlTwist: 0,
 
     selectedAtmosphereParameter: "vignette",
     vignette: 42,
     atmosphere: 28,
+    temperatureRing: 0,
+    mysticGlow: 0,
 
     updatedAt: Date.now()
   };
@@ -82,9 +94,15 @@ export function resetTinyPlanetAdjustments(currentState){
     seamBlend: defaults.seamBlend,
     seamHeight: defaults.seamHeight,
     zoom: defaults.zoom,
+    perspectiveSquash: defaults.perspectiveSquash,
+    perspectiveLift: defaults.perspectiveLift,
+    centerRimStretch: defaults.centerRimStretch,
+    swirlTwist: defaults.swirlTwist,
     selectedAtmosphereParameter: defaults.selectedAtmosphereParameter,
     vignette: defaults.vignette,
-    atmosphere: defaults.atmosphere
+    atmosphere: defaults.atmosphere,
+    temperatureRing: defaults.temperatureRing,
+    mysticGlow: defaults.mysticGlow
   });
 }
 
@@ -139,6 +157,7 @@ export function saveTinyPlanetDraft(state){
 export function loadTinyPlanetDraft(){
   try {
     const raw = localStorage.getItem(TINY_PLANET_DRAFT_KEY)
+      || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v5")
       || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v4")
       || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v3")
       || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v2")
@@ -156,6 +175,7 @@ export function loadTinyPlanetDraft(){
 export function clearTinyPlanetDraft(){
   try {
     localStorage.removeItem(TINY_PLANET_DRAFT_KEY);
+    localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v5");
     localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v4");
     localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v3");
     localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v2");

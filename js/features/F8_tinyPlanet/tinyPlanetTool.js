@@ -1,5 +1,5 @@
-// F8 小行星 - 渲染核心 v0.3.2
-// 小行星／隧道極座標投影 + 左右融合 + 接縫高低 + 暈影 + 大氣散射。
+// F8 小行星 - 渲染核心 v0.4.0
+// 小行星／隧道極座標投影 + 畫面變形微調 + 氛圍光影。
 
 export const TINY_PLANET_OUTPUT_SIZE = 1080;
 export const TINY_PLANET_WORK_SIZE = 720;
@@ -84,8 +84,20 @@ function applyPolarPlanetEffect(sourceImage, size, state){
   const seamAmt = clamp(Number(state.seamBlend ?? 0), 0, 100) / 100;
   const seamWidth = seamAmt > 0.001 ? 0.02 + seamAmt * 0.20 : 0;
   const seamHeightAmt = clamp(Number(state.seamHeight ?? 0), -50, 50) / 100;
+  const squashAmt = clamp(Number(state.perspectiveSquash ?? 0), 0, 100) / 100;
+  const liftAmt = clamp(Number(state.perspectiveLift ?? 0), 0, 100) / 100;
+  const rimStretchAmt = clamp(Number(state.centerRimStretch ?? 0), 0, 100) / 100;
+  const swirlAmt = clamp(Number(state.swirlTwist ?? 0), -100, 100) / 100;
   const vignetteAmt = clamp(Number(state.vignette ?? 0), 0, 100) / 100;
   const atmoAmt = clamp(Number(state.atmosphere ?? 0), 0, 100) / 100;
+  const tempRingAmt = clamp(Number(state.temperatureRing ?? 0), -100, 100) / 100;
+  const mysticGlowAmt = clamp(Number(state.mysticGlow ?? 0), 0, 100) / 100;
+
+  // 垂直縮放：壓扁縮小球體高度；拉高則拉長。
+  const verticalScale = Math.max(0.35, 1 - squashAmt * 0.55 + liftAmt * 0.7);
+  const centerOffsetNorm = rimStretchAmt * 0.22;
+  const rimStretchPower = 1 + rimStretchAmt * 1.15;
+  const swirlRadians = swirlAmt * Math.PI * 1.6;
 
   const cx = size / 2;
   const cy = size / 2;
@@ -96,17 +108,31 @@ function applyPolarPlanetEffect(sourceImage, size, state){
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const di = (y * size + x) * 4;
-      const dx = x - cx;
-      const dy = y - cy;
-      const distPx = Math.sqrt(dx * dx + dy * dy);
-      const r = distPx / Math.max(1, radius);
+      let dx = (x - cx) / Math.max(1, radius);
+      let dy = (y - cy) / Math.max(1, radius);
+
+      // 中心偏移：把極點稍稍移開，外圈再做徑向拉伸。
+      if (centerOffsetNorm > 0.001) {
+        dx -= centerOffsetNorm;
+        dy -= centerOffsetNorm * 0.35;
+      }
+      dy /= verticalScale;
+
+      let r = Math.sqrt(dx * dx + dy * dy);
+      if (rimStretchAmt > 0.001 && r > 0.0001) {
+        const stretchT = Math.min(1.35, r);
+        r = Math.pow(stretchT, 1 / rimStretchPower) * (r / stretchT);
+      }
 
       if (r > 1 + edgeSoft) {
         dest[di + 3] = 0;
         continue;
       }
 
-      const angle = Math.atan2(dy, dx) + rotationRad;
+      let angle = Math.atan2(dy, dx) + rotationRad;
+      if (Math.abs(swirlRadians) > 0.001) {
+        angle += swirlRadians * Math.min(1.25, r * r);
+      }
       const u = ((angle / twoPi) % 1 + 1) % 1;
 
       const rr = Math.min(1, Math.max(0, r));
@@ -140,6 +166,33 @@ function applyPolarPlanetEffect(sourceImage, size, state){
         red = Math.min(255, red + lift * 0.4);
         green = Math.min(255, green + lift * 0.55);
         blue = Math.min(255, blue + lift * 0.75);
+      }
+
+      // 日月色溫環：正值暖日心／冷月緣；負值相反。
+      if (Math.abs(tempRingAmt) > 0.01) {
+        const ring = Math.sin(rr * Math.PI);
+        const warmCore = Math.max(0, tempRingAmt) * (1 - rr);
+        const coolCore = Math.max(0, -tempRingAmt) * (1 - rr);
+        const sun = warmCore * (0.55 + ring * 0.45);
+        const moon = coolCore * (0.55 + ring * 0.45);
+        const rimWarm = Math.max(0, tempRingAmt) * rr * 0.35;
+        const rimCool = Math.max(0, -tempRingAmt) * rr * 0.35;
+        red = lerp(red, 255, sun * 0.55 + rimWarm * 0.35);
+        green = lerp(green, 205, sun * 0.4 + moon * 0.2);
+        blue = lerp(blue, 120, sun * 0.45);
+        red = lerp(red, 145, moon * 0.35);
+        green = lerp(green, 185, moon * 0.4);
+        blue = lerp(blue, 255, moon * 0.65 + rimCool * 0.4);
+      }
+
+      // 光暈神秘光：中心柔光 + 外圈淡暈。
+      if (mysticGlowAmt > 0.01) {
+        const core = Math.pow(1 - rr, 2.4) * mysticGlowAmt;
+        const halo = Math.pow(Math.max(0, rr - 0.45) / 0.55, 1.6) * mysticGlowAmt * 0.45;
+        const bloom = Math.min(1, core + halo);
+        red = lerp(red, 255, bloom * 0.42);
+        green = lerp(green, 235, bloom * 0.38);
+        blue = lerp(blue, 255, bloom * 0.48);
       }
 
       if (vignetteAmt > 0.01) {
