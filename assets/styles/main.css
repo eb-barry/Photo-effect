@@ -2221,71 +2221,59 @@ body.magic-sky-scroll-locked {
   font-weight: 700;
 }
 
-/* F8 小行星 v0.5.0 */
+/* F8 小行星 v0.5.2 */
 .tiny-planet-page {
   overflow-x: hidden;
   overscroll-behavior-x: none;
 }
 
-.tiny-planet-page .tiny-planet-tab-bar {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 4px 0 0;
+.tiny-planet-page .tiny-planet-mode-row {
+  margin: 0 0 10px;
+}
+
+.tiny-planet-page #tinyPlanetModeBar {
+  margin-bottom: 4px;
 }
 
 .tiny-planet-page .tiny-planet-panel {
-  padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
-  overflow-x: hidden;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  overflow-x: clip;
   overscroll-behavior-x: none;
-  touch-action: pan-y;
 }
 
 .tiny-planet-page .tiny-planet-adjust-panel {
   display: grid;
   gap: 12px;
   margin-top: 10px;
-  padding-bottom: 8px;
+  padding-bottom: 4px;
 }
 
 .tiny-planet-page .tiny-planet-adjust-panel.hidden {
   display: none !important;
 }
 
+/* 加大滑桿觸控區與圓鈕；勿用 touch-action:none / preventDefault，否則無法拖曳 */
 .tiny-planet-page .tiny-planet-slider-row {
-  padding: 14px 16px 28px;
-  margin: 0 0 12px;
-  touch-action: none;
-  overscroll-behavior: none;
-  -webkit-user-select: none;
-  user-select: none;
-  position: relative;
-  z-index: 2;
+  padding: 14px 14px 26px;
+  margin: 0 0 8px;
+  overscroll-behavior-x: contain;
 }
 
-.tiny-planet-page .tiny-planet-slider-track {
-  display: flex;
-  align-items: center;
-  min-height: 64px;
-  padding: 10px 8px 16px;
-  margin: 0 -4px;
-  touch-action: none;
-  overscroll-behavior: none;
-}
-
-.tiny-planet-page .tiny-planet-slider-track input[type="range"],
 .tiny-planet-page #adjustSlider {
   width: 100%;
-  height: 56px;
+  height: 48px;
   margin: 0;
   padding: 0;
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
   cursor: pointer;
-  touch-action: none;
+  touch-action: pan-x;
+  accent-color: var(--base);
 }
 
 .tiny-planet-page #adjustSlider::-webkit-slider-runnable-track {
-  height: 16px;
+  height: 14px;
   border-radius: 999px;
   background: rgba(7, 63, 61, 0.14);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
@@ -2293,9 +2281,9 @@ body.magic-sky-scroll-locked {
 
 .tiny-planet-page #adjustSlider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 52px;
-  height: 52px;
-  margin-top: -18px;
+  width: 44px;
+  height: 44px;
+  margin-top: -15px;
   border-radius: 50%;
   border: 3px solid #fff;
   background:
@@ -2308,17 +2296,17 @@ body.magic-sky-scroll-locked {
 }
 
 .tiny-planet-page #adjustSlider::-moz-range-track {
-  height: 16px;
+  height: 14px;
   border-radius: 999px;
   background: rgba(7, 63, 61, 0.14);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .tiny-planet-page #adjustSlider::-moz-range-thumb {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
+  width: 44px;
+  height: 44px;
   border: 3px solid #fff;
+  border-radius: 50%;
   background:
     radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.16) 18%, transparent 38%),
     radial-gradient(circle at 50% 62%, var(--base-dark) 0%, var(--base) 55%, color-mix(in srgb, var(--base) 70%, var(--base-dark)) 100%);

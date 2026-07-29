@@ -1,23 +1,19 @@
-// F8 小行星 - UI v0.5.1
-// 第一排：小行星／隧道（投影模式）＋ 調整項目（獨立展開參數面板）。
+// F8 小行星 - UI v0.5.2
+// 第一排：小行星／隧道；第二排：調整項目下拉 + 滑桿。
 
 import {
   ADJUST_PARAMETERS,
-  TINY_PLANET_CONTROL_TABS,
+  PROJECTION_MODES,
   resetTinyPlanetAdjustments,
   updateTinyPlanetState
 } from "./tinyPlanetState.js";
 
 export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
-  const tabButtons = root.querySelectorAll("[data-control-tab]");
-  const adjustPanel = root.querySelector("#tinyPlanetAdjustPanel");
-
+  const modeButtons = root.querySelectorAll("[data-projection-mode]");
   const paramSelect = root.querySelector("#adjustParamSelect");
   const slider = root.querySelector("#adjustSlider");
-  const sliderRow = root.querySelector("#adjustSliderRow");
   const sliderLabel = root.querySelector("#adjustSliderLabel");
   const sliderValue = root.querySelector("#adjustSliderValue");
-
   const resetSettingsButton = root.querySelector("#resetTinyPlanetSettingsBtn");
 
   let renderTimer = null;
@@ -26,34 +22,20 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
     renderTimer = setTimeout(() => render(), delay);
   };
 
-  function isAdjustOpen(){
-    return state.activeControlTab === "adjust";
-  }
-
   function getCurrentConfig(){
     return ADJUST_PARAMETERS.find(item => item.id === state.selectedParameter) || ADJUST_PARAMETERS[0];
   }
 
-  function refreshTabBar(){
-    tabButtons.forEach(button => {
-      const tabId = button.dataset.controlTab;
-      let active = false;
-      if (tabId === "planet" || tabId === "tunnel") {
-        active = state.projectionMode === tabId;
-      } else if (tabId === "adjust") {
-        active = isAdjustOpen();
-      }
+  function refreshModeButtons(){
+    modeButtons.forEach(button => {
+      const active = state.projectionMode === button.dataset.projectionMode;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
   }
 
-  function refreshAdjustPanel(){
-    adjustPanel?.classList.toggle("hidden", !isAdjustOpen());
-  }
-
   function refreshParamSelect(){
-    if (!paramSelect || !isAdjustOpen()) return;
+    if (!paramSelect) return;
     paramSelect.innerHTML = ADJUST_PARAMETERS
       .map(item => `<option value="${item.id}" ${item.id === state.selectedParameter ? "selected" : ""}>${item.label}</option>`)
       .join("");
@@ -61,7 +43,7 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
   }
 
   function refreshSlider(){
-    if (!slider || !isAdjustOpen()) return;
+    if (!slider) return;
     const config = getCurrentConfig();
     const value = Number(state[config.id]);
     slider.min = config.min;
@@ -73,36 +55,19 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
   }
 
   function refreshAllControls(){
-    refreshTabBar();
-    refreshAdjustPanel();
+    refreshModeButtons();
     refreshParamSelect();
     refreshSlider();
   }
 
-  function onControlTabClick(tabId){
-    if (tabId === "planet" || tabId === "tunnel") {
-      // Mode switch keeps the adjust panel open if it already is.
-      Object.assign(state, updateTinyPlanetState(state, {
-        projectionMode: tabId,
-        activeControlTab: isAdjustOpen() ? "adjust" : tabId
-      }));
-      refreshAllControls();
-      render();
-      persistDraft();
-      return;
-    }
-
-    if (tabId === "adjust") {
-      const nextTab = isAdjustOpen() ? state.projectionMode : "adjust";
-      Object.assign(state, updateTinyPlanetState(state, { activeControlTab: nextTab }));
-      refreshAllControls();
-      persistDraft();
-    }
-  }
-
-  tabButtons.forEach(button => button.addEventListener("click", event => {
+  modeButtons.forEach(button => button.addEventListener("click", event => {
     event.preventDefault();
-    onControlTabClick(button.dataset.controlTab);
+    Object.assign(state, updateTinyPlanetState(state, {
+      projectionMode: button.dataset.projectionMode
+    }));
+    refreshModeButtons();
+    render();
+    persistDraft();
   }));
 
   paramSelect?.addEventListener("change", () => {
@@ -112,23 +77,6 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
     refreshSlider();
     persistDraft();
   });
-
-  // Capture slider gestures so the page does not pan sideways.
-  const bindSliderGestureGuard = target => {
-    if (!target) return;
-    target.addEventListener("pointerdown", event => {
-      event.stopPropagation();
-    });
-    target.addEventListener("touchstart", event => {
-      event.stopPropagation();
-    }, { passive: true });
-    target.addEventListener("touchmove", event => {
-      event.stopPropagation();
-      if (event.cancelable) event.preventDefault();
-    }, { passive: false });
-  };
-  bindSliderGestureGuard(sliderRow);
-  bindSliderGestureGuard(slider);
 
   slider?.addEventListener("input", () => {
     const config = getCurrentConfig();
@@ -151,42 +99,36 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
     persistDraft();
   });
 
-  if (!state.activeControlTab) {
-    Object.assign(state, updateTinyPlanetState(state, {
-      activeControlTab: "adjust",
-      projectionMode: state.projectionMode || "planet"
-    }));
-  }
-
   refreshAllControls();
   return { refreshAllControls };
 }
 
-export function renderControlTabs(){
-  return TINY_PLANET_CONTROL_TABS.map(tab => `
-    <button
-      type="button"
-      class="crystal-tab-button"
-      data-control-tab="${tab.id}"
-      aria-pressed="false"
-    >${tab.label}</button>
-  `).join("");
+export function renderModeRow(){
+  return `
+    <div class="segment segment-cols-2 tiny-planet-mode-row" role="group" aria-label="小行星模式">
+      ${PROJECTION_MODES.map(mode => `
+        <button
+          type="button"
+          data-projection-mode="${mode.id}"
+          aria-pressed="false"
+        >${mode.label}</button>
+      `).join("")}
+    </div>
+  `;
 }
 
 export function renderAdjustPanel(){
   return `
     <div class="selection-row crystal-adjust-row">
-      <label for="adjustParamSelect" class="selection-label">參數</label>
-      <select id="adjustParamSelect" class="select-control" aria-label="調整參數"></select>
+      <label for="adjustParamSelect" class="selection-label">調整項目</label>
+      <select id="adjustParamSelect" class="select-control" aria-label="調整項目"></select>
     </div>
     <div class="slider-row tiny-planet-slider-row" id="adjustSliderRow">
       <div class="slider-head">
         <span id="adjustSliderLabel">旋轉角度</span>
         <span id="adjustSliderValue">0°</span>
       </div>
-      <div class="tiny-planet-slider-track">
-        <input id="adjustSlider" type="range" aria-label="參數滑桿" />
-      </div>
+      <input id="adjustSlider" type="range" aria-label="參數滑桿" />
     </div>
   `;
 }

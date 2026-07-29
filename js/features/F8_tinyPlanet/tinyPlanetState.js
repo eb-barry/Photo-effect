@@ -1,15 +1,14 @@
-// F8 小行星 - 狀態管理 v0.5.1
-// 第一排：小行星／隧道／調整項目；調整項目內為合併後的參數清單。
+// F8 小行星 - 狀態管理 v0.5.2
+// 第一排：小行星／隧道；第二排：調整項目下拉 + 滑桿。
 
 export const TINY_PLANET_FEATURE_ID = "F8_tinyPlanet";
-export const TINY_PLANET_FEATURE_VERSION = "0.5.1";
-export const TINY_PLANET_DRAFT_KEY = "photoEffects.F8_tinyPlanet.draft.v7";
+export const TINY_PLANET_FEATURE_VERSION = "0.5.2";
+export const TINY_PLANET_DRAFT_KEY = "photoEffects.F8_tinyPlanet.draft.v8";
 
-/** 第一排子功能 */
-export const TINY_PLANET_CONTROL_TABS = [
+/** 第一排：投影模式 */
+export const PROJECTION_MODES = [
   { id: "planet", label: "小行星" },
-  { id: "tunnel", label: "隧道" },
-  { id: "adjust", label: "調整項目" }
+  { id: "tunnel", label: "隧道" }
 ];
 
 /** 調整項目（畫面變形 + 氛圍光影，已移除光暈神秘光） */
@@ -35,20 +34,10 @@ export function normalizeProjectionMode(mode){
   return "planet";
 }
 
-export function normalizeActiveControlTab(tab){
-  if (tab === null || tab === "none" || tab === "") return null;
-  // 舊草稿：畫面變形／氛圍光影 → 調整項目
-  if (tab === "warp" || tab === "atmosphere" || tab === "mode" || tab === "fisheye") return "adjust";
-  // planet/tunnel tabs also valid as "last focused" when adjust is closed
-  if (TINY_PLANET_CONTROL_TABS.some(item => item.id === tab)) return tab;
-  return "adjust";
-}
-
 export function createDefaultTinyPlanetState(){
   return {
     featureId: TINY_PLANET_FEATURE_ID,
     featureVersion: TINY_PLANET_FEATURE_VERSION,
-    activeControlTab: "adjust",
     sourceImageDataUrl: null,
 
     projectionMode: "planet",
@@ -75,7 +64,6 @@ export function createDefaultTinyPlanetState(){
 export function resetTinyPlanetAdjustments(currentState){
   const defaults = createDefaultTinyPlanetState();
   return updateTinyPlanetState(currentState, {
-    activeControlTab: defaults.activeControlTab,
     projectionMode: defaults.projectionMode,
     selectedParameter: defaults.selectedParameter,
     rotation: defaults.rotation,
@@ -118,18 +106,9 @@ export function updateTinyPlanetState(currentState, partial){
   delete next.selectedWarpParameter;
   delete next.selectedAtmosphereParameter;
   delete next.mysticGlow;
+  delete next.activeControlTab;
 
-  next.activeControlTab = normalizeActiveControlTab(next.activeControlTab);
-
-  // Projection mode is independent from whether the adjust panel is open.
-  if (partial && Object.prototype.hasOwnProperty.call(partial, "projectionMode")) {
-    next.projectionMode = normalizeProjectionMode(partial.projectionMode);
-  } else if (next.activeControlTab === "planet" || next.activeControlTab === "tunnel") {
-    // Legacy: if tab itself is a mode and projectionMode missing/stale, sync from tab.
-    next.projectionMode = next.activeControlTab;
-  } else {
-    next.projectionMode = normalizeProjectionMode(next.projectionMode);
-  }
+  next.projectionMode = normalizeProjectionMode(next.projectionMode);
 
   next.selectedParameter = ADJUST_PARAMETERS.some(item => item.id === selectedParameter)
     ? selectedParameter
@@ -156,6 +135,7 @@ export function saveTinyPlanetDraft(state){
     delete saved.selectedWarpParameter;
     delete saved.selectedAtmosphereParameter;
     delete saved.mysticGlow;
+    delete saved.activeControlTab;
     localStorage.setItem(TINY_PLANET_DRAFT_KEY, JSON.stringify(saved));
   } catch (error) {
     console.warn("[F8 小行星] 無法儲存草稿：", error);
@@ -165,6 +145,7 @@ export function saveTinyPlanetDraft(state){
 export function loadTinyPlanetDraft(){
   try {
     const raw = localStorage.getItem(TINY_PLANET_DRAFT_KEY)
+      || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v7")
       || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v6")
       || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v5")
       || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v4")
@@ -184,6 +165,7 @@ export function loadTinyPlanetDraft(){
 export function clearTinyPlanetDraft(){
   try {
     localStorage.removeItem(TINY_PLANET_DRAFT_KEY);
+    localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v7");
     localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v6");
     localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v5");
     localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v4");

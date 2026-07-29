@@ -1,4 +1,4 @@
-// F8 小行星 - Feature entry metadata v0.5.1
+// F8 小行星 - Feature entry metadata v0.5.2
 
 import { initTinyPlanetPage } from "./tinyPlanetPage.js";
 
@@ -17,7 +17,7 @@ export const tinyPlanetFeature = {
   enabled: true,
   disabled: false,
   isAvailable: true,
-  version: "0.5.1",
+  version: "0.5.2",
   mount: initTinyPlanetPage
 };
 

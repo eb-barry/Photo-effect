@@ -23,7 +23,8 @@ const KNOWN_DRAFT_KEYS = [
   "photoEffects.F8_tinyPlanet.draft.v4",
   "photoEffects.F8_tinyPlanet.draft.v5",
   "photoEffects.F8_tinyPlanet.draft.v6",
-  "photoEffects.F8_tinyPlanet.draft.v7"
+  "photoEffects.F8_tinyPlanet.draft.v7",
+  "photoEffects.F8_tinyPlanet.draft.v8"
 ];
 
 /**
