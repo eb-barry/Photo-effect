@@ -2221,7 +2221,7 @@ body.magic-sky-scroll-locked {
   font-weight: 700;
 }
 
-/* F8 小行星 v0.2.0 */
+/* F8 小行星 v0.2.1 */
 .tiny-planet-page .tiny-planet-mode-row {
   margin: 0 0 10px;
 }
@@ -2246,4 +2246,24 @@ body.magic-sky-scroll-locked {
 
 .tiny-planet-page .tiny-planet-canvas {
   background: #0b1520;
+}
+
+/* 避免長按操作面板文字跳出系統選取／拷貝選單 */
+.tiny-planet-page .panel,
+.tiny-planet-page .panel *,
+.tiny-planet-page .crystal-topbar,
+.tiny-planet-page .crystal-topbar * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.tiny-planet-page input[type="range"] {
+  touch-action: manipulation;
+}
+
+.tiny-planet-page select,
+.tiny-planet-page input {
+  -webkit-user-select: auto;
+  user-select: auto;
 }
