@@ -1,18 +1,16 @@
-// F8 小行星 - UI v0.3.1
-// 第一排：小行星／隧道／魚眼畸變；第二排：畫面變形／氛圍光影；第三排調整項目；第四排滑桿。
+// F8 小行星 - UI v0.3.2
+// 第一排：小行星／隧道；第二排：畫面變形／氛圍光影；第三排調整項目；第四排滑桿。
 
 import {
   ATMOSPHERE_PARAMETERS,
   PROJECTION_MODES,
   TINY_PLANET_CONTROL_TABS,
-  getWarpParametersForMode,
+  WARP_PARAMETERS,
   resetTinyPlanetAdjustments,
   updateTinyPlanetState
 } from "./tinyPlanetState.js";
 
-export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}, options = {}){
-  const onModeChange = typeof options.onModeChange === "function" ? options.onModeChange : null;
-
+export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}){
   const modeButtons = root.querySelectorAll("[data-projection-mode]");
   const tabButtons = root.querySelectorAll("[data-control-tab]");
   const adjustPanel = root.querySelector("#tinyPlanetAdjustPanel");
@@ -31,8 +29,7 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}, 
   };
 
   function getActiveParameters(){
-    if (state.activeControlTab === "atmosphere") return ATMOSPHERE_PARAMETERS;
-    return getWarpParametersForMode(state.projectionMode);
+    return state.activeControlTab === "atmosphere" ? ATMOSPHERE_PARAMETERS : WARP_PARAMETERS;
   }
 
   function getSelectedParameterId(){
@@ -106,17 +103,10 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}, 
 
   modeButtons.forEach(button => button.addEventListener("click", event => {
     event.preventDefault();
-    const nextMode = button.dataset.projectionMode;
-    const partial = { projectionMode: nextMode };
-    if (nextMode === "fisheye") {
-      partial.selectedWarpParameter = "fisheyeFocalLength";
-      if (!state.activeControlTab) partial.activeControlTab = "warp";
-    } else if (state.selectedWarpParameter === "fisheyeFocalLength") {
-      partial.selectedWarpParameter = "rotation";
-    }
-    Object.assign(state, updateTinyPlanetState(state, partial));
-    refreshAllControls();
-    onModeChange?.(nextMode);
+    Object.assign(state, updateTinyPlanetState(state, {
+      projectionMode: button.dataset.projectionMode
+    }));
+    refreshModeButtons();
     render();
     persistDraft();
   }));
@@ -144,10 +134,7 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}, 
     const config = getCurrentConfig();
     Object.assign(state, updateTinyPlanetState(state, { [config.id]: Number(slider.value) }));
     if (sliderValue) sliderValue.textContent = formatParameterValue(state[config.id], config);
-    const fast = config.id === "rotation"
-      || config.id === "seamHeight"
-      || config.id === "fisheyeFocalLength"
-      || config.id === "zoom";
+    const fast = config.id === "rotation" || config.id === "seamHeight" || config.id === "zoom";
     scheduleRender(fast ? 16 : 48);
   });
   slider?.addEventListener("change", () => persistDraft());
@@ -156,7 +143,6 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}, 
     event.preventDefault();
     Object.assign(state, resetTinyPlanetAdjustments(state));
     refreshAllControls();
-    onModeChange?.(state.projectionMode);
     render();
     persistDraft();
   });
@@ -171,7 +157,7 @@ export function setupTinyPlanetUI(root, state, render, persistDraft = () => {}, 
 
 export function renderModeRow(){
   return `
-    <div class="segment tiny-planet-mode-row" role="group" aria-label="小行星模式">
+    <div class="segment segment-cols-2 tiny-planet-mode-row" role="group" aria-label="小行星模式">
       ${PROJECTION_MODES.map(mode => `
         <button
           type="button"
@@ -214,6 +200,5 @@ function formatParameterValue(value, config){
   const number = Number(value ?? 0);
   if (config.suffix === "°") return `${Math.round(number)}°`;
   if (config.suffix === "%") return `${Math.round(number)}%`;
-  if (config.suffix === "mm") return `${Math.round(number)}mm`;
   return `${Math.round(number)}${config.suffix || ""}`;
 }

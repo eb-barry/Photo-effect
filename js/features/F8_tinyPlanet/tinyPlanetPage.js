@@ -1,5 +1,5 @@
-// F8 小行星 - Page Controller v0.3.1
-// 第一排：小行星／隧道／魚眼畸變；第二排：畫面變形／氛圍光影；第三排調整項目；第四排滑桿。
+// F8 小行星 - Page Controller v0.3.2
+// 第一排：小行星／隧道；第二排：畫面變形／氛圍光影；第三排調整項目；第四排滑桿。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -37,7 +37,7 @@ export async function renderTinyPlanetPage(root, navigate){
 
         <div class="topbar-title">
           <h1>小行星</h1>
-          <p class="crystal-version" aria-hidden="true">v0.3.1</p>
+          <p class="crystal-version" aria-hidden="true">v0.3.2</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -62,7 +62,7 @@ export async function renderTinyPlanetPage(root, navigate){
           <canvas id="editorCanvas" class="hidden crystal-canvas tiny-planet-canvas"></canvas>
         </div>
 
-        <p class="note hidden" id="tinyPlanetHint">小行星／隧道建議全景；魚眼畸變可直接用一般照片即時調整焦距</p>
+        <p class="note hidden" id="tinyPlanetHint">建議使用全景或寬幅風景照片，效果更接近小行星</p>
 
         <div class="hidden" id="tinyPlanetModeBar" aria-label="小行星模式">
           ${renderModeRow()}
@@ -101,14 +101,7 @@ export async function renderTinyPlanetPage(root, navigate){
     canvas.width = size.width;
     canvas.height = size.height;
     canvasWrap.style.aspectRatio = `${size.width} / ${size.height}`;
-    canvasWrap.dataset.orientation = size.width === size.height
-      ? "square"
-      : (size.width > size.height ? "landscape" : "portrait");
-  };
-
-  const syncCanvasToMode = () => {
-    if (!sourceImage) return;
-    applyCanvasSize(resolveOutputSize(sourceImage, state.projectionMode));
+    canvasWrap.dataset.orientation = "square";
   };
 
   const render = async () => {
@@ -170,10 +163,10 @@ export async function renderTinyPlanetPage(root, navigate){
     const image = await loadImageFromDataUrl(dataUrl);
     if (serial !== openSerial) return false;
     sourceImage = image;
+    applyCanvasSize(resolveOutputSize());
     if (statePartial) {
       Object.assign(state, updateTinyPlanetState(state, statePartial));
     }
-    applyCanvasSize(resolveOutputSize(image, state.projectionMode));
     return true;
   };
 
@@ -210,11 +203,7 @@ export async function renderTinyPlanetPage(root, navigate){
     }
   });
 
-  const tinyPlanetUi = setupTinyPlanetUI(root, state, renderAndPersist, persistDraft, {
-    onModeChange: () => {
-      syncCanvasToMode();
-    }
-  });
+  const tinyPlanetUi = setupTinyPlanetUI(root, state, renderAndPersist, persistDraft);
 
   root.querySelector("#savePhotoBtn")?.addEventListener("click", async event => {
     event.preventDefault();
