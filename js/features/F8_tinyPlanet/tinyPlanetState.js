@@ -1,14 +1,15 @@
-// F8 小行星 - 狀態管理 v0.2.0
-// 第一排：小行星／隧道；第二排：畫面變形／氛圍光影；其下為調整項目 + 滑桿。
+// F8 小行星 - 狀態管理 v0.3.0
+// 第一排：小行星／隧道；第二排：畫面變形／氛圍光影／魚眼畸變；其下為調整項目 + 滑桿。
 
 export const TINY_PLANET_FEATURE_ID = "F8_tinyPlanet";
-export const TINY_PLANET_FEATURE_VERSION = "0.2.0";
-export const TINY_PLANET_DRAFT_KEY = "photoEffects.F8_tinyPlanet.draft.v2";
+export const TINY_PLANET_FEATURE_VERSION = "0.3.0";
+export const TINY_PLANET_DRAFT_KEY = "photoEffects.F8_tinyPlanet.draft.v3";
 
 /** 第二排：調整類別（可收合） */
 export const TINY_PLANET_CONTROL_TABS = [
   { id: "warp", label: "畫面變形" },
-  { id: "atmosphere", label: "氛圍光影" }
+  { id: "atmosphere", label: "氛圍光影" },
+  { id: "fisheye", label: "魚眼畸變" }
 ];
 
 /** 第一排：投影子功能 */
@@ -31,6 +32,14 @@ export const WARP_PARAMETERS = [
 export const ATMOSPHERE_PARAMETERS = [
   { id: "vignette", label: "邊緣暈影", min: 0, max: 100, step: 1, suffix: "%" },
   { id: "atmosphere", label: "大氣散射", min: 0, max: 100, step: 1, suffix: "%" }
+];
+
+/**
+ * 魚眼畸變參數：焦距愈短畸變愈強。
+ * 範圍刻意加大（2–200mm），涵蓋超廣魚眼到近似無畸變。
+ */
+export const FISHEYE_PARAMETERS = [
+  { id: "fisheyeFocalLength", label: "魚眼鏡頭焦距", min: 2, max: 200, step: 1, suffix: "mm" }
 ];
 
 export function normalizeProjectionMode(mode){
@@ -64,6 +73,9 @@ export function createDefaultTinyPlanetState(){
     vignette: 42,
     atmosphere: 28,
 
+    selectedFisheyeParameter: "fisheyeFocalLength",
+    fisheyeFocalLength: 16,
+
     updatedAt: Date.now()
   };
 }
@@ -82,7 +94,9 @@ export function resetTinyPlanetAdjustments(currentState){
     zoom: defaults.zoom,
     selectedAtmosphereParameter: defaults.selectedAtmosphereParameter,
     vignette: defaults.vignette,
-    atmosphere: defaults.atmosphere
+    atmosphere: defaults.atmosphere,
+    selectedFisheyeParameter: defaults.selectedFisheyeParameter,
+    fisheyeFocalLength: defaults.fisheyeFocalLength
   });
 }
 
@@ -102,11 +116,17 @@ export function updateTinyPlanetState(currentState, partial){
   next.selectedAtmosphereParameter = ATMOSPHERE_PARAMETERS.some(item => item.id === next.selectedAtmosphereParameter)
     ? next.selectedAtmosphereParameter
     : "vignette";
+  next.selectedFisheyeParameter = FISHEYE_PARAMETERS.some(item => item.id === next.selectedFisheyeParameter)
+    ? next.selectedFisheyeParameter
+    : "fisheyeFocalLength";
 
   for (const parameter of WARP_PARAMETERS) {
     next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, createDefaultValue(parameter.id));
   }
   for (const parameter of ATMOSPHERE_PARAMETERS) {
+    next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, createDefaultValue(parameter.id));
+  }
+  for (const parameter of FISHEYE_PARAMETERS) {
     next[parameter.id] = clampNumber(next[parameter.id], parameter.min, parameter.max, createDefaultValue(parameter.id));
   }
 
@@ -131,6 +151,7 @@ export function saveTinyPlanetDraft(state){
 export function loadTinyPlanetDraft(){
   try {
     const raw = localStorage.getItem(TINY_PLANET_DRAFT_KEY)
+      || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v2")
       || localStorage.getItem("photoEffects.F8_tinyPlanet.draft.v1");
     if (!raw) return null;
     const parsed = JSON.parse(raw);
@@ -145,6 +166,7 @@ export function loadTinyPlanetDraft(){
 export function clearTinyPlanetDraft(){
   try {
     localStorage.removeItem(TINY_PLANET_DRAFT_KEY);
+    localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v2");
     localStorage.removeItem("photoEffects.F8_tinyPlanet.draft.v1");
   } catch (error) {
     console.warn("[F8 小行星] 無法清除草稿：", error);
