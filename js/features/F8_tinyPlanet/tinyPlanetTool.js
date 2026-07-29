@@ -1,4 +1,4 @@
-// F8 小行星 - 渲染核心 v0.4.0
+// F8 小行星 - 渲染核心 v0.5.0
 // 小行星／隧道極座標投影 + 畫面變形微調 + 氛圍光影。
 
 export const TINY_PLANET_OUTPUT_SIZE = 1080;
@@ -91,7 +91,6 @@ function applyPolarPlanetEffect(sourceImage, size, state){
   const vignetteAmt = clamp(Number(state.vignette ?? 0), 0, 100) / 100;
   const atmoAmt = clamp(Number(state.atmosphere ?? 0), 0, 100) / 100;
   const tempRingAmt = clamp(Number(state.temperatureRing ?? 0), -100, 100) / 100;
-  const mysticGlowAmt = clamp(Number(state.mysticGlow ?? 0), 0, 100) / 100;
 
   // 垂直縮放：壓扁縮小球體高度；拉高則拉長。
   const verticalScale = Math.max(0.35, 1 - squashAmt * 0.55 + liftAmt * 0.7);
@@ -183,16 +182,6 @@ function applyPolarPlanetEffect(sourceImage, size, state){
         red = lerp(red, 145, moon * 0.35);
         green = lerp(green, 185, moon * 0.4);
         blue = lerp(blue, 255, moon * 0.65 + rimCool * 0.4);
-      }
-
-      // 光暈神秘光：中心柔光 + 外圈淡暈。
-      if (mysticGlowAmt > 0.01) {
-        const core = Math.pow(1 - rr, 2.4) * mysticGlowAmt;
-        const halo = Math.pow(Math.max(0, rr - 0.45) / 0.55, 1.6) * mysticGlowAmt * 0.45;
-        const bloom = Math.min(1, core + halo);
-        red = lerp(red, 255, bloom * 0.42);
-        green = lerp(green, 235, bloom * 0.38);
-        blue = lerp(blue, 255, bloom * 0.48);
       }
 
       if (vignetteAmt > 0.01) {
