@@ -2246,7 +2246,7 @@ body.magic-sky-scroll-locked {
 }
 
 .tiny-planet-page .tiny-planet-canvas-wrap {
-  aspect-ratio: 1 / 1;
+  /* aspect-ratio is set inline from resolveOutputSize */
 }
 
 .tiny-planet-page .tiny-planet-canvas {
