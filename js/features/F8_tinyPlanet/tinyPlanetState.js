@@ -1,8 +1,8 @@
-// F8 小行星 - 狀態管理 v0.5.0
+// F8 小行星 - 狀態管理 v0.5.1
 // 第一排：小行星／隧道／調整項目；調整項目內為合併後的參數清單。
 
 export const TINY_PLANET_FEATURE_ID = "F8_tinyPlanet";
-export const TINY_PLANET_FEATURE_VERSION = "0.5.0";
+export const TINY_PLANET_FEATURE_VERSION = "0.5.1";
 export const TINY_PLANET_DRAFT_KEY = "photoEffects.F8_tinyPlanet.draft.v7";
 
 /** 第一排子功能 */
@@ -39,15 +39,16 @@ export function normalizeActiveControlTab(tab){
   if (tab === null || tab === "none" || tab === "") return null;
   // 舊草稿：畫面變形／氛圍光影 → 調整項目
   if (tab === "warp" || tab === "atmosphere" || tab === "mode" || tab === "fisheye") return "adjust";
+  // planet/tunnel tabs also valid as "last focused" when adjust is closed
   if (TINY_PLANET_CONTROL_TABS.some(item => item.id === tab)) return tab;
-  return "planet";
+  return "adjust";
 }
 
 export function createDefaultTinyPlanetState(){
   return {
     featureId: TINY_PLANET_FEATURE_ID,
     featureVersion: TINY_PLANET_FEATURE_VERSION,
-    activeControlTab: "planet",
+    activeControlTab: "adjust",
     sourceImageDataUrl: null,
 
     projectionMode: "planet",
@@ -100,6 +101,15 @@ export function updateTinyPlanetState(currentState, partial){
     updatedAt: Date.now()
   };
 
+  // Migrate selected parameter from old warp/atmosphere keys before dropping them.
+  let selectedParameter = next.selectedParameter
+    || next.selectedWarpParameter
+    || next.selectedAtmosphereParameter
+    || "rotation";
+  if (selectedParameter === "mysticGlow") {
+    selectedParameter = "temperatureRing";
+  }
+
   // Drop legacy fields from older drafts
   delete next.fisheyeFocalLength;
   delete next.selectedFisheyeParameter;
@@ -107,27 +117,20 @@ export function updateTinyPlanetState(currentState, partial){
   delete next.selectedAtmosphereParameter;
   delete next.mysticGlow;
 
-  // Migrate selected parameter from old warp/atmosphere keys
-  if (!next.selectedParameter) {
-    next.selectedParameter = currentState?.selectedWarpParameter
-      || currentState?.selectedAtmosphereParameter
-      || "rotation";
-  }
-  if (next.selectedParameter === "mysticGlow") {
-    next.selectedParameter = "temperatureRing";
-  }
-
   next.activeControlTab = normalizeActiveControlTab(next.activeControlTab);
 
-  // Keep projectionMode in sync when the first-row mode tabs are active.
-  if (next.activeControlTab === "planet" || next.activeControlTab === "tunnel") {
+  // Projection mode is independent from whether the adjust panel is open.
+  if (partial && Object.prototype.hasOwnProperty.call(partial, "projectionMode")) {
+    next.projectionMode = normalizeProjectionMode(partial.projectionMode);
+  } else if (next.activeControlTab === "planet" || next.activeControlTab === "tunnel") {
+    // Legacy: if tab itself is a mode and projectionMode missing/stale, sync from tab.
     next.projectionMode = next.activeControlTab;
   } else {
     next.projectionMode = normalizeProjectionMode(next.projectionMode);
   }
 
-  next.selectedParameter = ADJUST_PARAMETERS.some(item => item.id === next.selectedParameter)
-    ? next.selectedParameter
+  next.selectedParameter = ADJUST_PARAMETERS.some(item => item.id === selectedParameter)
+    ? selectedParameter
     : "rotation";
 
   for (const parameter of ADJUST_PARAMETERS) {

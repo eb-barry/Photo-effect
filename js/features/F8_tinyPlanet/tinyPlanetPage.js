@@ -1,4 +1,4 @@
-// F8 小行星 - Page Controller v0.5.0
+// F8 小行星 - Page Controller v0.5.1
 // 第一排：小行星／隧道／調整項目；展開調整項目後為參數下拉 + 滑桿。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -36,7 +36,7 @@ export async function renderTinyPlanetPage(root, navigate){
 
         <div class="topbar-title">
           <h1>小行星</h1>
-          <p class="crystal-version" aria-hidden="true">v0.5.0</p>
+          <p class="crystal-version" aria-hidden="true">v0.5.1</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -119,7 +119,7 @@ export async function renderTinyPlanetPage(root, navigate){
     root.querySelector("#tinyPlanetHint")?.classList.remove("hidden");
     root.querySelector("#resetTinyPlanetSettingsBtn")?.classList.remove("hidden");
     if (!state.activeControlTab) {
-      Object.assign(state, updateTinyPlanetState(state, { activeControlTab: "planet" }));
+      Object.assign(state, updateTinyPlanetState(state, { activeControlTab: "adjust" }));
     }
   };
 
@@ -182,7 +182,7 @@ export async function renderTinyPlanetPage(root, navigate){
       const dataUrl = await fileToDataUrl(file);
       const applied = await openPhoto(dataUrl, {
         sourceImageDataUrl: dataUrl,
-        activeControlTab: "planet",
+        activeControlTab: "adjust",
         projectionMode: "planet"
       });
       if (!applied) return;
