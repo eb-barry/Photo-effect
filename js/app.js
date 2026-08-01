@@ -33,6 +33,9 @@ const routeLoaders = {
   })),
   F8_tinyPlanet: () => import("./features/F8_tinyPlanet/tinyPlanetPage.js").then(mod => ({
     run: (root, navigate) => mod.initTinyPlanetPage(root, { goHome: () => navigate("home") })
+  })),
+  F9_panFocus: () => import("./features/F9_panFocus/panFocusPage.js").then(mod => ({
+    run: (root, navigate) => mod.initPanFocusPage(root, { goHome: () => navigate("home") })
   }))
 };
 
@@ -56,7 +59,7 @@ async function navigate(routeName){
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./service-worker.js?v=0.4.18.0").catch(console.warn);
+    navigator.serviceWorker.register("./service-worker.js?v=0.4.19.0").catch(console.warn);
   });
 }
 
