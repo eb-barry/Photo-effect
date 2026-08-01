@@ -2339,3 +2339,133 @@ body.magic-sky-scroll-locked {
   -webkit-user-select: auto;
   user-select: auto;
 }
+
+/* F9 追焦 v0.1.0 */
+.pan-focus-page {
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+
+.pan-focus-page .pan-focus-direction-row {
+  margin: 0 0 10px;
+}
+
+.pan-focus-page #panFocusDirectionBar {
+  margin-bottom: 4px;
+}
+
+.pan-focus-page .pan-focus-panel {
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  overflow-x: clip;
+  overscroll-behavior-x: none;
+}
+
+.pan-focus-page .pan-focus-adjust-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+  padding-bottom: 4px;
+}
+
+.pan-focus-page .pan-focus-adjust-panel.hidden {
+  display: none !important;
+}
+
+.pan-focus-page .pan-focus-hint {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.pan-focus-page .pan-focus-status {
+  margin: 0 0 10px;
+  color: var(--base-dark);
+  font-weight: 700;
+}
+
+.pan-focus-page .pan-focus-slider-row {
+  padding: 14px 14px 26px;
+  margin: 0 0 8px;
+  overscroll-behavior-x: contain;
+}
+
+.pan-focus-page #adjustSlider {
+  width: 100%;
+  height: 48px;
+  margin: 0;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-x;
+  accent-color: var(--base);
+}
+
+.pan-focus-page #adjustSlider::-webkit-slider-runnable-track {
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(7, 63, 61, 0.14);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.pan-focus-page #adjustSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 44px;
+  height: 44px;
+  margin-top: -15px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.16) 18%, transparent 38%),
+    radial-gradient(circle at 50% 62%, var(--base-dark) 0%, var(--base) 55%, color-mix(in srgb, var(--base) 70%, var(--base-dark)) 100%);
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.24),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.18),
+    inset 0 3px 5px rgba(255, 255, 255, 0.35);
+}
+
+.pan-focus-page #adjustSlider::-moz-range-track {
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(7, 63, 61, 0.14);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.pan-focus-page #adjustSlider::-moz-range-thumb {
+  width: 44px;
+  height: 44px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.16) 18%, transparent 38%),
+    radial-gradient(circle at 50% 62%, var(--base-dark) 0%, var(--base) 55%, color-mix(in srgb, var(--base) 70%, var(--base-dark)) 100%);
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.24),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.18),
+    inset 0 3px 5px rgba(255, 255, 255, 0.35);
+}
+
+.pan-focus-page .pan-focus-canvas-wrap {
+  position: relative;
+}
+
+.pan-focus-page .pan-focus-canvas {
+  background: #102027;
+}
+
+.pan-focus-page .panel,
+.pan-focus-page .panel *,
+.pan-focus-page .crystal-topbar,
+.pan-focus-page .crystal-topbar * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.pan-focus-page select,
+.pan-focus-page input {
+  -webkit-user-select: auto;
+  user-select: auto;
+}

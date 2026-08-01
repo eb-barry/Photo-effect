@@ -46,7 +46,11 @@ application.
                                                          planet/tunnel,
                                                          warp & atmosphere
 
-  F9--F28    Reserved               📋                   Future modules
+  F9         追焦 (Pan Focus)       🚧                   Subject keep-sharp
+                                                         + horizontal motion
+                                                         blur background
+
+  F10--F28   Reserved               📋                   Future modules
   ------------------------------------------------------------------------
 
 ------------------------------------------------------------------------
