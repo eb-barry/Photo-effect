@@ -1,8 +1,8 @@
-// F9 追焦 - 狀態管理 v0.1.0
+// F9 追焦 - 狀態管理 v0.1.1
 // 方向列 + 調整項目下拉／滑桿。
 
 export const PAN_FOCUS_FEATURE_ID = "F9_panFocus";
-export const PAN_FOCUS_FEATURE_VERSION = "0.1.0";
+export const PAN_FOCUS_FEATURE_VERSION = "0.1.1";
 export const PAN_FOCUS_DRAFT_KEY = "photoEffects.F9_panFocus.draft.v1";
 
 /** 第一排：追焦方向（相機搖鏡方向） */
@@ -35,10 +35,10 @@ export function createDefaultPanFocusState(){
     panDirection: "auto",
     selectedParameter: "blurStrength",
 
-    blurStrength: 62,
-    edgeFeather: 28,
-    subjectExpand: 6,
-    subjectThreshold: 45,
+    blurStrength: 58,
+    edgeFeather: 22,
+    subjectExpand: 12,
+    subjectThreshold: 62,
 
     updatedAt: Date.now()
   };
