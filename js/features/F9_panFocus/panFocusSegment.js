@@ -1,4 +1,4 @@
-// F9 追焦 - AI 主體分割 v0.1.1
+// F9 追焦 - AI 主體分割 v0.1.2
 // DeepLabV3-MobileViT + 騎士／細結構（車輪）復原。
 // 自行車輪框常被模型漏標：以軟機率、型態學閉合、輪位圓盤補回。
 
@@ -6,8 +6,10 @@ const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/Xenova/deeplabv3-mobilevit-small/resolve/main/onnx/model_quantized.onnx";
 const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
-const MASK_PIPELINE_VERSION = 2;
+const MASK_PIPELINE_VERSION = 3;
 const INPUT_SIZE = 512;
+/** Hard cap for mask buffers — never allocate megapixel float maps. */
+const MASK_MAX_EDGE = 1280;
 
 /** Pascal VOC labels kept sharp for panning focus. */
 export const SUBJECT_CLASS_IDS = Object.freeze({
@@ -66,8 +68,9 @@ export async function ensurePanFocusMask(sourceImage, photoKey, options = {}){
 }
 
 async function ensureAnalysis(sourceImage, key, onStatus){
-  const width = sourceImage.width || sourceImage.naturalWidth;
-  const height = sourceImage.height || sourceImage.naturalHeight;
+  const srcW = sourceImage.width || sourceImage.naturalWidth || 1;
+  const srcH = sourceImage.height || sourceImage.naturalHeight || 1;
+  const { width, height } = clampMaskSize(srcW, srcH);
   const cached = analysisCache.get(key);
   if (
     cached?.width === width
@@ -111,6 +114,16 @@ async function ensureAnalysis(sourceImage, key, onStatus){
   return entry;
 }
 
+function clampMaskSize(srcW, srcH){
+  const edge = Math.max(srcW, srcH);
+  if (edge <= MASK_MAX_EDGE) return { width: srcW, height: srcH };
+  const scale = MASK_MAX_EDGE / edge;
+  return {
+    width: Math.max(1, Math.round(srcW * scale)),
+    height: Math.max(1, Math.round(srcH * scale))
+  };
+}
+
 function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   const threshold = clamp01(Number(options.subjectThreshold ?? 55) / 100);
   const expandPx = Math.max(0, Math.round(Number(options.subjectExpand ?? 0)));
@@ -151,7 +164,11 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     || analysis.classCounts.motorbike > 0
     || (analysis.classCounts.person > 0 && analysis.classCounts.car === 0 && thinSoftMax > 0.02)
   ) {
-    recoverRiderCraft(alpha, analysis, sourceImage, width, height);
+    try {
+      recoverRiderCraft(alpha, analysis, sourceImage, width, height);
+    } catch (error) {
+      console.warn("[F9 追焦] 細結構復原略過：", error);
+    }
   }
 
   // Morphological close: fill spokes / small gaps inside wheels & frames.
@@ -226,9 +243,13 @@ function recoverRiderCraft(alpha, analysis, sourceImage, width, height){
     ctx.fill();
 
     // Lower capsule for frame / fender / drivetrain.
-    const rr = Math.max(8, Math.round(ph * 0.1));
-    roundRect(ctx, bx0, top, bx1 - bx0, by1 - top, rr);
-    ctx.fill();
+    const cw = bx1 - bx0;
+    const ch = by1 - top;
+    if (cw > 2 && ch > 2) {
+      const rr = Math.max(8, Math.round(ph * 0.1));
+      roundRect(ctx, bx0, top, cw, ch, rr);
+      ctx.fill();
+    }
   }
 
   const craftAlpha = ctx.getImageData(0, 0, width, height).data;
@@ -339,7 +360,8 @@ function labelComponents(binary, width, height, minArea){
 }
 
 function roundRect(ctx, x, y, w, h, r){
-  const radius = Math.min(r, w / 2, h / 2);
+  if (!(w > 0) || !(h > 0)) return;
+  const radius = Math.max(0, Math.min(r, w / 2, h / 2));
   ctx.beginPath();
   ctx.moveTo(x + radius, y);
   ctx.arcTo(x + w, y, x + w, y + h, radius);

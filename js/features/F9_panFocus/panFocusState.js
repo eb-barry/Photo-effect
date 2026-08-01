@@ -2,7 +2,7 @@
 // 方向列 + 調整項目下拉／滑桿。
 
 export const PAN_FOCUS_FEATURE_ID = "F9_panFocus";
-export const PAN_FOCUS_FEATURE_VERSION = "0.1.1";
+export const PAN_FOCUS_FEATURE_VERSION = "0.1.2";
 export const PAN_FOCUS_DRAFT_KEY = "photoEffects.F9_panFocus.draft.v1";
 
 /** 第一排：追焦方向（相機搖鏡方向） */
