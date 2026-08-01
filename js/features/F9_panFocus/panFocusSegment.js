@@ -208,14 +208,16 @@ function recoverRiderCraft(alpha, analysis, sourceImage, width, height){
     const ph = box.y1 - box.y0 + 1;
     if (ph < 24 || pw < 12) continue;
 
-    const bx0 = Math.max(0, Math.floor(box.x0 - pw * 0.38));
-    const bx1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 0.38));
-    const by1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.48));
-    const top = Math.max(0, Math.floor(box.y0 + ph * 0.38));
-    const radius = Math.max(10, Math.round(ph * 0.24));
-    const cy = Math.min(height - 1, Math.round(box.y1 - radius * 0.08));
-    const cxA = Math.round(bx0 + (bx1 - bx0) * 0.2);
-    const cxB = Math.round(bx0 + (bx1 - bx0) * 0.8);
+    const bx0 = Math.max(0, Math.floor(box.x0 - pw * 0.48));
+    const bx1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 0.48));
+    const by1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.58));
+    const top = Math.max(0, Math.floor(box.y0 + ph * 0.34));
+    // Wheels sit at / slightly below the person's feet; use a larger disk so tire
+    // contact patches are not eaten by background pan blur.
+    const radius = Math.max(12, Math.round(ph * 0.28));
+    const cy = Math.min(height - 1, Math.round(box.y1 + radius * 0.18));
+    const cxA = Math.round(bx0 + (bx1 - bx0) * 0.18);
+    const cxB = Math.round(bx0 + (bx1 - bx0) * 0.82);
 
     // Wheel disks (keep original spokes/tires by solid disk in subject mask).
     ctx.beginPath();
