@@ -1,5 +1,6 @@
-// F9 追焦 - Canvas 影像處理 v0.1.0
+// F9 追焦 - Canvas 影像處理 v0.1.1
 // 方案 A：主體遮罩清晰 + 背景水平運動模糊。
+// 模糊前先填補主體區域，避免車體／騎士顏色拖進背景拖影。
 
 export const PAN_FOCUS_MAX_EDGE = 1600;
 /** @deprecated Use resolveOutputSize() for the active photo. */
@@ -76,7 +77,9 @@ export async function renderPanFocus(ctx, sourceImage, state, maskEntry = null){
   }
 
   const direction = resolveRenderDirection(state, maskEntry);
-  const blurred = applyHorizontalMotionBlur(sourceCanvas, blurStrength, direction);
+  // Fill subject area before blur so rider/bike colors do not smear into streaks.
+  const backgroundPlate = prepareBackgroundPlate(sourceCanvas, maskEntry.maskCanvas, width, height);
+  const blurred = applyHorizontalMotionBlur(backgroundPlate, blurStrength, direction);
   const subjectLayer = extractSubjectLayer(sourceCanvas, maskEntry.maskCanvas, width, height);
 
   ctx.drawImage(blurred, 0, 0);
@@ -104,6 +107,93 @@ function drawSourceToCanvas(sourceImage, width, height){
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(sourceImage, 0, 0, width, height);
   return canvas;
+}
+
+/**
+ * Replace subject pixels with horizontally sampled background colors so
+ * motion blur does not drag rider / bike colors into the streaks.
+ */
+export function prepareBackgroundPlate(sourceCanvas, maskCanvas, width, height){
+  const srcCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const src = srcCtx.getImageData(0, 0, width, height);
+  const mask = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+
+  // Build occupancy at output size, then dilate with canvas for speed.
+  const holeCanvas = document.createElement("canvas");
+  holeCanvas.width = width;
+  holeCanvas.height = height;
+  const holeCtx = holeCanvas.getContext("2d");
+  holeCtx.drawImage(maskCanvas, 0, 0, width, height);
+  const dilate = Math.max(2, Math.round(Math.min(width, height) * 0.01));
+  holeCtx.globalCompositeOperation = "lighter";
+  const steps = Math.max(6, Math.min(20, dilate * 2));
+  for (let i = 0; i < steps; i += 1) {
+    const angle = (Math.PI * 2 * i) / steps;
+    holeCtx.drawImage(maskCanvas, Math.cos(angle) * dilate, Math.sin(angle) * dilate, width, height);
+  }
+  holeCtx.globalCompositeOperation = "source-over";
+  const holeData = holeCtx.getImageData(0, 0, width, height).data;
+  const hole = new Uint8Array(width * height);
+  for (let i = 0; i < hole.length; i += 1) {
+    if (holeData[i * 4 + 3] > 24) hole[i] = 1;
+  }
+
+  const out = new Uint8ClampedArray(src.data);
+  for (let y = 0; y < height; y += 1) {
+    const rowBg = [];
+    for (let x = 0; x < width; x += 1) {
+      if (!hole[y * width + x]) rowBg.push(x);
+    }
+    if (!rowBg.length) continue;
+    let bgCursor = 0;
+    for (let x = 0; x < width; x += 1) {
+      if (!hole[y * width + x]) continue;
+      while (
+        bgCursor + 1 < rowBg.length
+        && Math.abs(rowBg[bgCursor + 1] - x) <= Math.abs(rowBg[bgCursor] - x)
+      ) {
+        bgCursor += 1;
+      }
+      copyPixel(src.data, out, y * width + rowBg[bgCursor], y * width + x);
+    }
+  }
+
+  // Remaining full-hole rows: sample vertically.
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = y * width + x;
+      if (!hole[i]) continue;
+      // If still identical to source after failed row fill, search vertically.
+      let filled = false;
+      for (let d = 1; d < height && !filled; d += 1) {
+        const y1 = y - d;
+        const y2 = y + d;
+        if (y1 >= 0 && !hole[y1 * width + x]) {
+          copyPixel(src.data, out, y1 * width + x, i);
+          filled = true;
+        } else if (y2 < height && !hole[y2 * width + x]) {
+          copyPixel(src.data, out, y2 * width + x, i);
+          filled = true;
+        }
+      }
+    }
+  }
+
+  const plate = document.createElement("canvas");
+  plate.width = width;
+  plate.height = height;
+  plate.getContext("2d").putImageData(new ImageData(out, width, height), 0, 0);
+  return plate;
+}
+
+function copyPixel(src, dest, srcIndex, destIndex){
+  const s = srcIndex * 4;
+  const d = destIndex * 4;
+  dest[d] = src[s];
+  dest[d + 1] = src[s + 1];
+  dest[d + 2] = src[s + 2];
+  dest[d + 3] = 255;
 }
 
 /**
@@ -144,9 +234,7 @@ export function applyHorizontalMotionBlur(sourceCanvas, blurStrength, direction 
   const steps = Math.max(10, Math.min(52, workRadius));
   const stepSize = workRadius / steps;
   blurCtx.clearRect(0, 0, workW, workH);
-  blurCtx.globalAlpha = 1 / (steps * 2 + 1);
   for (let i = -steps; i <= steps; i += 1) {
-    // Triangle weight emphasis near center via double-pass density.
     blurCtx.globalAlpha = (1 - Math.abs(i) / (steps + 0.001)) / (steps + 1);
     blurCtx.drawImage(work, i * stepSize * sign, 0);
   }
