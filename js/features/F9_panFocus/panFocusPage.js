@@ -1,4 +1,4 @@
-// F9 追焦 - Page Controller v0.1.1
+// F9 追焦 - Page Controller v0.1.2
 // 方案 A：主體分割 + 背景水平運動模糊（含自行車細結構復原）。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -18,10 +18,10 @@ import {
   updatePanFocusState
 } from "./panFocusState.js";
 import {
+  createWorkingSource,
   fileToDataUrl,
   loadImageFromDataUrl,
-  renderPanFocus,
-  resolveOutputSize
+  renderPanFocus
 } from "./panFocusTool.js";
 import {
   renderAdjustPanel,
@@ -43,7 +43,7 @@ export async function renderPanFocusPage(root, navigate){
 
         <div class="topbar-title">
           <h1>追焦</h1>
-          <p class="crystal-version" aria-hidden="true">v0.1.1</p>
+          <p class="crystal-version" aria-hidden="true">v0.1.2</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -288,9 +288,12 @@ export async function renderPanFocusPage(root, navigate){
     const serial = ++openSerial;
     const image = await loadImageFromDataUrl(dataUrl);
     if (serial !== openSerial) return false;
-    sourceImage = image;
-    photoKey = getPanFocusMaskCacheKey(dataUrl);
-    applyCanvasSize(resolveOutputSize(image));
+    // Always work on a capped canvas — full camera megapixels freeze / crash mobile.
+    const working = createWorkingSource(image);
+    if (serial !== openSerial) return false;
+    sourceImage = working;
+    photoKey = `${getPanFocusMaskCacheKey(dataUrl)}:${working.width}x${working.height}`;
+    applyCanvasSize({ width: working.width, height: working.height });
     if (statePartial) {
       Object.assign(state, updatePanFocusState(state, statePartial));
     }
@@ -321,11 +324,19 @@ export async function renderPanFocusPage(root, navigate){
       if (!applied) return;
       showEditor();
       panFocusUi?.refreshAllControls?.();
-      await ensureMaskForCurrentPhoto();
+      const mask = await ensureMaskForCurrentPhoto();
+      if (!mask) {
+        // Still show the original photo so the page never kicks users home.
+        await render();
+        setStatus("主體分析未完成，可再試一次或換一張照片。");
+        persistDraft();
+        return;
+      }
       await renderAndPersist();
     } catch (error) {
-      console.error(error);
+      console.error("[F9 追焦] 開啟照片失敗：", error);
       alert("照片開啟失敗，請換一張圖片再試。");
+      // Keep the editor page; do not navigate away.
     } finally {
       imageInput.value = "";
     }

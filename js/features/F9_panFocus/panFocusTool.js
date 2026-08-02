@@ -1,4 +1,4 @@
-// F9 追焦 - Canvas 影像處理 v0.1.1
+// F9 追焦 - Canvas 影像處理 v0.1.2
 // 方案 A：主體遮罩清晰 + 背景水平運動模糊。
 // 模糊前先填補主體區域，避免車體／騎士顏色拖進背景拖影。
 
@@ -47,6 +47,22 @@ export function resolveOutputSize(image, maxEdge = PAN_FOCUS_MAX_EDGE){
 }
 
 /**
+ * Downscale the source to the working/output size before AI + blur.
+ * Prevents phone-camera megapixel photos from OOM / freezing the page.
+ */
+export function createWorkingSource(image, maxEdge = PAN_FOCUS_MAX_EDGE){
+  const size = resolveOutputSize(image, maxEdge);
+  const canvas = document.createElement("canvas");
+  canvas.width = size.width;
+  canvas.height = size.height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(image, 0, 0, size.width, size.height);
+  return canvas;
+}
+
+/**
  * @param {CanvasRenderingContext2D} ctx
  * @param {CanvasImageSource} sourceImage
  * @param {object} state
@@ -77,9 +93,15 @@ export async function renderPanFocus(ctx, sourceImage, state, maskEntry = null){
   }
 
   const direction = resolveRenderDirection(state, maskEntry);
-  // Fill subject area before blur so rider/bike colors do not smear into streaks.
-  const backgroundPlate = prepareBackgroundPlate(sourceCanvas, maskEntry.maskCanvas, width, height);
-  const blurred = applyHorizontalMotionBlur(backgroundPlate, blurStrength, direction);
+  let blurred;
+  try {
+    // Fill subject area before blur so rider/bike colors do not smear into streaks.
+    const backgroundPlate = prepareBackgroundPlate(sourceCanvas, maskEntry.maskCanvas, width, height);
+    blurred = applyHorizontalMotionBlur(backgroundPlate, blurStrength, direction);
+  } catch (error) {
+    console.warn("[F9 追焦] 背景預處理失敗，改用直接模糊：", error);
+    blurred = applyHorizontalMotionBlur(sourceCanvas, blurStrength, direction);
+  }
   const subjectLayer = extractSubjectLayer(sourceCanvas, maskEntry.maskCanvas, width, height);
 
   ctx.drawImage(blurred, 0, 0);
@@ -115,9 +137,7 @@ function drawSourceToCanvas(sourceImage, width, height){
  */
 export function prepareBackgroundPlate(sourceCanvas, maskCanvas, width, height){
   const srcCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
-  const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
   const src = srcCtx.getImageData(0, 0, width, height);
-  const mask = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
 
   // Build occupancy at output size, then dilate with canvas for speed.
   const holeCanvas = document.createElement("canvas");
@@ -135,12 +155,18 @@ export function prepareBackgroundPlate(sourceCanvas, maskCanvas, width, height){
   holeCtx.globalCompositeOperation = "source-over";
   const holeData = holeCtx.getImageData(0, 0, width, height).data;
   const hole = new Uint8Array(width * height);
-  for (let i = 0; i < hole.length; i += 1) {
-    if (holeData[i * 4 + 3] > 24) hole[i] = 1;
+  const rowHasBackground = new Uint8Array(height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = y * width + x;
+      if (holeData[i * 4 + 3] > 24) hole[i] = 1;
+      else rowHasBackground[y] = 1;
+    }
   }
 
   const out = new Uint8ClampedArray(src.data);
   for (let y = 0; y < height; y += 1) {
+    if (!rowHasBackground[y]) continue;
     const rowBg = [];
     for (let x = 0; x < width; x += 1) {
       if (!hole[y * width + x]) rowBg.push(x);
@@ -159,24 +185,27 @@ export function prepareBackgroundPlate(sourceCanvas, maskCanvas, width, height){
     }
   }
 
-  // Remaining full-hole rows: sample vertically.
+  // O(height) nearest-row lookup for fully-covered rows (avoids O(w*h*h) freeze).
+  const nearestBgRow = new Int32Array(height);
+  let last = -1;
   for (let y = 0; y < height; y += 1) {
+    if (rowHasBackground[y]) last = y;
+    nearestBgRow[y] = last;
+  }
+  last = -1;
+  for (let y = height - 1; y >= 0; y -= 1) {
+    if (rowHasBackground[y]) last = y;
+    const prev = nearestBgRow[y];
+    if (prev < 0) nearestBgRow[y] = last;
+    else if (last >= 0 && Math.abs(last - y) < Math.abs(prev - y)) nearestBgRow[y] = last;
+  }
+
+  for (let y = 0; y < height; y += 1) {
+    if (rowHasBackground[y]) continue;
+    const sy = nearestBgRow[y];
+    if (sy < 0) continue;
     for (let x = 0; x < width; x += 1) {
-      const i = y * width + x;
-      if (!hole[i]) continue;
-      // If still identical to source after failed row fill, search vertically.
-      let filled = false;
-      for (let d = 1; d < height && !filled; d += 1) {
-        const y1 = y - d;
-        const y2 = y + d;
-        if (y1 >= 0 && !hole[y1 * width + x]) {
-          copyPixel(src.data, out, y1 * width + x, i);
-          filled = true;
-        } else if (y2 < height && !hole[y2 * width + x]) {
-          copyPixel(src.data, out, y2 * width + x, i);
-          filled = true;
-        }
-      }
+      copyPixel(out, out, sy * width + x, y * width + x);
     }
   }
 
