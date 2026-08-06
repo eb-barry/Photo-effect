@@ -760,14 +760,8 @@ function recoverRiderCraft(alpha, analysis, sourceImage, width, height){
     const cxB = Math.round(bx0 + span * 0.86);
     const cxMid = Math.round(bx0 + span * 0.50);
 
-    // Wheel disks (front + rear); mid disk helps cargo bikes / YouBike skirts.
-    ctx.beginPath();
-    ctx.arc(cxA, cy, radius, 0, Math.PI * 2);
-    ctx.arc(cxB, cy, radius, 0, Math.PI * 2);
-    ctx.arc(cxMid, cy, Math.round(radius * 0.72), 0, Math.PI * 2);
-    ctx.fill();
-
-    // Full-height capsule: head → torso → frame → drivetrain.
+    // Soft capsule first (low alpha): only keeps structure pixels later.
+    ctx.fillStyle = "rgba(255,255,255,0.42)";
     const cw = bx1 - bx0;
     const ch = by1 - top;
     if (cw > 2 && ch > 2) {
@@ -775,11 +769,17 @@ function recoverRiderCraft(alpha, analysis, sourceImage, width, height){
       roundRect(ctx, bx0, top, cw, ch, rr);
       ctx.fill();
     }
-
-    // Handlebar / headband above shoulders.
     const barY = Math.max(0, Math.floor(box.y0 + ph * 0.08));
     const barH = Math.max(8, Math.round(ph * 0.22));
     roundRect(ctx, bx0 + Math.round(span * 0.08), barY, Math.round(span * 0.84), barH, 6);
+    ctx.fill();
+
+    // Solid wheel disks (high alpha): spokes/tires must stay sharp.
+    ctx.fillStyle = "rgba(255,255,255,1)";
+    ctx.beginPath();
+    ctx.arc(cxA, cy, radius, 0, Math.PI * 2);
+    ctx.arc(cxB, cy, radius, 0, Math.PI * 2);
+    ctx.arc(cxMid, cy, Math.round(radius * 0.72), 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -793,19 +793,19 @@ function recoverRiderCraft(alpha, analysis, sourceImage, width, height){
     const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
     const person = analysis.personScore[i];
     const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
-    const inDiskCore = craftA > 180;
+    const inWheelCore = craftA > 200;
 
-    if (
-      inDiskCore
-      || darkBoost
-      || colorBoost
-      || thin > 0.02
-      || person > 0.14
-      || matte > 0.28
-    ) {
-      const target = inDiskCore
-        ? 255
-        : Math.max(alpha[i], darkBoost || colorBoost || person > 0.25 ? 245 : 200);
+    if (inWheelCore) {
+      alpha[i] = 255;
+      continue;
+    }
+
+    // Soft capsule: keep only real bike/rider structure, not the whole rounded box.
+    if (darkBoost || colorBoost || thin > 0.02 || person > 0.14 || matte > 0.28) {
+      const target = Math.max(
+        alpha[i],
+        darkBoost || colorBoost || person > 0.25 ? 245 : 200
+      );
       if (target > alpha[i]) alpha[i] = target;
     }
   }

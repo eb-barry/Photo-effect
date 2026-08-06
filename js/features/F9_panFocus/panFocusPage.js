@@ -78,7 +78,7 @@ export async function renderPanFocusPage(root, navigate){
           </div>
         </div>
 
-        <p class="note hidden" id="panFocusHint">汽車／機車／自行車與騎士保持清晰；汽車會再以去背模型精修輪廓。若車頂上方建築物仍清晰，可降低「主體擴張」；若邊緣不完整，可提高「主體靈敏度」</p>
+        <p class="note hidden" id="panFocusHint">汽車／機車／自行車與騎士保持清晰。汽車與自行車會再以去背模型精修；若前輪或騎士仍被拖影，可提高「主體擴張」與「主體靈敏度」</p>
         <p class="note pan-focus-status hidden" id="panFocusStatus" role="status"></p>
 
         <div class="hidden" id="panFocusDirectionBar" aria-label="追焦方向">
