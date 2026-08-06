@@ -151,9 +151,11 @@ export async function renderPanFocusPage(root, navigate){
   const describeSubjects = entry => {
     if (!entry?.classCounts) return "";
     const labels = [];
-    if (entry.classCounts.car > 0) labels.push(entry.usedMatte ? "汽車（去背精修）" : "汽車");
+    if (entry.classCounts.car > 0) labels.push(entry.usedMatte && entry.sceneKind === "car" ? "汽車（去背精修）" : "汽車");
     if (entry.classCounts.motorbike > 0) labels.push("機車");
-    if (entry.classCounts.bicycle > 0) labels.push("自行車");
+    if (entry.classCounts.bicycle > 0) {
+      labels.push(entry.usedMatte && entry.sceneKind === "rider" ? "自行車（去背精修）" : "自行車");
+    }
     if (entry.classCounts.bus > 0) labels.push("巴士");
     if (entry.classCounts.person > 0) labels.push("騎士／人物");
     return labels.join("、");
