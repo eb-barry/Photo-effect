@@ -8,7 +8,7 @@ const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
 /** General object matting (~4.5MB). Used for cars; also soft-unions rider/bike silhouettes. */
 const MATTE_MODEL_URL = "https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx";
 const MATTE_CACHE_NAME = "photo-effects-panfocus-u2netp-v1";
-const MASK_PIPELINE_VERSION = 7;
+const MASK_PIPELINE_VERSION = 8;
 const INPUT_SIZE = 512;
 const MATTE_SIZE = 320;
 const MATTE_MEAN = [0.485, 0.456, 0.406];
@@ -48,13 +48,8 @@ export function clearPanFocusMaskCache(){
 }
 
 export function preloadPanFocusSegmentModel(onStatus = () => {}){
-  return Promise.all([
-    ensureSession(onStatus),
-    ensureMatteSession(onStatus).catch(error => {
-      console.warn("[F9 追焦] 汽車去背模型預載失敗：", error);
-      return null;
-    })
-  ]);
+  // Models load lazily on first vehicle-mode use (shows「模型下載中請稍後」).
+  return Promise.resolve(null);
 }
 
 export async function releasePanFocusSegmentSession(){
@@ -75,30 +70,60 @@ export async function releasePanFocusSegmentSession(){
 
 /**
  * Run (or reuse) segmentation analysis, then build a feathered subject mask.
+ * @param {object} options
+ * @param {"car"|"rider"} [options.vehicleMode] Manual vehicle pipeline (required for stable results).
  */
 export async function ensurePanFocusMask(sourceImage, photoKey, options = {}){
   const key = photoKey || "default";
   const onStatus = typeof options.onStatus === "function" ? options.onStatus : () => {};
-  const analysis = await ensureAnalysis(sourceImage, key, onStatus);
-  return buildMaskFromAnalysis(analysis, sourceImage, options);
+  const vehicleMode = options.vehicleMode === "rider" ? "rider" : "car";
+  const analysis = await ensureAnalysis(sourceImage, key, onStatus, vehicleMode);
+  return buildMaskFromAnalysis(analysis, sourceImage, { ...options, vehicleMode });
 }
 
-async function ensureAnalysis(sourceImage, key, onStatus){
+/**
+ * Download / init AI models on first use. Shows progress via onStatus.
+ */
+export async function ensurePanFocusModelsReady(onStatus = () => {}){
+  onStatus("模型下載中請稍後");
+  await ensureSession(message => {
+    if (/下載|快取|載入|初始化/.test(String(message || ""))) {
+      onStatus("模型下載中請稍後");
+    } else {
+      onStatus(message || "模型下載中請稍後");
+    }
+  });
+  try {
+    await ensureMatteSession(message => {
+      if (/下載|快取|載入|初始化/.test(String(message || ""))) {
+        onStatus("模型下載中請稍後");
+      } else {
+        onStatus(message || "模型下載中請稍後");
+      }
+    });
+  } catch (error) {
+    console.warn("[F9 追焦] 去背模型載入失敗（將以語意分割繼續）：", error);
+  }
+}
+
+async function ensureAnalysis(sourceImage, key, onStatus, vehicleMode = "car"){
   const srcW = sourceImage.width || sourceImage.naturalWidth || 1;
   const srcH = sourceImage.height || sourceImage.naturalHeight || 1;
   const { width, height } = clampMaskSize(srcW, srcH);
-  const cached = analysisCache.get(key);
+  const cacheKey = `${key}:${vehicleMode}`;
+  const cached = analysisCache.get(cacheKey);
   if (
     cached?.width === width
     && cached?.height === height
     && cached?.pipelineVersion === MASK_PIPELINE_VERSION
+    && cached?.vehicleMode === vehicleMode
   ) {
     return cached;
   }
 
   onStatus("分析主體中…");
   const session = await ensureSession(onStatus);
-  onStatus("辨識汽車／機車／騎士…");
+  onStatus(vehicleMode === "rider" ? "辨識機車／自行車／騎士…" : "辨識汽車…");
   const logitsTensor = await runInference(session, sourceImage);
   const labeled = logitsToLabelMaps(logitsTensor);
   const upscaled = upscaleLabelMapsBilinear(labeled, width, height);
@@ -107,20 +132,9 @@ async function ensureAnalysis(sourceImage, key, onStatus){
   const resolvedDirection = resolveAutoDirection(upscaled.subjectScore, width, height);
   const carSoftMax = Math.max(maxArray(upscaled.carScore), maxArray(upscaled.busScore));
   const thinSoftMax = Math.max(maxArray(upscaled.bicycleScore), maxArray(upscaled.motorbikeScore));
-  const sceneKind = detectSceneKind({
-    width,
-    height,
-    classCounts,
-    carSoftMax,
-    thinSoftMax,
-    personScore: upscaled.personScore,
-    subjectCoverage
-  });
-  const needsThinRecovery = sceneKind === "rider" || ((
-    classCounts.bicycle > 0
-    || classCounts.motorbike > 0
-    || classCounts.person > 0
-  ) && classCounts.car === 0 && classCounts.bus === 0 && carSoftMax < 0.08);
+  // Manual UI selection wins over auto heuristics.
+  const sceneKind = vehicleMode === "rider" ? "rider" : "car";
+  const needsThinRecovery = sceneKind === "rider";
 
   let matteScore = null;
   let usedMatte = false;
@@ -152,13 +166,14 @@ async function ensureAnalysis(sourceImage, key, onStatus){
     matteScore,
     usedMatte,
     sceneKind,
+    vehicleMode,
     subjectCoverage,
     resolvedDirection,
     classCounts,
     needsThinRecovery,
     pipelineVersion: MASK_PIPELINE_VERSION
   };
-  analysisCache.set(key, entry);
+  analysisCache.set(cacheKey, entry);
   return entry;
 }
 
@@ -181,15 +196,20 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
 
   const carSoftMax = Math.max(maxArray(analysis.carScore), maxArray(analysis.busScore));
   const thinSoftMax = maxFloat(analysis.bicycleScore, analysis.motorbikeScore);
-  const sceneKind = analysis.sceneKind || detectSceneKind({
-    width,
-    height,
-    classCounts: analysis.classCounts,
-    carSoftMax,
-    thinSoftMax,
-    personScore: analysis.personScore,
-    subjectCoverage: analysis.subjectCoverage
-  });
+  const forcedMode = options.vehicleMode === "rider" || options.vehicleMode === "car"
+    ? options.vehicleMode
+    : null;
+  const sceneKind = forcedMode
+    || analysis.sceneKind
+    || detectSceneKind({
+      width,
+      height,
+      classCounts: analysis.classCounts,
+      carSoftMax,
+      thinSoftMax,
+      personScore: analysis.personScore,
+      subjectCoverage: analysis.subjectCoverage
+    });
   const hasCarOrBus = sceneKind === "car" && (
     analysis.classCounts.car > 0
     || analysis.classCounts.bus > 0
@@ -832,7 +852,7 @@ function samplePhotoStats(sourceImage, width, height){
     const maxC = Math.max(r, g, b);
     const minC = Math.min(r, g, b);
     const sat = (maxC - minC) / Math.max(1, maxC);
-    if (sat > 0.16 && y > 28 && y < 225) colorful[i] = 1;
+    if (sat > 0.12 && y > 24 && y < 230) colorful[i] = 1;
   }
 
   // Local darkness vs blurred luminance (tires / frames).

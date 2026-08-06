@@ -1,5 +1,5 @@
-// F9 追焦 - Page Controller v0.1.5
-// 方案 A：DeepLab 類別 + U2-Netp 汽車去背 + 背景水平運動模糊。
+// F9 追焦 - Page Controller v0.1.7
+// 手動車種：汽車／機車・自行車；調整項目第二排參數。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -7,8 +7,8 @@ import { createProcessingOverlay } from "../F3_magicSky/magicSkyBusy.js";
 import {
   clearPanFocusMaskCache,
   ensurePanFocusMask,
-  getPanFocusMaskCacheKey,
-  preloadPanFocusSegmentModel
+  ensurePanFocusModelsReady,
+  getPanFocusMaskCacheKey
 } from "./panFocusSegment.js";
 import {
   clearPanFocusDraft,
@@ -25,9 +25,11 @@ import {
 } from "./panFocusTool.js";
 import {
   renderAdjustPanel,
-  renderDirectionRow,
+  renderPrimaryRow,
   setupPanFocusUI
 } from "./panFocusUI.js";
+
+let modelsReadyPromise = null;
 
 export function initPanFocusPage(root, shared = {}){
   return renderPanFocusPage(root, shared.goHome || shared.navigate || (() => {}));
@@ -43,7 +45,7 @@ export async function renderPanFocusPage(root, navigate){
 
         <div class="topbar-title">
           <h1>追焦</h1>
-          <p class="crystal-version" aria-hidden="true">v0.1.5</p>
+          <p class="crystal-version" aria-hidden="true">v0.1.7</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -66,7 +68,7 @@ export async function renderPanFocusPage(root, navigate){
           </button>
           <div class="empty-canvas" id="emptyCanvas">
             請點右上方開啟照片
-            <span class="pan-focus-hint">首次需下載 AI 模型（約 7MB），請保持網路連線</span>
+            <span class="pan-focus-hint">請先選擇「汽車」或「機車、自行車」；首次使用會下載 AI 模型</span>
           </div>
           <canvas id="editorCanvas" class="hidden crystal-canvas pan-focus-canvas"></canvas>
           <div class="magic-sky-analyzing hidden" id="panFocusProcessingOverlay" role="status" aria-live="polite" aria-busy="false">
@@ -78,11 +80,11 @@ export async function renderPanFocusPage(root, navigate){
           </div>
         </div>
 
-        <p class="note hidden" id="panFocusHint">汽車／機車／自行車與騎士保持清晰。汽車與自行車會再以去背模型精修；若前輪或騎士仍被拖影，可提高「主體擴張」與「主體靈敏度」</p>
+        <p class="note hidden" id="panFocusHint">請選擇車輛類型後套用追焦。按「調整項目」可分別設定向左／向右拖影與邊緣參數。</p>
         <p class="note pan-focus-status hidden" id="panFocusStatus" role="status"></p>
 
-        <div class="hidden" id="panFocusDirectionBar" aria-label="追焦方向">
-          ${renderDirectionRow()}
+        <div class="hidden" id="panFocusPrimaryBar" aria-label="追焦模式">
+          ${renderPrimaryRow()}
         </div>
 
         <div id="panFocusAdjustPanel" class="crystal-tab-panels pan-focus-adjust-panel hidden" aria-label="參數調整">
@@ -123,12 +125,6 @@ export async function renderPanFocusPage(root, navigate){
   let renderTask = null;
   let panFocusUi = null;
 
-  preloadPanFocusSegmentModel(message => {
-    if (processing.isActive()) processing.setMessage(message);
-  }).catch(error => {
-    console.warn("[F9 追焦] AI 模型預載失敗：", error);
-  });
-
   const applyCanvasSize = size => {
     outputSize = size;
     canvas.width = size.width;
@@ -148,32 +144,62 @@ export async function renderPanFocusPage(root, navigate){
     statusEl.classList.remove("hidden");
   };
 
+  const vehicleLabel = mode => (mode === "rider" ? "機車、自行車" : "汽車");
+
   const describeSubjects = entry => {
-    if (!entry?.classCounts) return "";
+    if (!entry?.classCounts) return vehicleLabel(state.vehicleMode);
     const labels = [];
-    if (entry.classCounts.car > 0) labels.push(entry.usedMatte && entry.sceneKind === "car" ? "汽車（去背精修）" : "汽車");
-    if (entry.classCounts.motorbike > 0) labels.push("機車");
-    if (entry.classCounts.bicycle > 0) {
-      labels.push(entry.usedMatte && entry.sceneKind === "rider" ? "自行車（去背精修）" : "自行車");
+    if (state.vehicleMode === "car") {
+      labels.push(entry.usedMatte ? "汽車（去背精修）" : "汽車");
+    } else {
+      if (entry.classCounts.motorbike > 0) labels.push("機車");
+      if (entry.classCounts.bicycle > 0 || labels.length === 0) {
+        labels.push(entry.usedMatte ? "自行車（去背精修）" : "自行車");
+      }
+      if (entry.classCounts.person > 0) labels.push("騎士／人物");
     }
-    if (entry.classCounts.bus > 0) labels.push("巴士");
-    if (entry.classCounts.person > 0) labels.push("騎士／人物");
     return labels.join("、");
   };
 
-  const ensureMaskForCurrentPhoto = async () => {
+  const ensureModels = async () => {
+    if (!modelsReadyPromise) {
+      modelsReadyPromise = ensurePanFocusModelsReady(message => {
+        if (processing.isActive()) processing.setMessage(message || "模型下載中請稍後");
+      }).catch(error => {
+        modelsReadyPromise = null;
+        throw error;
+      });
+    }
+    return modelsReadyPromise;
+  };
+
+  const maskOptions = () => ({
+    vehicleMode: state.vehicleMode === "rider" ? "rider" : "car",
+    subjectThreshold: state.subjectThreshold,
+    subjectExpand: state.subjectExpand,
+    edgeFeather: Math.max(2, Math.round(Number(state.edgeFeather || 0) * 0.22))
+  });
+
+  const ensureMaskForCurrentPhoto = async ({ showDownload = false } = {}) => {
     if (!sourceImage || !photoKey) return null;
 
     const serial = ++analyzeSerial;
-    processing.begin("分析主體中…", 0);
+    processing.begin(showDownload ? "模型下載中請稍後" : "分析主體中…", 0);
     try {
+      if (showDownload) {
+        await ensureModels();
+        if (serial !== analyzeSerial) return maskEntry;
+      }
       const reportStage = processing.bindStageStatus();
       const entry = await ensurePanFocusMask(sourceImage, photoKey, {
-        subjectThreshold: state.subjectThreshold,
-        subjectExpand: state.subjectExpand,
-        edgeFeather: Math.max(2, Math.round(Number(state.edgeFeather || 0) * 0.22)),
+        ...maskOptions(),
         onStatus: message => {
-          if (serial === analyzeSerial) reportStage(message);
+          if (serial !== analyzeSerial) return;
+          if (/下載|載入|初始化|快取/.test(String(message || ""))) {
+            reportStage("模型下載中請稍後");
+          } else {
+            reportStage(message);
+          }
         }
       });
       if (serial !== analyzeSerial) return maskEntry;
@@ -197,14 +223,9 @@ export async function renderPanFocusPage(root, navigate){
     canvas.width = outputSize.width;
     canvas.height = outputSize.height;
 
-    // Rebuild mask when threshold / expand / feather change (analysis cached).
     if (photoKey) {
       try {
-        maskEntry = await ensurePanFocusMask(sourceImage, photoKey, {
-          subjectThreshold: state.subjectThreshold,
-          subjectExpand: state.subjectExpand,
-          edgeFeather: Math.max(2, Math.round(Number(state.edgeFeather || 0) * 0.22))
-        });
+        maskEntry = await ensurePanFocusMask(sourceImage, photoKey, maskOptions());
       } catch (error) {
         console.warn("[F9 追焦] 遮罩更新失敗：", error);
       }
@@ -214,10 +235,10 @@ export async function renderPanFocusPage(root, navigate){
       const result = await renderPanFocus(ctx, sourceImage, state, maskEntry);
       if (serial !== renderSerial) return;
       if (!result?.applied && result?.reason === "no-subject") {
-        setStatus("找不到汽車／機車／自行車／騎士，請換一張主體更清楚的照片，或提高「主體靈敏度」。");
+        setStatus(`找不到${vehicleLabel(state.vehicleMode)}主體，請換一張更清楚的照片，或提高「主體靈敏度」。`);
       } else if (result?.applied) {
         const subjects = describeSubjects(maskEntry);
-        const directionText = (result.direction || state.panDirection) === "right" ? "向右" : "向左";
+        const directionText = result.direction === "left" ? "向左" : "向右";
         setStatus(subjects
           ? `已套用追焦（${subjects}，${directionText}拖影）`
           : `已套用追焦（${directionText}拖影）`);
@@ -248,10 +269,11 @@ export async function renderPanFocusPage(root, navigate){
   const showEditor = () => {
     root.querySelector("#emptyCanvas")?.classList.add("hidden");
     canvas.classList.remove("hidden");
-    root.querySelector("#panFocusDirectionBar")?.classList.remove("hidden");
-    root.querySelector("#panFocusAdjustPanel")?.classList.remove("hidden");
+    root.querySelector("#panFocusPrimaryBar")?.classList.remove("hidden");
     root.querySelector("#panFocusHint")?.classList.remove("hidden");
     root.querySelector("#resetPanFocusSettingsBtn")?.classList.remove("hidden");
+    // Adjust panel visibility is controlled by primaryMode === "adjust".
+    panFocusUi?.refreshAllControls?.();
   };
 
   const persistDraft = () => {
@@ -268,7 +290,7 @@ export async function renderPanFocusPage(root, navigate){
     Object.assign(state, updatePanFocusState(createDefaultPanFocusState(), {}));
     root.querySelector("#emptyCanvas")?.classList.remove("hidden");
     canvas.classList.add("hidden");
-    root.querySelector("#panFocusDirectionBar")?.classList.add("hidden");
+    root.querySelector("#panFocusPrimaryBar")?.classList.add("hidden");
     root.querySelector("#panFocusAdjustPanel")?.classList.add("hidden");
     root.querySelector("#panFocusHint")?.classList.add("hidden");
     root.querySelector("#resetPanFocusSettingsBtn")?.classList.add("hidden");
@@ -286,11 +308,27 @@ export async function renderPanFocusPage(root, navigate){
     persistDraft();
   };
 
+  const applyVehicleMode = async (mode, previousMode) => {
+    if (!sourceImage) return;
+    const changed = mode !== previousMode;
+    if (changed) {
+      maskEntry = null;
+      clearPanFocusMaskCache();
+    }
+    const mask = await ensureMaskForCurrentPhoto({ showDownload: true });
+    if (!mask) {
+      await render();
+      setStatus("主體分析未完成，可再試一次或換一張照片。");
+      persistDraft();
+      return;
+    }
+    await renderAndPersist();
+  };
+
   const openPhoto = async (dataUrl, statePartial) => {
     const serial = ++openSerial;
     const image = await loadImageFromDataUrl(dataUrl);
     if (serial !== openSerial) return false;
-    // Always work on a capped canvas — full camera megapixels freeze / crash mobile.
     const working = createWorkingSource(image);
     if (serial !== openSerial) return false;
     sourceImage = working;
@@ -321,14 +359,14 @@ export async function renderPanFocusPage(root, navigate){
       const dataUrl = await fileToDataUrl(file);
       const applied = await openPhoto(dataUrl, {
         sourceImageDataUrl: dataUrl,
-        maskPhotoKey: null
+        maskPhotoKey: null,
+        primaryMode: state.vehicleMode || "car"
       });
       if (!applied) return;
       showEditor();
       panFocusUi?.refreshAllControls?.();
-      const mask = await ensureMaskForCurrentPhoto();
+      const mask = await ensureMaskForCurrentPhoto({ showDownload: true });
       if (!mask) {
-        // Still show the original photo so the page never kicks users home.
         await render();
         setStatus("主體分析未完成，可再試一次或換一張照片。");
         persistDraft();
@@ -338,13 +376,14 @@ export async function renderPanFocusPage(root, navigate){
     } catch (error) {
       console.error("[F9 追焦] 開啟照片失敗：", error);
       alert("照片開啟失敗，請換一張圖片再試。");
-      // Keep the editor page; do not navigate away.
     } finally {
       imageInput.value = "";
     }
   });
 
-  panFocusUi = setupPanFocusUI(root, state, renderAndPersist, persistDraft);
+  panFocusUi = setupPanFocusUI(root, state, renderAndPersist, persistDraft, {
+    onVehicleModeChange: applyVehicleMode
+  });
 
   root.querySelector("#savePhotoBtn")?.addEventListener("click", async event => {
     event.preventDefault();
@@ -388,7 +427,7 @@ export async function renderPanFocusPage(root, navigate){
       const applied = await openPhoto(state.sourceImageDataUrl);
       if (!applied) return;
       showEditor();
-      await ensureMaskForCurrentPhoto();
+      await ensureMaskForCurrentPhoto({ showDownload: true });
       await render();
       panFocusUi?.refreshAllControls?.();
     } catch (error) {

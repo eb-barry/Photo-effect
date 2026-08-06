@@ -2340,17 +2340,23 @@ body.magic-sky-scroll-locked {
   user-select: auto;
 }
 
-/* F9 追焦 v0.1.0 */
+/* F9 追焦 v0.1.7 */
 .pan-focus-page {
   overflow-x: hidden;
   overscroll-behavior-x: none;
 }
 
-.pan-focus-page .pan-focus-direction-row {
+.pan-focus-page .pan-focus-primary-row {
   margin: 0 0 10px;
 }
 
-.pan-focus-page #panFocusDirectionBar {
+.pan-focus-page .pan-focus-primary-row button {
+  font-size: 0.92rem;
+  line-height: 1.25;
+  padding: 12px 8px;
+}
+
+.pan-focus-page #panFocusPrimaryBar {
   margin-bottom: 4px;
 }
 
@@ -2468,4 +2474,11 @@ body.magic-sky-scroll-locked {
 .pan-focus-page input {
   -webkit-user-select: auto;
   user-select: auto;
+}
+
+@media (max-width: 380px) {
+  .pan-focus-page .pan-focus-primary-row button {
+    font-size: 0.82rem;
+    padding: 11px 4px;
+  }
 }

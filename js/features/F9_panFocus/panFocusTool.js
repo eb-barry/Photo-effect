@@ -1,4 +1,4 @@
-// F9 追焦 - Canvas 影像處理 v0.1.6
+// F9 追焦 - Canvas 影像處理 v0.1.7
 // 方案 A：主體遮罩清晰 + 背景水平運動模糊。
 // 模糊前先填補主體區域，避免車體／騎士顏色拖進背景拖影。
 
@@ -80,7 +80,9 @@ export async function renderPanFocus(ctx, sourceImage, state, maskEntry = null){
   }
 
   const sourceCanvas = drawSourceToCanvas(sourceImage, width, height);
-  const blurStrength = clamp(Number(state.blurStrength ?? 62), 0, 100);
+  const panBlur = resolvePanBlurFromState(state);
+  const blurStrength = panBlur.blurStrength;
+  const direction = panBlur.direction;
 
   if (!maskEntry?.maskCanvas || maskEntry.subjectCoverage < 0.004) {
     ctx.drawImage(sourceCanvas, 0, 0);
@@ -89,10 +91,9 @@ export async function renderPanFocus(ctx, sourceImage, state, maskEntry = null){
 
   if (blurStrength <= 0) {
     ctx.drawImage(sourceCanvas, 0, 0);
-    return { applied: true, reason: "zero-blur", coverage: maskEntry.subjectCoverage };
+    return { applied: true, reason: "zero-blur", coverage: maskEntry.subjectCoverage, direction };
   }
 
-  const direction = resolveRenderDirection(state, maskEntry);
   let blurred;
   try {
     // Fill subject area before blur so rider/bike colors do not smear into streaks.
@@ -114,10 +115,20 @@ export async function renderPanFocus(ctx, sourceImage, state, maskEntry = null){
   };
 }
 
-function resolveRenderDirection(state, maskEntry){
-  const requested = state.panDirection || "auto";
-  if (requested === "left" || requested === "right") return requested;
-  return maskEntry?.resolvedDirection === "right" ? "right" : "left";
+function resolvePanBlurFromState(state){
+  const right = clamp(Number(state?.blurRightStrength ?? state?.blurStrength ?? 0), 0, 100);
+  const left = clamp(Number(state?.blurLeftStrength ?? 0), 0, 100);
+  if (right <= 0 && left <= 0) {
+    // Legacy single blurStrength + panDirection
+    const legacy = clamp(Number(state?.blurStrength ?? 0), 0, 100);
+    if (legacy > 0) {
+      const dir = state?.panDirection === "left" ? "left" : "right";
+      return { direction: dir, blurStrength: legacy };
+    }
+    return { direction: "right", blurStrength: 0 };
+  }
+  if (right >= left) return { direction: "right", blurStrength: right };
+  return { direction: "left", blurStrength: left };
 }
 
 function drawSourceToCanvas(sourceImage, width, height){
