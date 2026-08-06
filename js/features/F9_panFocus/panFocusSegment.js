@@ -276,11 +276,13 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
 
   // Morphological close: fill spokes / small gaps / car body holes.
   let maskCanvas = alphaToMaskCanvas(alpha, width, height);
-  const closeRadius = treatAsCar
-    ? Math.max(6, Math.round(Math.min(width, height) * 0.018))
-    : (analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike
-      ? Math.max(4, Math.round(Math.min(width, height) * 0.012))
-      : 2);
+  const closeRadius = preferMatte
+    ? Math.max(3, Math.round(Math.min(width, height) * 0.008))
+    : (treatAsCar
+      ? Math.max(6, Math.round(Math.min(width, height) * 0.018))
+      : (analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike
+        ? Math.max(4, Math.round(Math.min(width, height) * 0.012))
+        : 2));
   maskCanvas = closeMaskCanvas(maskCanvas, closeRadius);
 
   // Extra hole-fill pass for cars after closing.
@@ -288,13 +290,23 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     maskCanvas = fillMaskCanvasHoles(maskCanvas);
   }
 
-  const autoExpand = treatAsCar
-    ? Math.max(expandPx, Math.round(6 + threshold * 6))
-    : ((analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike)
-      ? Math.max(expandPx, Math.round(6 + threshold * 10))
-      : expandPx);
+  // Matte silhouettes are already complete — avoid fat sharp halos around the car.
+  const autoExpand = preferMatte
+    ? Math.max(0, expandPx)
+    : (treatAsCar
+      ? Math.max(expandPx, Math.round(6 + threshold * 6))
+      : ((analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike)
+        ? Math.max(expandPx, Math.round(6 + threshold * 10))
+        : expandPx));
+  if (preferMatte && autoExpand <= 2) {
+    // Slightly tighten over-inclusive matte edges before optional expand.
+    maskCanvas = erodeMaskCanvas(maskCanvas, 1);
+  }
   if (autoExpand > 0) maskCanvas = dilateMaskCanvas(maskCanvas, autoExpand);
-  if (featherPx > 0) maskCanvas = featherMaskCanvas(maskCanvas, featherPx);
+  if (featherPx > 0) {
+    const feather = preferMatte ? Math.max(1, Math.round(featherPx * 0.55)) : featherPx;
+    maskCanvas = featherMaskCanvas(maskCanvas, feather);
+  }
 
   const finalCoverage = estimateMaskCoverage(maskCanvas);
   const classCounts = { ...analysis.classCounts };
