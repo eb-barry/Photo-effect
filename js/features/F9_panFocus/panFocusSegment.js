@@ -1,4 +1,4 @@
-// F9 追焦 - AI 主體分割 v0.1.4
+// F9 追焦 - AI 主體分割 v0.1.5
 // DeepLabV3-MobileViT（類別）+ U2-Netp（汽車／主體去背精修）+ 細結構復原。
 
 const ORT_VERSION = "1.22.0";
@@ -8,7 +8,7 @@ const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
 /** General object matting (~4.5MB). Much better car silhouettes than VOC DeepLab alone. */
 const MATTE_MODEL_URL = "https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx";
 const MATTE_CACHE_NAME = "photo-effects-panfocus-u2netp-v1";
-const MASK_PIPELINE_VERSION = 5;
+const MASK_PIPELINE_VERSION = 6;
 const INPUT_SIZE = 512;
 const MATTE_SIZE = 320;
 const MATTE_MEAN = [0.485, 0.456, 0.406];
@@ -198,21 +198,25 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   const vehicleFloor = 0.48 - threshold * 0.4;
   const carFloor = 0.10 + (1 - threshold) * 0.08;
   const thinFloor = 0.04 + (1 - threshold) * 0.08;
-  const matteFloor = 0.50 - threshold * 0.22;
+  const matteFloor = preferMatte
+    ? 0.58 - threshold * 0.16
+    : 0.50 - threshold * 0.22;
 
   const alpha = new Uint8ClampedArray(width * height);
   let kept = 0;
 
   if (preferMatte) {
     // U2-Netp silhouette is the primary car body; DeepLab only supplements.
+    // Use a stricter matte floor so soft building/sky leaks stay out.
     for (let i = 0; i < alpha.length; i += 1) {
       const matte = analysis.matteScore[i];
       const person = analysis.personScore[i];
       const car = Math.max(analysis.carScore[i], analysis.busScore[i]);
       let score = 0;
-      if (matte >= matteFloor) score = Math.max(score, Math.min(1, matte * 1.05));
+      if (matte >= matteFloor) score = Math.max(score, Math.min(1, matte * 1.02));
       if (car >= carFloor) score = Math.max(score, Math.min(1, Math.max(car * 1.35, 0.62)));
-      if (person >= personFloor && matte > 0.18) score = Math.max(score, person);
+      // Person only if it sits on a confident matte core (driver), not building fragments.
+      if (person >= personFloor && matte > 0.45) score = Math.max(score, person);
       if (score <= 0) {
         alpha[i] = 0;
         continue;
@@ -248,9 +252,10 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   const treatAsCar = preferMatte || hasCarOrBus;
 
   // Cars/buses often have holes in DeepLab masks (especially light-colored bodies).
-  if (treatAsCar) {
+  // On matte path, skip aggressive solidify+hole-fill — it merges roof leaks into buildings.
+  if (treatAsCar && !preferMatte) {
     try {
-      solidifyVehicleBody(alpha, analysis, width, height, preferMatte);
+      solidifyVehicleBody(alpha, analysis, width, height, false);
     } catch (error) {
       console.warn("[F9 追焦] 汽車實心遮罩略過：", error);
     }
@@ -277,7 +282,7 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   // Morphological close: fill spokes / small gaps / car body holes.
   let maskCanvas = alphaToMaskCanvas(alpha, width, height);
   const closeRadius = preferMatte
-    ? Math.max(3, Math.round(Math.min(width, height) * 0.008))
+    ? Math.max(2, Math.round(Math.min(width, height) * 0.005))
     : (treatAsCar
       ? Math.max(6, Math.round(Math.min(width, height) * 0.018))
       : (analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike
@@ -285,26 +290,36 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
         : 2));
   maskCanvas = closeMaskCanvas(maskCanvas, closeRadius);
 
-  // Extra hole-fill pass for cars after closing.
-  if (treatAsCar) {
+  // Extra hole-fill only for DeepLab car masks. Matte+fill often seals buildings
+  // above the roof into one sharp column.
+  if (treatAsCar && !preferMatte) {
     maskCanvas = fillMaskCanvasHoles(maskCanvas);
+  }
+
+  if (treatAsCar) {
+    try {
+      maskCanvas = keepPrimaryVehicleComponent(maskCanvas);
+      maskCanvas = trimUpwardBleedAboveVehicle(maskCanvas);
+    } catch (error) {
+      console.warn("[F9 追焦] 汽車遮罩裁切略過：", error);
+    }
   }
 
   // Matte silhouettes are already complete — avoid fat sharp halos around the car.
   const autoExpand = preferMatte
-    ? Math.max(0, expandPx)
+    ? Math.max(0, Math.min(expandPx, 6))
     : (treatAsCar
       ? Math.max(expandPx, Math.round(6 + threshold * 6))
       : ((analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike)
         ? Math.max(expandPx, Math.round(6 + threshold * 10))
         : expandPx));
-  if (preferMatte && autoExpand <= 2) {
-    // Slightly tighten over-inclusive matte edges before optional expand.
-    maskCanvas = erodeMaskCanvas(maskCanvas, 1);
+  if (preferMatte) {
+    // Tighten over-inclusive matte edges (buildings / poles above roof).
+    maskCanvas = erodeMaskCanvas(maskCanvas, autoExpand <= 2 ? 2 : 1);
   }
   if (autoExpand > 0) maskCanvas = dilateMaskCanvas(maskCanvas, autoExpand);
   if (featherPx > 0) {
-    const feather = preferMatte ? Math.max(1, Math.round(featherPx * 0.55)) : featherPx;
+    const feather = preferMatte ? Math.max(1, Math.round(featherPx * 0.45)) : featherPx;
     maskCanvas = featherMaskCanvas(maskCanvas, feather);
   }
 
@@ -362,8 +377,8 @@ function solidifyVehicleBody(alpha, analysis, width, height, preferMatte = false
     if (
       hard
       || car > 0.08
-      || matte > (preferMatte ? 0.28 : 0.45)
-      || (alpha[i] > 90 && (analysis.vehicleScore[i] > 0.18 || matte > 0.22))
+      || matte > (preferMatte ? 0.48 : 0.45)
+      || (alpha[i] > 90 && (analysis.vehicleScore[i] > 0.18 || matte > 0.40))
     ) {
       seed[i] = 1;
     }
@@ -380,6 +395,155 @@ function solidifyVehicleBody(alpha, analysis, width, height, preferMatte = false
   for (let i = 0; i < width * height; i += 1) {
     if (data[i * 4 + 3] > 40) alpha[i] = 255;
   }
+}
+
+/**
+ * Keep the largest mask blob that sits in the lower/mid frame (the vehicle),
+ * dropping detached building/sky fragments.
+ */
+function keepPrimaryVehicleComponent(maskCanvas){
+  const width = maskCanvas.width;
+  const height = maskCanvas.height;
+  const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  const binary = new Uint8Array(width * height);
+  for (let i = 0; i < binary.length; i += 1) {
+    if (data[i * 4 + 3] > 40) binary[i] = 1;
+  }
+
+  const components = labelComponents(binary, width, height, Math.max(80, width * height * 0.0004));
+  if (components.length <= 1) return maskCanvas;
+
+  let best = null;
+  let bestScore = -1;
+  for (const box of components) {
+    const cy = (box.y0 + box.y1) * 0.5;
+    // Prefer components whose center is not in the top sky band.
+    const verticalBias = cy < height * 0.22 ? 0.35 : 1;
+    const score = box.area * verticalBias;
+    if (score > bestScore) {
+      bestScore = score;
+      best = box;
+    }
+  }
+  if (!best) return maskCanvas;
+
+  const keep = new Uint8Array(width * height);
+  floodKeepComponent(binary, keep, width, height, best);
+  for (let i = 0; i < keep.length; i += 1) {
+    if (!keep[i]) data[i * 4 + 3] = 0;
+  }
+  ctx.putImageData(image, 0, 0);
+  return maskCanvas;
+}
+
+function floodKeepComponent(binary, keep, width, height, box){
+  // Re-label only inside bbox seed: find any seed pixel in box and flood.
+  const stack = new Int32Array(width * height);
+  let top = 0;
+  let seed = -1;
+  for (let y = box.y0; y <= box.y1 && seed < 0; y += 1) {
+    for (let x = box.x0; x <= box.x1; x += 1) {
+      const idx = y * width + x;
+      if (binary[idx]) {
+        seed = idx;
+        break;
+      }
+    }
+  }
+  if (seed < 0) return;
+  keep[seed] = 1;
+  stack[top++] = seed;
+  while (top > 0) {
+    const idx = stack[--top];
+    const x = idx % width;
+    const y = (idx - x) / width;
+    const tryPush = n => {
+      if (n < 0 || n >= binary.length || !binary[n] || keep[n]) return;
+      keep[n] = 1;
+      stack[top++] = n;
+    };
+    if (x > 0) tryPush(idx - 1);
+    if (x + 1 < width) tryPush(idx + 1);
+    if (y > 0) tryPush(idx - width);
+    if (y + 1 < height) tryPush(idx + width);
+  }
+}
+
+/**
+ * Cut vertical matte leaks into buildings/poles above the car roof.
+ * Uses the row-width profile: roof is where the span collapses above the widest body row.
+ */
+function trimUpwardBleedAboveVehicle(maskCanvas){
+  const width = maskCanvas.width;
+  const height = maskCanvas.height;
+  const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+
+  const rowSpan = new Float32Array(height);
+  const rowCount = new Float32Array(height);
+  let maxSpan = 0;
+  let peakY = 0;
+  for (let y = 0; y < height; y += 1) {
+    let minX = width;
+    let maxX = -1;
+    let count = 0;
+    const row = y * width;
+    for (let x = 0; x < width; x += 1) {
+      if (data[(row + x) * 4 + 3] > 40) {
+        count += 1;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+      }
+    }
+    rowCount[y] = count;
+    const span = maxX >= minX ? (maxX - minX + 1) : 0;
+    rowSpan[y] = span;
+    // Prefer peak in the lower 85% so sky leaks do not dominate.
+    if (span > maxSpan && y > height * 0.12) {
+      maxSpan = span;
+      peakY = y;
+    }
+  }
+
+  if (maxSpan < width * 0.08) return maskCanvas;
+
+  const spanFloor = maxSpan * 0.38;
+  const countFloor = Math.max(8, maxSpan * 0.18);
+  let roofY = peakY;
+  let thinRun = 0;
+  for (let y = peakY - 1; y >= 0; y -= 1) {
+    if (rowSpan[y] < spanFloor || rowCount[y] < countFloor) {
+      thinRun += 1;
+      if (thinRun >= 2) {
+        roofY = y + 2;
+        break;
+      }
+    } else {
+      thinRun = 0;
+      roofY = y;
+    }
+  }
+
+  // Small margin for roof rails / antennas; clear everything above.
+  const clearAbove = Math.max(0, roofY - Math.round(height * 0.012));
+  if (clearAbove <= 0) return maskCanvas;
+
+  // Only trim when a meaningful vertical leak exists (mask reaches well above roof).
+  let leak = 0;
+  for (let y = 0; y < clearAbove; y += 1) leak += rowCount[y];
+  if (leak < width * height * 0.004) return maskCanvas;
+
+  for (let y = 0; y < clearAbove; y += 1) {
+    const row = y * width;
+    for (let x = 0; x < width; x += 1) {
+      data[(row + x) * 4 + 3] = 0;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  return maskCanvas;
 }
 
 function binaryToMaskCanvas(binary, width, height){

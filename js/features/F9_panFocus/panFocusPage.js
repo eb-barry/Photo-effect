@@ -1,4 +1,4 @@
-// F9 追焦 - Page Controller v0.1.4
+// F9 追焦 - Page Controller v0.1.5
 // 方案 A：DeepLab 類別 + U2-Netp 汽車去背 + 背景水平運動模糊。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -43,7 +43,7 @@ export async function renderPanFocusPage(root, navigate){
 
         <div class="topbar-title">
           <h1>追焦</h1>
-          <p class="crystal-version" aria-hidden="true">v0.1.4</p>
+          <p class="crystal-version" aria-hidden="true">v0.1.5</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -78,7 +78,7 @@ export async function renderPanFocusPage(root, navigate){
           </div>
         </div>
 
-        <p class="note hidden" id="panFocusHint">汽車／機車／自行車與騎士保持清晰；汽車會再以去背模型精修輪廓。若邊緣仍不完整，可提高「主體擴張」與「主體靈敏度」</p>
+        <p class="note hidden" id="panFocusHint">汽車／機車／自行車與騎士保持清晰；汽車會再以去背模型精修輪廓。若車頂上方建築物仍清晰，可降低「主體擴張」；若邊緣不完整，可提高「主體靈敏度」</p>
         <p class="note pan-focus-status hidden" id="panFocusStatus" role="status"></p>
 
         <div class="hidden" id="panFocusDirectionBar" aria-label="追焦方向">
