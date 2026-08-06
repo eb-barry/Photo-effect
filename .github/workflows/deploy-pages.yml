@@ -1,5 +1,5 @@
 # Deploy the static Photo Effects site to GitHub Pages.
-# After merging: Settings → Pages → Source → GitHub Actions
+# Settings → Pages → Source must be "GitHub Actions" (not "Deploy from a branch").
 name: Deploy GitHub Pages
 
 on:
@@ -18,10 +18,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  # Official pattern: upload in build, deploy in a separate job.
+  # Attempt-scoped artifact names avoid "Multiple artifacts named github-pages"
+  # when upload retries or a job is re-run within the same workflow run.
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -46,10 +46,22 @@ jobs:
           touch _site/.nojekyll
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        id: upload
+        uses: actions/upload-pages-artifact@v5
         with:
           path: _site
+          name: github-pages-${{ github.run_attempt }}
+          include-hidden-files: true
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
