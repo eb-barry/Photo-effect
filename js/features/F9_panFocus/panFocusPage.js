@@ -78,7 +78,7 @@ export async function renderPanFocusPage(root, navigate){
           </div>
         </div>
 
-        <p class="note hidden" id="panFocusHint">汽車／機車／自行車與騎士保持清晰；汽車會再以去背模型精修輪廓。若車頂上方建築物仍清晰，可降低「主體擴張」；若邊緣不完整，可提高「主體靈敏度」</p>
+        <p class="note hidden" id="panFocusHint">汽車／機車／自行車與騎士保持清晰。汽車與自行車會再以去背模型精修；若前輪或騎士仍被拖影，可提高「主體擴張」與「主體靈敏度」</p>
         <p class="note pan-focus-status hidden" id="panFocusStatus" role="status"></p>
 
         <div class="hidden" id="panFocusDirectionBar" aria-label="追焦方向">
@@ -151,9 +151,11 @@ export async function renderPanFocusPage(root, navigate){
   const describeSubjects = entry => {
     if (!entry?.classCounts) return "";
     const labels = [];
-    if (entry.classCounts.car > 0) labels.push(entry.usedMatte ? "汽車（去背精修）" : "汽車");
+    if (entry.classCounts.car > 0) labels.push(entry.usedMatte && entry.sceneKind === "car" ? "汽車（去背精修）" : "汽車");
     if (entry.classCounts.motorbike > 0) labels.push("機車");
-    if (entry.classCounts.bicycle > 0) labels.push("自行車");
+    if (entry.classCounts.bicycle > 0) {
+      labels.push(entry.usedMatte && entry.sceneKind === "rider" ? "自行車（去背精修）" : "自行車");
+    }
     if (entry.classCounts.bus > 0) labels.push("巴士");
     if (entry.classCounts.person > 0) labels.push("騎士／人物");
     return labels.join("、");

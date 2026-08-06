@@ -1,14 +1,14 @@
-// F9 追焦 - AI 主體分割 v0.1.5
-// DeepLabV3-MobileViT（類別）+ U2-Netp（汽車／主體去背精修）+ 細結構復原。
+// F9 追焦 - AI 主體分割 v0.1.6
+// DeepLabV3-MobileViT（類別）+ U2-Netp（汽車去背）+ 騎士／自行車細結構復原。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/Xenova/deeplabv3-mobilevit-small/resolve/main/onnx/model_quantized.onnx";
 const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
-/** General object matting (~4.5MB). Much better car silhouettes than VOC DeepLab alone. */
+/** General object matting (~4.5MB). Used for cars; also soft-unions rider/bike silhouettes. */
 const MATTE_MODEL_URL = "https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx";
 const MATTE_CACHE_NAME = "photo-effects-panfocus-u2netp-v1";
-const MASK_PIPELINE_VERSION = 6;
+const MASK_PIPELINE_VERSION = 7;
 const INPUT_SIZE = 512;
 const MATTE_SIZE = 320;
 const MATTE_MEAN = [0.485, 0.456, 0.406];
@@ -107,23 +107,32 @@ async function ensureAnalysis(sourceImage, key, onStatus){
   const resolvedDirection = resolveAutoDirection(upscaled.subjectScore, width, height);
   const carSoftMax = Math.max(maxArray(upscaled.carScore), maxArray(upscaled.busScore));
   const thinSoftMax = Math.max(maxArray(upscaled.bicycleScore), maxArray(upscaled.motorbikeScore));
-  const needsThinRecovery = (
+  const sceneKind = detectSceneKind({
+    width,
+    height,
+    classCounts,
+    carSoftMax,
+    thinSoftMax,
+    personScore: upscaled.personScore,
+    subjectCoverage
+  });
+  const needsThinRecovery = sceneKind === "rider" || ((
     classCounts.bicycle > 0
     || classCounts.motorbike > 0
     || classCounts.person > 0
-  ) && classCounts.car === 0 && classCounts.bus === 0 && carSoftMax < 0.08;
+  ) && classCounts.car === 0 && classCounts.bus === 0 && carSoftMax < 0.08);
 
   let matteScore = null;
   let usedMatte = false;
-  if (shouldRunCarMatte(classCounts, carSoftMax, thinSoftMax, subjectCoverage)) {
+  if (shouldRunMatte(sceneKind, classCounts, carSoftMax, thinSoftMax, subjectCoverage)) {
     try {
-      onStatus("精修汽車去背…");
+      onStatus(sceneKind === "rider" ? "精修騎士／自行車去背…" : "精修汽車去背…");
       const matteSession = await ensureMatteSession(onStatus);
       matteScore = await runMatteInference(matteSession, sourceImage, width, height);
-      usedMatte = countCoverage(matteScore, width, height, 0.42) >= 0.04;
+      usedMatte = countCoverage(matteScore, width, height, 0.35) >= 0.03;
       if (!usedMatte) matteScore = null;
     } catch (error) {
-      console.warn("[F9 追焦] 汽車去背略過：", error);
+      console.warn("[F9 追焦] 去背模型略過：", error);
       matteScore = null;
       usedMatte = false;
     }
@@ -142,6 +151,7 @@ async function ensureAnalysis(sourceImage, key, onStatus){
     vehicleScore: upscaled.vehicleScore,
     matteScore,
     usedMatte,
+    sceneKind,
     subjectCoverage,
     resolvedDirection,
     classCounts,
@@ -169,45 +179,56 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   const width = analysis.width;
   const height = analysis.height;
 
-  const hasCarOrBus = analysis.classCounts.car > 0
+  const carSoftMax = Math.max(maxArray(analysis.carScore), maxArray(analysis.busScore));
+  const thinSoftMax = maxFloat(analysis.bicycleScore, analysis.motorbikeScore);
+  const sceneKind = analysis.sceneKind || detectSceneKind({
+    width,
+    height,
+    classCounts: analysis.classCounts,
+    carSoftMax,
+    thinSoftMax,
+    personScore: analysis.personScore,
+    subjectCoverage: analysis.subjectCoverage
+  });
+  const hasCarOrBus = sceneKind === "car" && (
+    analysis.classCounts.car > 0
     || analysis.classCounts.bus > 0
-    || maxArray(analysis.carScore) > 0.10
-    || maxArray(analysis.busScore) > 0.10;
-  const hasThinVehicle = analysis.classCounts.bicycle > 0
+    || carSoftMax > 0.10
+  );
+  const hasThinVehicle = sceneKind === "rider" || analysis.classCounts.bicycle > 0
     || analysis.classCounts.motorbike > 0
-    || maxFloat(analysis.bicycleScore, analysis.motorbikeScore) > 0.08;
+    || thinSoftMax > 0.05;
   const matteCoverage = analysis.matteScore
     ? countCoverage(analysis.matteScore, width, height, 0.42)
     : 0;
+  // Car-only: never take the matte-primary path for bikes/riders (it trims heads/wheels).
   const preferMatte = Boolean(
-    analysis.matteScore
+    sceneKind === "car"
+    && analysis.matteScore
     && matteCoverage >= 0.05
     && matteCoverage <= 0.62
-    && (
-      hasCarOrBus
-      || (!hasThinVehicle && (
-        analysis.classCounts.person > 0
-        || analysis.subjectCoverage < 0.10
-        || matteCoverage > analysis.subjectCoverage * 1.35
-      ))
-    )
   );
+  const treatAsCar = sceneKind === "car" && (preferMatte || hasCarOrBus);
+  const treatAsRider = sceneKind === "rider" || (!treatAsCar && hasThinVehicle);
 
   // Higher slider = more sensitive (keeps weaker subject pixels).
-  const personFloor = 0.72 - threshold * 0.5;
+  const personFloor = treatAsRider
+    ? 0.55 - threshold * 0.42
+    : 0.72 - threshold * 0.5;
   const vehicleFloor = 0.48 - threshold * 0.4;
   const carFloor = 0.10 + (1 - threshold) * 0.08;
-  const thinFloor = 0.04 + (1 - threshold) * 0.08;
+  const thinFloor = treatAsRider
+    ? 0.02 + (1 - threshold) * 0.05
+    : 0.04 + (1 - threshold) * 0.08;
   const matteFloor = preferMatte
     ? 0.58 - threshold * 0.16
-    : 0.50 - threshold * 0.22;
+    : 0.42 - threshold * 0.18;
 
   const alpha = new Uint8ClampedArray(width * height);
   let kept = 0;
 
   if (preferMatte) {
     // U2-Netp silhouette is the primary car body; DeepLab only supplements.
-    // Use a stricter matte floor so soft building/sky leaks stay out.
     for (let i = 0; i < alpha.length; i += 1) {
       const matte = analysis.matteScore[i];
       const person = analysis.personScore[i];
@@ -215,7 +236,6 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
       let score = 0;
       if (matte >= matteFloor) score = Math.max(score, Math.min(1, matte * 1.02));
       if (car >= carFloor) score = Math.max(score, Math.min(1, Math.max(car * 1.35, 0.62)));
-      // Person only if it sits on a confident matte core (driver), not building fragments.
       if (person >= personFloor && matte > 0.45) score = Math.max(score, person);
       if (score <= 0) {
         alpha[i] = 0;
@@ -230,15 +250,16 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
       const vehicle = analysis.vehicleScore[i];
       const car = Math.max(analysis.carScore[i], analysis.busScore[i]);
       const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+      const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
       const score = Math.max(
         person >= personFloor ? person : 0,
         vehicle >= vehicleFloor ? vehicle : 0,
-        car >= carFloor ? Math.min(1, Math.max(car * 1.35, 0.62)) : 0,
-        thin >= thinFloor ? Math.min(1, thin * 4.5) : 0,
-        analysis.subjectScore[i] >= (0.65 - threshold * 0.45) ? analysis.subjectScore[i] : 0,
-        (analysis.matteScore && analysis.matteScore[i] >= (matteFloor + 0.08))
-          ? analysis.matteScore[i]
-          : 0
+        (!treatAsRider && car >= carFloor) ? Math.min(1, Math.max(car * 1.35, 0.62)) : 0,
+        thin >= thinFloor ? Math.min(1, thin * 5.5) : 0,
+        analysis.subjectScore[i] >= (0.60 - threshold * 0.45) ? analysis.subjectScore[i] : 0,
+        // Soft matte union for riders (full body + bike) without car-primary mode.
+        (treatAsRider && matte >= matteFloor) ? Math.min(1, matte * 1.08) : 0,
+        (!treatAsRider && matte >= (matteFloor + 0.08)) ? matte : 0
       );
       if (score <= 0) {
         alpha[i] = 0;
@@ -249,10 +270,7 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     }
   }
 
-  const treatAsCar = preferMatte || hasCarOrBus;
-
   // Cars/buses often have holes in DeepLab masks (especially light-colored bodies).
-  // On matte path, skip aggressive solidify+hole-fill — it merges roof leaks into buildings.
   if (treatAsCar && !preferMatte) {
     try {
       solidifyVehicleBody(alpha, analysis, width, height, false);
@@ -261,15 +279,16 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     }
   }
 
-  // Recover bicycle / motorcycle thin parts that DeepLab often misses.
-  // Do not run this path when a car/bus matte is the main subject.
-  const thinSoftMax = maxFloat(analysis.bicycleScore, analysis.motorbikeScore);
+  // Recover bicycle / motorcycle thin parts — always for rider scenes.
   if (
-    !treatAsCar
-    && (
-      analysis.classCounts.bicycle > 0
-      || analysis.classCounts.motorbike > 0
-      || (analysis.classCounts.person > 0 && thinSoftMax > 0.02)
+    treatAsRider
+    || (
+      !treatAsCar
+      && (
+        analysis.classCounts.bicycle > 0
+        || analysis.classCounts.motorbike > 0
+        || (analysis.classCounts.person > 0 && thinSoftMax > 0.02)
+      )
     )
   ) {
     try {
@@ -283,16 +302,18 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   let maskCanvas = alphaToMaskCanvas(alpha, width, height);
   const closeRadius = preferMatte
     ? Math.max(2, Math.round(Math.min(width, height) * 0.005))
-    : (treatAsCar
-      ? Math.max(6, Math.round(Math.min(width, height) * 0.018))
-      : (analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike
-        ? Math.max(4, Math.round(Math.min(width, height) * 0.012))
+    : (treatAsRider
+      ? Math.max(5, Math.round(Math.min(width, height) * 0.014))
+      : (treatAsCar
+        ? Math.max(6, Math.round(Math.min(width, height) * 0.018))
         : 2));
   maskCanvas = closeMaskCanvas(maskCanvas, closeRadius);
 
-  // Extra hole-fill only for DeepLab car masks. Matte+fill often seals buildings
-  // above the roof into one sharp column.
   if (treatAsCar && !preferMatte) {
+    maskCanvas = fillMaskCanvasHoles(maskCanvas);
+  }
+  if (treatAsRider) {
+    // Fill small enclosed gaps in wheels/frames without sealing background.
     maskCanvas = fillMaskCanvasHoles(maskCanvas);
   }
 
@@ -305,25 +326,24 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     }
   }
 
-  // Matte silhouettes are already complete — avoid fat sharp halos around the car.
   const autoExpand = preferMatte
     ? Math.max(0, Math.min(expandPx, 6))
-    : (treatAsCar
-      ? Math.max(expandPx, Math.round(6 + threshold * 6))
-      : ((analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike)
-        ? Math.max(expandPx, Math.round(6 + threshold * 10))
+    : (treatAsRider
+      ? Math.max(expandPx, Math.round(8 + threshold * 12))
+      : (treatAsCar
+        ? Math.max(expandPx, Math.round(6 + threshold * 6))
         : expandPx));
   if (preferMatte) {
-    // Tighten over-inclusive matte edges (buildings / poles above roof).
     maskCanvas = erodeMaskCanvas(maskCanvas, autoExpand <= 2 ? 3 : 2);
   }
   if (autoExpand > 0) maskCanvas = dilateMaskCanvas(maskCanvas, autoExpand);
   if (featherPx > 0) {
-    const feather = preferMatte ? Math.max(1, Math.round(featherPx * 0.45)) : featherPx;
+    const feather = preferMatte
+      ? Math.max(1, Math.round(featherPx * 0.45))
+      : (treatAsRider ? Math.max(1, Math.round(featherPx * 0.7)) : featherPx);
     maskCanvas = featherMaskCanvas(maskCanvas, feather);
   }
 
-  // Dilate/feather can regrow into rooftop buildings — trim again after morph.
   if (treatAsCar) {
     try {
       maskCanvas = trimUpwardBleedAboveVehicle(maskCanvas);
@@ -335,10 +355,17 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   const finalCoverage = estimateMaskCoverage(maskCanvas);
   const classCounts = { ...analysis.classCounts };
   if (treatAsCar && classCounts.car === 0 && classCounts.bus === 0) {
-    // DeepLab often mislabels white cars as person/background — prefer 汽車 in UI.
     classCounts.car = Math.max(1, Math.round(finalCoverage * width * height * 0.01));
     if (preferMatte && classCounts.person > 0 && classCounts.person < classCounts.car * 8) {
       classCounts.person = 0;
+    }
+  }
+  if (treatAsRider) {
+    // Never mislabel a bike/rider scene as 汽車.
+    classCounts.car = 0;
+    classCounts.bus = 0;
+    if (classCounts.bicycle === 0 && classCounts.motorbike === 0) {
+      classCounts.bicycle = Math.max(1, Math.round(finalCoverage * width * height * 0.01));
     }
   }
 
@@ -349,25 +376,72 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     subjectCoverage: Math.max(kept / Math.max(1, width * height), finalCoverage),
     resolvedDirection: analysis.resolvedDirection,
     classCounts,
-    needsThinRecovery: analysis.needsThinRecovery,
-    usedMatte: preferMatte,
+    needsThinRecovery: analysis.needsThinRecovery || treatAsRider,
+    usedMatte: preferMatte || (treatAsRider && Boolean(analysis.matteScore)),
+    sceneKind,
     pipelineVersion: MASK_PIPELINE_VERSION
   };
 }
 
-/** Run U2-Netp when DeepLab car labels are weak / missing, or to solidify known cars. */
-function shouldRunCarMatte(classCounts, carSoftMax, thinSoftMax, subjectCoverage){
-  const hasCar = classCounts.car > 0 || classCounts.bus > 0 || carSoftMax > 0.06;
-  const thinDominant = (
-    classCounts.bicycle > 0
-    || classCounts.motorbike > 0
-    || thinSoftMax > 0.10
-  ) && !hasCar;
-  if (thinDominant) return false;
-  if (hasCar) return true;
-  // White / reflective cars are often only labeled as tiny person fragments.
-  if (classCounts.person > 0 && subjectCoverage < 0.14) return true;
-  // Fragmented / empty DeepLab masks — still try general matting once.
+/**
+ * Classify scene so bike/rider never enters the car matte + roof-trim path.
+ * @returns {"car"|"rider"|"unknown"}
+ */
+function detectSceneKind({
+  width,
+  height,
+  classCounts,
+  carSoftMax,
+  thinSoftMax,
+  personScore,
+  subjectCoverage
+}){
+  const thinHard = (classCounts.bicycle || 0) + (classCounts.motorbike || 0);
+  const carHard = (classCounts.car || 0) + (classCounts.bus || 0);
+  const personN = classCounts.person || 0;
+
+  if (thinHard > 0 || thinSoftMax > 0.05) return "rider";
+  if (carHard > 0 && carSoftMax >= 0.12 && carHard >= personN * 0.35) return "car";
+  if (carSoftMax >= 0.22 && thinSoftMax < 0.04) return "car";
+
+  if (personN > 0) {
+    const riderLike = personBlobLooksLikeRider(personScore, width, height);
+    if (riderLike && carSoftMax < 0.16) return "rider";
+    // Tiny person fragments on an otherwise empty subject → likely car driver mislabel.
+    if (!riderLike && (carSoftMax > 0.06 || subjectCoverage < 0.10)) return "car";
+  }
+
+  if (carSoftMax > 0.10) return "car";
+  if (personN > 0 && subjectCoverage >= 0.08) return "rider";
+  return "unknown";
+}
+
+function personBlobLooksLikeRider(personScore, width, height){
+  const binary = new Uint8Array(width * height);
+  for (let i = 0; i < binary.length; i += 1) {
+    if (personScore[i] > 0.22) binary[i] = 1;
+  }
+  const components = labelComponents(binary, width, height, Math.max(180, width * height * 0.0006));
+  if (!components.length) return false;
+  let best = components[0];
+  for (const box of components) {
+    if (box.area > best.area) best = box;
+  }
+  const pw = best.x1 - best.x0 + 1;
+  const ph = best.y1 - best.y0 + 1;
+  if (ph < height * 0.12) return false;
+  // Standing / riding people are taller than wide; in-car faces are short blobs.
+  if (ph / Math.max(1, pw) >= 1.05) return true;
+  if (ph > height * 0.28 && ph / Math.max(1, pw) >= 0.85) return true;
+  return false;
+}
+
+/** Run U2-Netp for cars, and also for riders (soft union, not car-primary). */
+function shouldRunMatte(sceneKind, classCounts, carSoftMax, thinSoftMax, subjectCoverage){
+  if (sceneKind === "rider") return true;
+  if (sceneKind === "car") return true;
+  if (classCounts.car > 0 || classCounts.bus > 0 || carSoftMax > 0.06) return true;
+  if (classCounts.person > 0 && subjectCoverage < 0.14 && thinSoftMax < 0.05) return true;
   if (subjectCoverage < 0.06) return true;
   return false;
 }
@@ -648,16 +722,16 @@ function maxArray(arr){
 }
 
 /**
- * For each person blob, inject wheel disks + lower craft capsule, then keep
- * dark / colorful structure pixels so tires and fenders stay sharp.
+ * For each person blob, inject wheel disks + full craft capsule, then keep
+ * dark / colorful structure pixels so tires, frames, and fenders stay sharp.
  */
 function recoverRiderCraft(alpha, analysis, sourceImage, width, height){
   const personBinary = new Uint8Array(width * height);
   for (let i = 0; i < personBinary.length; i += 1) {
-    if (analysis.personScore[i] > 0.28 || alpha[i] > 120) personBinary[i] = 1;
+    if (analysis.personScore[i] > 0.18 || alpha[i] > 90) personBinary[i] = 1;
   }
 
-  const components = labelComponents(personBinary, width, height, Math.max(250, width * height * 0.0008));
+  const components = labelComponents(personBinary, width, height, Math.max(180, width * height * 0.0005));
   if (!components.length) return;
 
   const photo = samplePhotoStats(sourceImage, width, height);
@@ -671,26 +745,23 @@ function recoverRiderCraft(alpha, analysis, sourceImage, width, height){
   for (const box of components) {
     const pw = box.x1 - box.x0 + 1;
     const ph = box.y1 - box.y0 + 1;
-    if (ph < 24 || pw < 12) continue;
+    if (ph < 20 || pw < 10) continue;
 
-    const bx0 = Math.max(0, Math.floor(box.x0 - pw * 0.48));
-    const bx1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 0.48));
-    const by1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.58));
-    const top = Math.max(0, Math.floor(box.y0 + ph * 0.34));
-    // Wheels sit at / slightly below the person's feet; use a larger disk so tire
-    // contact patches are not eaten by background pan blur.
-    const radius = Math.max(12, Math.round(ph * 0.28));
-    const cy = Math.min(height - 1, Math.round(box.y1 + radius * 0.18));
-    const cxA = Math.round(bx0 + (bx1 - bx0) * 0.18);
-    const cxB = Math.round(bx0 + (bx1 - bx0) * 0.82);
+    // Wide envelope so front/rear wheels and handlebars are inside the craft ROI.
+    const bx0 = Math.max(0, Math.floor(box.x0 - pw * 0.72));
+    const bx1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 0.72));
+    const top = Math.max(0, Math.floor(box.y0 - ph * 0.12));
+    const by1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.72));
 
-    // Wheel disks (keep original spokes/tires by solid disk in subject mask).
-    ctx.beginPath();
-    ctx.arc(cxA, cy, radius, 0, Math.PI * 2);
-    ctx.arc(cxB, cy, radius, 0, Math.PI * 2);
-    ctx.fill();
+    const radius = Math.max(14, Math.round(ph * 0.34));
+    const cy = Math.min(height - 1, Math.round(box.y1 + radius * 0.12));
+    const span = bx1 - bx0;
+    const cxA = Math.round(bx0 + span * 0.14);
+    const cxB = Math.round(bx0 + span * 0.86);
+    const cxMid = Math.round(bx0 + span * 0.50);
 
-    // Lower capsule for frame / fender / drivetrain.
+    // Soft capsule first (low alpha): only keeps structure pixels later.
+    ctx.fillStyle = "rgba(255,255,255,0.42)";
     const cw = bx1 - bx0;
     const ch = by1 - top;
     if (cw > 2 && ch > 2) {
@@ -698,23 +769,43 @@ function recoverRiderCraft(alpha, analysis, sourceImage, width, height){
       roundRect(ctx, bx0, top, cw, ch, rr);
       ctx.fill();
     }
+    const barY = Math.max(0, Math.floor(box.y0 + ph * 0.08));
+    const barH = Math.max(8, Math.round(ph * 0.22));
+    roundRect(ctx, bx0 + Math.round(span * 0.08), barY, Math.round(span * 0.84), barH, 6);
+    ctx.fill();
+
+    // Solid wheel disks (high alpha): spokes/tires must stay sharp.
+    ctx.fillStyle = "rgba(255,255,255,1)";
+    ctx.beginPath();
+    ctx.arc(cxA, cy, radius, 0, Math.PI * 2);
+    ctx.arc(cxB, cy, radius, 0, Math.PI * 2);
+    ctx.arc(cxMid, cy, Math.round(radius * 0.72), 0, Math.PI * 2);
+    ctx.fill();
   }
 
   const craftAlpha = ctx.getImageData(0, 0, width, height).data;
   for (let i = 0; i < width * height; i += 1) {
     const craftA = craftAlpha[i * 4 + 3];
-    if (craftA < 20) continue;
+    if (craftA < 16) continue;
 
-    // Always keep wheel/capsule core when dark (tires) or colorful (frames),
-    // and always keep strong person/vehicle probabilities inside craft.
     const darkBoost = photo.dark[i];
     const colorBoost = photo.colorful[i];
     const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
     const person = analysis.personScore[i];
-    const inDiskCore = craftA > 200;
+    const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
+    const inWheelCore = craftA > 200;
 
-    if (inDiskCore || darkBoost || colorBoost || thin > 0.03 || person > 0.2) {
-      const target = inDiskCore ? 255 : Math.max(alpha[i], darkBoost || colorBoost ? 235 : 190);
+    if (inWheelCore) {
+      alpha[i] = 255;
+      continue;
+    }
+
+    // Soft capsule: keep only real bike/rider structure, not the whole rounded box.
+    if (darkBoost || colorBoost || thin > 0.02 || person > 0.14 || matte > 0.28) {
+      const target = Math.max(
+        alpha[i],
+        darkBoost || colorBoost || person > 0.25 ? 245 : 200
+      );
       if (target > alpha[i]) alpha[i] = target;
     }
   }
