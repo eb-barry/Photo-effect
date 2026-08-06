@@ -1,5 +1,5 @@
-// F9 追焦 - AI 主體分割 v0.1.6
-// DeepLabV3-MobileViT（類別）+ U2-Netp（汽車去背）+ 騎士／自行車細結構復原。
+// F9 追焦 - AI 主體分割 v0.1.7
+// 手動車種管線：汽車去背精修／機車・自行車騎士復原 + U2-Netp。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
