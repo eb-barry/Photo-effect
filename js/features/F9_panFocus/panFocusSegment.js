@@ -323,6 +323,15 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     maskCanvas = featherMaskCanvas(maskCanvas, feather);
   }
 
+  // Dilate/feather can regrow into rooftop buildings — trim again after morph.
+  if (treatAsCar) {
+    try {
+      maskCanvas = trimUpwardBleedAboveVehicle(maskCanvas);
+    } catch (error) {
+      console.warn("[F9 追焦] 汽車遮罩二次裁切略過：", error);
+    }
+  }
+
   const finalCoverage = estimateMaskCoverage(maskCanvas);
   const classCounts = { ...analysis.classCounts };
   if (treatAsCar && classCounts.car === 0 && classCounts.bus === 0) {
