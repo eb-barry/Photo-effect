@@ -1,0 +1,55 @@
+# Deploy the static Photo Effects site to GitHub Pages.
+# After merging: Settings → Pages → Source → GitHub Actions
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Queue deploys instead of cancelling (avoids "Deployment cancelled").
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Prepare site bundle
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          # Static PWA: publish repo contents, skip git/CI/build junk.
+          rsync -a \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='_site/' \
+            --exclude='node_modules/' \
+            --exclude='.cursor/' \
+            ./ _site/
+          # Ensure Jekyll is skipped on Pages (folders like assets stay intact).
+          touch _site/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
