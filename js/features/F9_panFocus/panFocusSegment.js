@@ -546,21 +546,14 @@ function trimUpwardBleedAboveVehicle(maskCanvas){
     else break;
   }
 
-  // Cars are wider than tall: roof sits roughly 0.28–0.36 of body width above peak.
+  // Cars are wider than tall: roof sits roughly ~0.34 of body width above peak row.
+  // Always clamp with this prior so same-width building halos cannot survive.
   const geometricRoof = Math.max(0, peakY - Math.round(maxSpan * 0.34));
   if (!foundProfile) {
     roofY = geometricRoof;
-  } else if (
-    towerHeight > Math.round(maxSpan * 0.22)
-    && roofY < peakY - Math.round(maxSpan * 0.48)
-  ) {
-    // Profile only collapsed at the top of a building tower — clamp to car proportion.
-    roofY = geometricRoof;
-  } else if (towerHeight > Math.round(maxSpan * 0.30)) {
+  } else {
+    // Profile may sit on top of a halo/tower (smaller y). Clamp down to car proportion.
     roofY = Math.max(roofY, geometricRoof);
-    // max() keeps the lower cut (larger y) when profile is below geometric;
-    // when profile climbed too high (small y), prefer geometric:
-    if (roofY < geometricRoof) roofY = geometricRoof;
   }
 
   // Small margin for roof rails / antennas; clear everything above.
