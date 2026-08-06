@@ -46,9 +46,9 @@ application.
                                                          planet/tunnel,
                                                          warp & atmosphere
 
-  F9         追焦 (Pan Focus)       🚧                   DeepLab + U2-Netp
-                                                         car matte; subject
-                                                         sharp + motion blur
+  F9         追焦 (Pan Focus)       🚧                   Manual car / bike
+                                                         mode + U2-Netp matte
+                                                         + motion blur
 
   F10--F28   Reserved               📋                   Future modules
   ------------------------------------------------------------------------
