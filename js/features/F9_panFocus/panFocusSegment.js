@@ -315,7 +315,7 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
         : expandPx));
   if (preferMatte) {
     // Tighten over-inclusive matte edges (buildings / poles above roof).
-    maskCanvas = erodeMaskCanvas(maskCanvas, autoExpand <= 2 ? 2 : 1);
+    maskCanvas = erodeMaskCanvas(maskCanvas, autoExpand <= 2 ? 3 : 2);
   }
   if (autoExpand > 0) maskCanvas = dilateMaskCanvas(maskCanvas, autoExpand);
   if (featherPx > 0) {
@@ -537,13 +537,6 @@ function trimUpwardBleedAboveVehicle(maskCanvas){
       thinRun = 0;
       roofY = y;
     }
-  }
-
-  // Same-width mask tower above the body (buildings glued to the car).
-  let towerHeight = 0;
-  for (let y = peakY - 1; y >= 0; y -= 1) {
-    if (rowSpan[y] >= maxSpan * 0.58) towerHeight = peakY - y;
-    else break;
   }
 
   // Cars are wider than tall: roof sits roughly ~0.34 of body width above peak row.
