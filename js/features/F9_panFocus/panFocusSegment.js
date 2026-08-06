@@ -1,12 +1,11 @@
-// F9 追焦 - AI 主體分割 v0.1.2
-// DeepLabV3-MobileViT + 騎士／細結構（車輪）復原。
-// 自行車輪框常被模型漏標：以軟機率、型態學閉合、輪位圓盤補回。
+// F9 追焦 - AI 主體分割 v0.1.3
+// DeepLabV3-MobileViT + 汽車實心補洞 + 騎士／細結構（車輪）復原。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/Xenova/deeplabv3-mobilevit-small/resolve/main/onnx/model_quantized.onnx";
 const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
-const MASK_PIPELINE_VERSION = 3;
+const MASK_PIPELINE_VERSION = 4;
 const INPUT_SIZE = 512;
 /** Hard cap for mask buffers — never allocate megapixel float maps. */
 const MASK_MAX_EDGE = 1280;
@@ -103,6 +102,8 @@ async function ensureAnalysis(sourceImage, key, onStatus){
     personScore: upscaled.personScore,
     bicycleScore: upscaled.bicycleScore,
     motorbikeScore: upscaled.motorbikeScore,
+    carScore: upscaled.carScore,
+    busScore: upscaled.busScore,
     vehicleScore: upscaled.vehicleScore,
     subjectCoverage,
     resolvedDirection,
@@ -133,7 +134,8 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
 
   // Higher slider = more sensitive (keeps weaker subject pixels).
   const personFloor = 0.72 - threshold * 0.5;
-  const vehicleFloor = 0.55 - threshold * 0.45;
+  const vehicleFloor = 0.48 - threshold * 0.4;
+  const carFloor = 0.10 + (1 - threshold) * 0.08;
   const thinFloor = 0.04 + (1 - threshold) * 0.08;
 
   const alpha = new Uint8ClampedArray(width * height);
@@ -141,12 +143,14 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   for (let i = 0; i < alpha.length; i += 1) {
     const person = analysis.personScore[i];
     const vehicle = analysis.vehicleScore[i];
+    const car = Math.max(analysis.carScore[i], analysis.busScore[i]);
     const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
     const score = Math.max(
       person >= personFloor ? person : 0,
       vehicle >= vehicleFloor ? vehicle : 0,
+      car >= carFloor ? Math.min(1, Math.max(car * 1.35, 0.62)) : 0,
       thin >= thinFloor ? Math.min(1, thin * 4.5) : 0,
-      analysis.subjectScore[i] >= (0.7 - threshold * 0.45) ? analysis.subjectScore[i] : 0
+      analysis.subjectScore[i] >= (0.65 - threshold * 0.45) ? analysis.subjectScore[i] : 0
     );
     if (score <= 0) {
       alpha[i] = 0;
@@ -156,13 +160,30 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     kept += 1;
   }
 
+  const hasCarOrBus = analysis.classCounts.car > 0
+    || analysis.classCounts.bus > 0
+    || maxArray(analysis.carScore) > 0.12
+    || maxArray(analysis.busScore) > 0.12;
+
+  // Cars/buses often have holes in DeepLab masks (especially light-colored bodies).
+  if (hasCarOrBus) {
+    try {
+      solidifyVehicleBody(alpha, analysis, width, height);
+    } catch (error) {
+      console.warn("[F9 追焦] 汽車實心遮罩略過：", error);
+    }
+  }
+
   // Recover bicycle / motorcycle thin parts that DeepLab often misses.
-  // Trigger when hard labels exist, or soft bike/moto probability is present near a rider.
+  // Do not run this path when a car/bus is the main subject.
   const thinSoftMax = maxFloat(analysis.bicycleScore, analysis.motorbikeScore);
   if (
-    analysis.classCounts.bicycle > 0
-    || analysis.classCounts.motorbike > 0
-    || (analysis.classCounts.person > 0 && analysis.classCounts.car === 0 && thinSoftMax > 0.02)
+    !hasCarOrBus
+    && (
+      analysis.classCounts.bicycle > 0
+      || analysis.classCounts.motorbike > 0
+      || (analysis.classCounts.person > 0 && thinSoftMax > 0.02)
+    )
   ) {
     try {
       recoverRiderCraft(alpha, analysis, sourceImage, width, height);
@@ -171,21 +192,33 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     }
   }
 
-  // Morphological close: fill spokes / small gaps inside wheels & frames.
+  // Morphological close: fill spokes / small gaps / car body holes.
   let maskCanvas = alphaToMaskCanvas(alpha, width, height);
-  const closeRadius = analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike
-    ? Math.max(4, Math.round(Math.min(width, height) * 0.012))
-    : 2;
+  const closeRadius = hasCarOrBus
+    ? Math.max(6, Math.round(Math.min(width, height) * 0.018))
+    : (analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike
+      ? Math.max(4, Math.round(Math.min(width, height) * 0.012))
+      : 2);
   maskCanvas = closeMaskCanvas(maskCanvas, closeRadius);
 
-  const autoExpand = (analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike)
-    ? Math.max(expandPx, Math.round(6 + threshold * 10))
-    : expandPx;
+  // Extra hole-fill pass for cars after closing.
+  if (hasCarOrBus) {
+    maskCanvas = fillMaskCanvasHoles(maskCanvas);
+  }
+
+  const autoExpand = hasCarOrBus
+    ? Math.max(expandPx, Math.round(8 + threshold * 8))
+    : ((analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike)
+      ? Math.max(expandPx, Math.round(6 + threshold * 10))
+      : expandPx);
   if (autoExpand > 0) maskCanvas = dilateMaskCanvas(maskCanvas, autoExpand);
   if (featherPx > 0) maskCanvas = featherMaskCanvas(maskCanvas, featherPx);
 
-  // Recount coverage from final mask alpha.
   const finalCoverage = estimateMaskCoverage(maskCanvas);
+  const classCounts = { ...analysis.classCounts };
+  if (hasCarOrBus && classCounts.car === 0 && classCounts.bus === 0) {
+    classCounts.car = Math.max(1, Math.round(finalCoverage * width * height * 0.01));
+  }
 
   return {
     width,
@@ -193,10 +226,117 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     maskCanvas,
     subjectCoverage: Math.max(kept / Math.max(1, width * height), finalCoverage),
     resolvedDirection: analysis.resolvedDirection,
-    classCounts: analysis.classCounts,
+    classCounts,
     needsThinRecovery: analysis.needsThinRecovery,
     pipelineVersion: MASK_PIPELINE_VERSION
   };
+}
+
+/**
+ * Seal fragmented car/bus masks: keep soft car pixels, close gaps, fill interior holes.
+ * Avoids large rectangular capsules that leave a boxed sharp island.
+ */
+function solidifyVehicleBody(alpha, analysis, width, height){
+  const seed = new Uint8Array(width * height);
+  for (let i = 0; i < seed.length; i += 1) {
+    const car = Math.max(analysis.carScore[i], analysis.busScore[i]);
+    const hard = analysis.classMap[i] === SUBJECT_CLASS_IDS.car
+      || analysis.classMap[i] === SUBJECT_CLASS_IDS.bus;
+    if (hard || car > 0.08 || (alpha[i] > 90 && analysis.vehicleScore[i] > 0.18)) {
+      seed[i] = 1;
+    }
+  }
+
+  // Close on a compact canvas via dilate+erode helpers.
+  let canvas = binaryToMaskCanvas(seed, width, height);
+  const radius = Math.max(5, Math.round(Math.min(width, height) * 0.016));
+  canvas = closeMaskCanvas(canvas, radius);
+  canvas = fillMaskCanvasHoles(canvas);
+
+  const data = canvas.getContext("2d", { willReadFrequently: true })
+    .getImageData(0, 0, width, height).data;
+  for (let i = 0; i < width * height; i += 1) {
+    if (data[i * 4 + 3] > 40) alpha[i] = 255;
+  }
+}
+
+function binaryToMaskCanvas(binary, width, height){
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const imageData = ctx.createImageData(width, height);
+  const data = imageData.data;
+  for (let i = 0; i < binary.length; i += 1) {
+    const o = i * 4;
+    data[o] = 255;
+    data[o + 1] = 255;
+    data[o + 2] = 255;
+    data[o + 3] = binary[i] ? 255 : 0;
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+/** Fill enclosed holes by flooding the exterior from the border. */
+function fillMaskCanvasHoles(maskCanvas){
+  const width = maskCanvas.width;
+  const height = maskCanvas.height;
+  const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  const solid = new Uint8Array(width * height);
+  for (let i = 0; i < solid.length; i += 1) {
+    if (data[i * 4 + 3] > 40) solid[i] = 1;
+  }
+
+  const exterior = new Uint8Array(width * height);
+  const stack = new Int32Array(width * height);
+  let top = 0;
+  const push = idx => {
+    if (solid[idx] || exterior[idx]) return;
+    exterior[idx] = 1;
+    stack[top++] = idx;
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    push(x);
+    push((height - 1) * width + x);
+  }
+  for (let y = 0; y < height; y += 1) {
+    push(y * width);
+    push(y * width + (width - 1));
+  }
+
+  while (top > 0) {
+    const idx = stack[--top];
+    const x = idx % width;
+    const y = (idx - x) / width;
+    if (x > 0) push(idx - 1);
+    if (x + 1 < width) push(idx + 1);
+    if (y > 0) push(idx - width);
+    if (y + 1 < height) push(idx + width);
+  }
+
+  for (let i = 0; i < solid.length; i += 1) {
+    if (!solid[i] && !exterior[i]) {
+      const o = i * 4;
+      data[o] = 255;
+      data[o + 1] = 255;
+      data[o + 2] = 255;
+      data[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  return maskCanvas;
+}
+
+function maxArray(arr){
+  let best = 0;
+  for (let i = 0; i < arr.length; i += 1) {
+    if (arr[i] > best) best = arr[i];
+  }
+  return best;
 }
 
 /**
@@ -482,6 +622,8 @@ function logitsToLabelMaps(logitsTensor){
   const personScore = new Float32Array(plane);
   const bicycleScore = new Float32Array(plane);
   const motorbikeScore = new Float32Array(plane);
+  const carScore = new Float32Array(plane);
+  const busScore = new Float32Array(plane);
   const vehicleScore = new Float32Array(plane);
 
   for (let i = 0; i < plane; i += 1) {
@@ -502,6 +644,8 @@ function logitsToLabelMaps(logitsTensor){
     let personMass = 0;
     let bicycleMass = 0;
     let motorbikeMass = 0;
+    let carMass = 0;
+    let busMass = 0;
     let vehicleMass = 0;
     for (let c = 0; c < numLabels; c += 1) {
       const e = Math.exp(data[c * plane + i] - maxLogit);
@@ -510,6 +654,8 @@ function logitsToLabelMaps(logitsTensor){
       if (c === SUBJECT_CLASS_IDS.person) personMass += e;
       if (c === SUBJECT_CLASS_IDS.bicycle) bicycleMass += e;
       if (c === SUBJECT_CLASS_IDS.motorbike) motorbikeMass += e;
+      if (c === SUBJECT_CLASS_IDS.car) carMass += e;
+      if (c === SUBJECT_CLASS_IDS.bus) busMass += e;
       if (
         c === SUBJECT_CLASS_IDS.bicycle
         || c === SUBJECT_CLASS_IDS.motorbike
@@ -522,10 +668,15 @@ function logitsToLabelMaps(logitsTensor){
     personScore[i] = personMass * inv;
     bicycleScore[i] = bicycleMass * inv;
     motorbikeScore[i] = motorbikeMass * inv;
+    carScore[i] = carMass * inv;
+    busScore[i] = busMass * inv;
     vehicleScore[i] = vehicleMass * inv;
     subjectScore[i] = SUBJECT_ID_SET.has(bestClass) ? Math.max(subProb, 0.55) : subProb;
     if (THIN_VEHICLE_IDS.has(bestClass)) {
       subjectScore[i] = Math.max(subjectScore[i], 0.72);
+    }
+    if (bestClass === SUBJECT_CLASS_IDS.car || bestClass === SUBJECT_CLASS_IDS.bus) {
+      subjectScore[i] = Math.max(subjectScore[i], 0.78);
     }
   }
 
@@ -535,6 +686,8 @@ function logitsToLabelMaps(logitsTensor){
     personScore,
     bicycleScore,
     motorbikeScore,
+    carScore,
+    busScore,
     vehicleScore,
     width,
     height
@@ -549,6 +702,8 @@ function upscaleLabelMapsBilinear(labeled, destW, destH){
   const outPerson = new Float32Array(destW * destH);
   const outBike = new Float32Array(destW * destH);
   const outMoto = new Float32Array(destW * destH);
+  const outCar = new Float32Array(destW * destH);
+  const outBus = new Float32Array(destW * destH);
   const outVehicle = new Float32Array(destW * destH);
 
   for (let y = 0; y < destH; y += 1) {
@@ -572,6 +727,8 @@ function upscaleLabelMapsBilinear(labeled, destW, destH){
       outPerson[destIndex] = bilerp(labeled.personScore, i00, i01, i10, i11, tx, ty);
       outBike[destIndex] = bilerp(labeled.bicycleScore, i00, i01, i10, i11, tx, ty);
       outMoto[destIndex] = bilerp(labeled.motorbikeScore, i00, i01, i10, i11, tx, ty);
+      outCar[destIndex] = bilerp(labeled.carScore, i00, i01, i10, i11, tx, ty);
+      outBus[destIndex] = bilerp(labeled.busScore, i00, i01, i10, i11, tx, ty);
       outVehicle[destIndex] = bilerp(labeled.vehicleScore, i00, i01, i10, i11, tx, ty);
 
       // Nearest for hard class map.
@@ -587,6 +744,8 @@ function upscaleLabelMapsBilinear(labeled, destW, destH){
     personScore: outPerson,
     bicycleScore: outBike,
     motorbikeScore: outMoto,
+    carScore: outCar,
+    busScore: outBus,
     vehicleScore: outVehicle
   };
 }
