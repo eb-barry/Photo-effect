@@ -1,12 +1,18 @@
-// F9 追焦 - AI 主體分割 v0.1.3
-// DeepLabV3-MobileViT + 汽車實心補洞 + 騎士／細結構（車輪）復原。
+// F9 追焦 - AI 主體分割 v0.1.4
+// DeepLabV3-MobileViT（類別）+ U2-Netp（汽車／主體去背精修）+ 細結構復原。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
 const MODEL_URL = "https://huggingface.co/Xenova/deeplabv3-mobilevit-small/resolve/main/onnx/model_quantized.onnx";
 const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
-const MASK_PIPELINE_VERSION = 4;
+/** General object matting (~4.5MB). Much better car silhouettes than VOC DeepLab alone. */
+const MATTE_MODEL_URL = "https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx";
+const MATTE_CACHE_NAME = "photo-effects-panfocus-u2netp-v1";
+const MASK_PIPELINE_VERSION = 5;
 const INPUT_SIZE = 512;
+const MATTE_SIZE = 320;
+const MATTE_MEAN = [0.485, 0.456, 0.406];
+const MATTE_STD = [0.229, 0.224, 0.225];
 /** Hard cap for mask buffers — never allocate megapixel float maps. */
 const MASK_MAX_EDGE = 1280;
 
@@ -27,6 +33,7 @@ const THIN_VEHICLE_IDS = new Set([
 
 let ortModule = null;
 let sessionPromise = null;
+let matteSessionPromise = null;
 /** @type {Map<string, any>} */
 const analysisCache = new Map();
 
@@ -41,19 +48,29 @@ export function clearPanFocusMaskCache(){
 }
 
 export function preloadPanFocusSegmentModel(onStatus = () => {}){
-  return ensureSession(onStatus);
+  return Promise.all([
+    ensureSession(onStatus),
+    ensureMatteSession(onStatus).catch(error => {
+      console.warn("[F9 追焦] 汽車去背模型預載失敗：", error);
+      return null;
+    })
+  ]);
 }
 
 export async function releasePanFocusSegmentSession(){
-  if (!sessionPromise) return;
-  try {
-    const session = await sessionPromise;
-    await session.release?.();
-  } catch (error) {
-    console.warn("[F9 追焦] 釋放主體分割模型失敗：", error);
-  } finally {
-    sessionPromise = null;
-  }
+  const releaseOne = async (promise, label) => {
+    if (!promise) return;
+    try {
+      const session = await promise;
+      await session.release?.();
+    } catch (error) {
+      console.warn(`[F9 追焦] 釋放${label}失敗：`, error);
+    }
+  };
+  await releaseOne(sessionPromise, "主體分割模型");
+  await releaseOne(matteSessionPromise, "汽車去背模型");
+  sessionPromise = null;
+  matteSessionPromise = null;
 }
 
 /**
@@ -88,11 +105,29 @@ async function ensureAnalysis(sourceImage, key, onStatus){
   const classCounts = countSubjectClasses(upscaled.classMap, width, height);
   const subjectCoverage = countCoverage(upscaled.subjectScore, width, height, 0.28);
   const resolvedDirection = resolveAutoDirection(upscaled.subjectScore, width, height);
+  const carSoftMax = Math.max(maxArray(upscaled.carScore), maxArray(upscaled.busScore));
+  const thinSoftMax = Math.max(maxArray(upscaled.bicycleScore), maxArray(upscaled.motorbikeScore));
   const needsThinRecovery = (
     classCounts.bicycle > 0
     || classCounts.motorbike > 0
     || classCounts.person > 0
-  ) && classCounts.car === 0 && classCounts.bus === 0;
+  ) && classCounts.car === 0 && classCounts.bus === 0 && carSoftMax < 0.08;
+
+  let matteScore = null;
+  let usedMatte = false;
+  if (shouldRunCarMatte(classCounts, carSoftMax, thinSoftMax, subjectCoverage)) {
+    try {
+      onStatus("精修汽車去背…");
+      const matteSession = await ensureMatteSession(onStatus);
+      matteScore = await runMatteInference(matteSession, sourceImage, width, height);
+      usedMatte = countCoverage(matteScore, width, height, 0.42) >= 0.04;
+      if (!usedMatte) matteScore = null;
+    } catch (error) {
+      console.warn("[F9 追焦] 汽車去背略過：", error);
+      matteScore = null;
+      usedMatte = false;
+    }
+  }
 
   const entry = {
     width,
@@ -105,6 +140,8 @@ async function ensureAnalysis(sourceImage, key, onStatus){
     carScore: upscaled.carScore,
     busScore: upscaled.busScore,
     vehicleScore: upscaled.vehicleScore,
+    matteScore,
+    usedMatte,
     subjectCoverage,
     resolvedDirection,
     classCounts,
@@ -132,53 +169,98 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   const width = analysis.width;
   const height = analysis.height;
 
+  const hasCarOrBus = analysis.classCounts.car > 0
+    || analysis.classCounts.bus > 0
+    || maxArray(analysis.carScore) > 0.10
+    || maxArray(analysis.busScore) > 0.10;
+  const hasThinVehicle = analysis.classCounts.bicycle > 0
+    || analysis.classCounts.motorbike > 0
+    || maxFloat(analysis.bicycleScore, analysis.motorbikeScore) > 0.08;
+  const matteCoverage = analysis.matteScore
+    ? countCoverage(analysis.matteScore, width, height, 0.42)
+    : 0;
+  const preferMatte = Boolean(
+    analysis.matteScore
+    && matteCoverage >= 0.05
+    && matteCoverage <= 0.62
+    && (
+      hasCarOrBus
+      || (!hasThinVehicle && (
+        analysis.classCounts.person > 0
+        || analysis.subjectCoverage < 0.10
+        || matteCoverage > analysis.subjectCoverage * 1.35
+      ))
+    )
+  );
+
   // Higher slider = more sensitive (keeps weaker subject pixels).
   const personFloor = 0.72 - threshold * 0.5;
   const vehicleFloor = 0.48 - threshold * 0.4;
   const carFloor = 0.10 + (1 - threshold) * 0.08;
   const thinFloor = 0.04 + (1 - threshold) * 0.08;
+  const matteFloor = 0.50 - threshold * 0.22;
 
   const alpha = new Uint8ClampedArray(width * height);
   let kept = 0;
-  for (let i = 0; i < alpha.length; i += 1) {
-    const person = analysis.personScore[i];
-    const vehicle = analysis.vehicleScore[i];
-    const car = Math.max(analysis.carScore[i], analysis.busScore[i]);
-    const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
-    const score = Math.max(
-      person >= personFloor ? person : 0,
-      vehicle >= vehicleFloor ? vehicle : 0,
-      car >= carFloor ? Math.min(1, Math.max(car * 1.35, 0.62)) : 0,
-      thin >= thinFloor ? Math.min(1, thin * 4.5) : 0,
-      analysis.subjectScore[i] >= (0.65 - threshold * 0.45) ? analysis.subjectScore[i] : 0
-    );
-    if (score <= 0) {
-      alpha[i] = 0;
-      continue;
+
+  if (preferMatte) {
+    // U2-Netp silhouette is the primary car body; DeepLab only supplements.
+    for (let i = 0; i < alpha.length; i += 1) {
+      const matte = analysis.matteScore[i];
+      const person = analysis.personScore[i];
+      const car = Math.max(analysis.carScore[i], analysis.busScore[i]);
+      let score = 0;
+      if (matte >= matteFloor) score = Math.max(score, Math.min(1, matte * 1.05));
+      if (car >= carFloor) score = Math.max(score, Math.min(1, Math.max(car * 1.35, 0.62)));
+      if (person >= personFloor && matte > 0.18) score = Math.max(score, person);
+      if (score <= 0) {
+        alpha[i] = 0;
+        continue;
+      }
+      alpha[i] = Math.round(clamp01(score) * 255);
+      kept += 1;
     }
-    alpha[i] = Math.round(clamp01(score) * 255);
-    kept += 1;
+  } else {
+    for (let i = 0; i < alpha.length; i += 1) {
+      const person = analysis.personScore[i];
+      const vehicle = analysis.vehicleScore[i];
+      const car = Math.max(analysis.carScore[i], analysis.busScore[i]);
+      const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+      const score = Math.max(
+        person >= personFloor ? person : 0,
+        vehicle >= vehicleFloor ? vehicle : 0,
+        car >= carFloor ? Math.min(1, Math.max(car * 1.35, 0.62)) : 0,
+        thin >= thinFloor ? Math.min(1, thin * 4.5) : 0,
+        analysis.subjectScore[i] >= (0.65 - threshold * 0.45) ? analysis.subjectScore[i] : 0,
+        (analysis.matteScore && analysis.matteScore[i] >= (matteFloor + 0.08))
+          ? analysis.matteScore[i]
+          : 0
+      );
+      if (score <= 0) {
+        alpha[i] = 0;
+        continue;
+      }
+      alpha[i] = Math.round(clamp01(score) * 255);
+      kept += 1;
+    }
   }
 
-  const hasCarOrBus = analysis.classCounts.car > 0
-    || analysis.classCounts.bus > 0
-    || maxArray(analysis.carScore) > 0.12
-    || maxArray(analysis.busScore) > 0.12;
+  const treatAsCar = preferMatte || hasCarOrBus;
 
   // Cars/buses often have holes in DeepLab masks (especially light-colored bodies).
-  if (hasCarOrBus) {
+  if (treatAsCar) {
     try {
-      solidifyVehicleBody(alpha, analysis, width, height);
+      solidifyVehicleBody(alpha, analysis, width, height, preferMatte);
     } catch (error) {
       console.warn("[F9 追焦] 汽車實心遮罩略過：", error);
     }
   }
 
   // Recover bicycle / motorcycle thin parts that DeepLab often misses.
-  // Do not run this path when a car/bus is the main subject.
+  // Do not run this path when a car/bus matte is the main subject.
   const thinSoftMax = maxFloat(analysis.bicycleScore, analysis.motorbikeScore);
   if (
-    !hasCarOrBus
+    !treatAsCar
     && (
       analysis.classCounts.bicycle > 0
       || analysis.classCounts.motorbike > 0
@@ -194,30 +276,46 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
 
   // Morphological close: fill spokes / small gaps / car body holes.
   let maskCanvas = alphaToMaskCanvas(alpha, width, height);
-  const closeRadius = hasCarOrBus
-    ? Math.max(6, Math.round(Math.min(width, height) * 0.018))
-    : (analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike
-      ? Math.max(4, Math.round(Math.min(width, height) * 0.012))
-      : 2);
+  const closeRadius = preferMatte
+    ? Math.max(3, Math.round(Math.min(width, height) * 0.008))
+    : (treatAsCar
+      ? Math.max(6, Math.round(Math.min(width, height) * 0.018))
+      : (analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike
+        ? Math.max(4, Math.round(Math.min(width, height) * 0.012))
+        : 2));
   maskCanvas = closeMaskCanvas(maskCanvas, closeRadius);
 
   // Extra hole-fill pass for cars after closing.
-  if (hasCarOrBus) {
+  if (treatAsCar) {
     maskCanvas = fillMaskCanvasHoles(maskCanvas);
   }
 
-  const autoExpand = hasCarOrBus
-    ? Math.max(expandPx, Math.round(8 + threshold * 8))
-    : ((analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike)
-      ? Math.max(expandPx, Math.round(6 + threshold * 10))
-      : expandPx);
+  // Matte silhouettes are already complete — avoid fat sharp halos around the car.
+  const autoExpand = preferMatte
+    ? Math.max(0, expandPx)
+    : (treatAsCar
+      ? Math.max(expandPx, Math.round(6 + threshold * 6))
+      : ((analysis.needsThinRecovery || analysis.classCounts.bicycle || analysis.classCounts.motorbike)
+        ? Math.max(expandPx, Math.round(6 + threshold * 10))
+        : expandPx));
+  if (preferMatte && autoExpand <= 2) {
+    // Slightly tighten over-inclusive matte edges before optional expand.
+    maskCanvas = erodeMaskCanvas(maskCanvas, 1);
+  }
   if (autoExpand > 0) maskCanvas = dilateMaskCanvas(maskCanvas, autoExpand);
-  if (featherPx > 0) maskCanvas = featherMaskCanvas(maskCanvas, featherPx);
+  if (featherPx > 0) {
+    const feather = preferMatte ? Math.max(1, Math.round(featherPx * 0.55)) : featherPx;
+    maskCanvas = featherMaskCanvas(maskCanvas, feather);
+  }
 
   const finalCoverage = estimateMaskCoverage(maskCanvas);
   const classCounts = { ...analysis.classCounts };
-  if (hasCarOrBus && classCounts.car === 0 && classCounts.bus === 0) {
+  if (treatAsCar && classCounts.car === 0 && classCounts.bus === 0) {
+    // DeepLab often mislabels white cars as person/background — prefer 汽車 in UI.
     classCounts.car = Math.max(1, Math.round(finalCoverage * width * height * 0.01));
+    if (preferMatte && classCounts.person > 0 && classCounts.person < classCounts.car * 8) {
+      classCounts.person = 0;
+    }
   }
 
   return {
@@ -228,21 +326,45 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     resolvedDirection: analysis.resolvedDirection,
     classCounts,
     needsThinRecovery: analysis.needsThinRecovery,
+    usedMatte: preferMatte,
     pipelineVersion: MASK_PIPELINE_VERSION
   };
 }
 
+/** Run U2-Netp when DeepLab car labels are weak / missing, or to solidify known cars. */
+function shouldRunCarMatte(classCounts, carSoftMax, thinSoftMax, subjectCoverage){
+  const hasCar = classCounts.car > 0 || classCounts.bus > 0 || carSoftMax > 0.06;
+  const thinDominant = (
+    classCounts.bicycle > 0
+    || classCounts.motorbike > 0
+    || thinSoftMax > 0.10
+  ) && !hasCar;
+  if (thinDominant) return false;
+  if (hasCar) return true;
+  // White / reflective cars are often only labeled as tiny person fragments.
+  if (classCounts.person > 0 && subjectCoverage < 0.14) return true;
+  // Fragmented / empty DeepLab masks — still try general matting once.
+  if (subjectCoverage < 0.06) return true;
+  return false;
+}
+
 /**
- * Seal fragmented car/bus masks: keep soft car pixels, close gaps, fill interior holes.
+ * Seal fragmented car/bus masks: keep soft car / matte pixels, close gaps, fill interior holes.
  * Avoids large rectangular capsules that leave a boxed sharp island.
  */
-function solidifyVehicleBody(alpha, analysis, width, height){
+function solidifyVehicleBody(alpha, analysis, width, height, preferMatte = false){
   const seed = new Uint8Array(width * height);
   for (let i = 0; i < seed.length; i += 1) {
     const car = Math.max(analysis.carScore[i], analysis.busScore[i]);
+    const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
     const hard = analysis.classMap[i] === SUBJECT_CLASS_IDS.car
       || analysis.classMap[i] === SUBJECT_CLASS_IDS.bus;
-    if (hard || car > 0.08 || (alpha[i] > 90 && analysis.vehicleScore[i] > 0.18)) {
+    if (
+      hard
+      || car > 0.08
+      || matte > (preferMatte ? 0.28 : 0.45)
+      || (alpha[i] > 90 && (analysis.vehicleScore[i] > 0.18 || matte > 0.22))
+    ) {
       seed[i] = 1;
     }
   }
@@ -516,7 +638,7 @@ async function ensureSession(onStatus){
     sessionPromise = (async () => {
       onStatus("載入 AI 模型…");
       const ort = await loadOrt();
-      const modelBuffer = await fetchModelBuffer(onStatus);
+      const modelBuffer = await fetchModelBuffer(MODEL_URL, MODEL_CACHE_NAME, onStatus, "主體分割模型");
       onStatus("初始化 AI 模型…");
       return ort.InferenceSession.create(modelBuffer, {
         executionProviders: ["wasm"]
@@ -529,6 +651,29 @@ async function ensureSession(onStatus){
   return sessionPromise;
 }
 
+async function ensureMatteSession(onStatus = () => {}){
+  if (!matteSessionPromise) {
+    matteSessionPromise = (async () => {
+      onStatus("載入汽車去背模型…");
+      const ort = await loadOrt();
+      const modelBuffer = await fetchModelBuffer(
+        MATTE_MODEL_URL,
+        MATTE_CACHE_NAME,
+        onStatus,
+        "汽車去背模型（約 4.5MB）"
+      );
+      onStatus("初始化汽車去背模型…");
+      return ort.InferenceSession.create(modelBuffer, {
+        executionProviders: ["wasm"]
+      });
+    })().catch(error => {
+      matteSessionPromise = null;
+      throw error;
+    });
+  }
+  return matteSessionPromise;
+}
+
 async function loadOrt(){
   if (ortModule) return ortModule;
   ortModule = await import(`${ORT_BASE}/ort.bundle.min.mjs`);
@@ -536,13 +681,13 @@ async function loadOrt(){
   return ortModule;
 }
 
-async function fetchModelBuffer(onStatus){
+async function fetchModelBuffer(modelUrl, cacheName, onStatus, label = "AI 模型"){
   if (typeof caches !== "undefined") {
     try {
-      const cache = await caches.open(MODEL_CACHE_NAME);
-      const cached = await cache.match(MODEL_URL);
+      const cache = await caches.open(cacheName);
+      const cached = await cache.match(modelUrl);
       if (cached) {
-        onStatus("讀取已快取的 AI 模型…");
+        onStatus(`讀取已快取的${label}…`);
         return cached.arrayBuffer();
       }
     } catch (error) {
@@ -550,8 +695,8 @@ async function fetchModelBuffer(onStatus){
     }
   }
 
-  onStatus("下載 AI 模型（首次約 7MB，請稍候）…");
-  const response = await fetch(MODEL_URL);
+  onStatus(`下載${label}（首次請稍候）…`);
+  const response = await fetch(modelUrl);
   if (!response.ok) {
     throw new Error(`模型下載失敗（${response.status}）`);
   }
@@ -563,8 +708,8 @@ async function fetchModelBuffer(onStatus){
 
   if (typeof caches !== "undefined") {
     try {
-      const cache = await caches.open(MODEL_CACHE_NAME);
-      await cache.put(MODEL_URL, new Response(buffer.slice(0)));
+      const cache = await caches.open(cacheName);
+      await cache.put(modelUrl, new Response(buffer.slice(0)));
     } catch (error) {
       console.warn("[F9 追焦] 模型快取寫入失敗：", error);
     }
@@ -580,6 +725,89 @@ async function runInference(session, image){
   const results = await session.run({ [inputName]: inputTensor });
   const outputName = session.outputNames[0];
   return results[outputName];
+}
+
+/**
+ * U2-Netp general matting: longest-edge 320 + top-left pad, ImageNet normalize.
+ * Returns a Float32 mask in [0,1] at the analysis resolution.
+ */
+async function runMatteInference(session, image, destW, destH){
+  const ort = await loadOrt();
+  const srcW = image.width || image.naturalWidth || 1;
+  const srcH = image.height || image.naturalHeight || 1;
+  const scale = MATTE_SIZE / Math.max(srcW, srcH);
+  const contentW = Math.max(1, Math.round(srcW * scale));
+  const contentH = Math.max(1, Math.round(srcH * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = MATTE_SIZE;
+  canvas.height = MATTE_SIZE;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, MATTE_SIZE, MATTE_SIZE);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(image, 0, 0, contentW, contentH);
+  const { data } = ctx.getImageData(0, 0, MATTE_SIZE, MATTE_SIZE);
+
+  const float32Data = new Float32Array(3 * MATTE_SIZE * MATTE_SIZE);
+  const plane = MATTE_SIZE * MATTE_SIZE;
+  for (let i = 0; i < plane; i += 1) {
+    const r = data[i * 4] / 255;
+    const g = data[i * 4 + 1] / 255;
+    const b = data[i * 4 + 2] / 255;
+    float32Data[i] = (r - MATTE_MEAN[0]) / MATTE_STD[0];
+    float32Data[i + plane] = (g - MATTE_MEAN[1]) / MATTE_STD[1];
+    float32Data[i + plane * 2] = (b - MATTE_MEAN[2]) / MATTE_STD[2];
+  }
+
+  const inputName = session.inputNames[0];
+  const inputTensor = new ort.Tensor("float32", float32Data, [1, 3, MATTE_SIZE, MATTE_SIZE]);
+  const results = await session.run({ [inputName]: inputTensor });
+  const outputName = session.outputNames[0];
+  const out = results[outputName];
+  const outData = out.data;
+  const outH = out.dims.length === 4 ? out.dims[2] : out.dims[1];
+  const outW = out.dims.length === 4 ? out.dims[3] : out.dims[2];
+
+  // Crop padding region, min-max normalize like rembg, then bilinear upscale.
+  const crop = new Float32Array(contentW * contentH);
+  let minV = Infinity;
+  let maxV = -Infinity;
+  for (let y = 0; y < contentH; y += 1) {
+    for (let x = 0; x < contentW; x += 1) {
+      const v = outData[y * outW + x];
+      crop[y * contentW + x] = v;
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+  }
+  const span = Math.max(1e-6, maxV - minV);
+  for (let i = 0; i < crop.length; i += 1) crop[i] = (crop[i] - minV) / span;
+
+  return upscaleFloatMapBilinear(crop, contentW, contentH, destW, destH);
+}
+
+function upscaleFloatMapBilinear(src, srcW, srcH, destW, destH){
+  const out = new Float32Array(destW * destH);
+  for (let y = 0; y < destH; y += 1) {
+    const fy = ((y + 0.5) * srcH / destH) - 0.5;
+    const y0 = Math.max(0, Math.floor(fy));
+    const y1 = Math.min(srcH - 1, y0 + 1);
+    const ty = clamp01(fy - y0);
+    for (let x = 0; x < destW; x += 1) {
+      const fx = ((x + 0.5) * srcW / destW) - 0.5;
+      const x0 = Math.max(0, Math.floor(fx));
+      const x1 = Math.min(srcW - 1, x0 + 1);
+      const tx = clamp01(fx - x0);
+      const i00 = y0 * srcW + x0;
+      const i01 = y0 * srcW + x1;
+      const i10 = y1 * srcW + x0;
+      const i11 = y1 * srcW + x1;
+      out[y * destW + x] = bilerp(src, i00, i01, i10, i11, tx, ty);
+    }
+  }
+  return out;
 }
 
 /**

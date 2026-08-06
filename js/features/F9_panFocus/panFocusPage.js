@@ -1,5 +1,5 @@
-// F9 追焦 - Page Controller v0.1.3
-// 方案 A：主體分割 + 背景水平運動模糊（汽車實心遮罩 + 自行車細結構復原）。
+// F9 追焦 - Page Controller v0.1.4
+// 方案 A：DeepLab 類別 + U2-Netp 汽車去背 + 背景水平運動模糊。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -43,7 +43,7 @@ export async function renderPanFocusPage(root, navigate){
 
         <div class="topbar-title">
           <h1>追焦</h1>
-          <p class="crystal-version" aria-hidden="true">v0.1.3</p>
+          <p class="crystal-version" aria-hidden="true">v0.1.4</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -78,7 +78,7 @@ export async function renderPanFocusPage(root, navigate){
           </div>
         </div>
 
-        <p class="note hidden" id="panFocusHint">汽車／機車／自行車與騎士保持清晰；若車身有破洞拖影，可再提高「主體擴張」與「主體靈敏度」</p>
+        <p class="note hidden" id="panFocusHint">汽車／機車／自行車與騎士保持清晰；汽車會再以去背模型精修輪廓。若邊緣仍不完整，可提高「主體擴張」與「主體靈敏度」</p>
         <p class="note pan-focus-status hidden" id="panFocusStatus" role="status"></p>
 
         <div class="hidden" id="panFocusDirectionBar" aria-label="追焦方向">
@@ -151,7 +151,7 @@ export async function renderPanFocusPage(root, navigate){
   const describeSubjects = entry => {
     if (!entry?.classCounts) return "";
     const labels = [];
-    if (entry.classCounts.car > 0) labels.push("汽車");
+    if (entry.classCounts.car > 0) labels.push(entry.usedMatte ? "汽車（去背精修）" : "汽車");
     if (entry.classCounts.motorbike > 0) labels.push("機車");
     if (entry.classCounts.bicycle > 0) labels.push("自行車");
     if (entry.classCounts.bus > 0) labels.push("巴士");
