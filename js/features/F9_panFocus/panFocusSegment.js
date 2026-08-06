@@ -482,7 +482,8 @@ function floodKeepComponent(binary, keep, width, height, box){
 
 /**
  * Cut vertical matte leaks into buildings/poles above the car roof.
- * Uses the row-width profile: roof is where the span collapses above the widest body row.
+ * Uses the row-width profile, plus a car aspect prior when a same-width
+ * "tower" of mask continues into buildings (profile alone cannot collapse).
  */
 function trimUpwardBleedAboveVehicle(maskCanvas){
   const width = maskCanvas.width;
@@ -519,15 +520,17 @@ function trimUpwardBleedAboveVehicle(maskCanvas){
 
   if (maxSpan < width * 0.08) return maskCanvas;
 
-  const spanFloor = maxSpan * 0.38;
-  const countFloor = Math.max(8, maxSpan * 0.18);
+  const spanFloor = maxSpan * 0.42;
+  const countFloor = Math.max(8, maxSpan * 0.20);
   let roofY = peakY;
+  let foundProfile = false;
   let thinRun = 0;
   for (let y = peakY - 1; y >= 0; y -= 1) {
     if (rowSpan[y] < spanFloor || rowCount[y] < countFloor) {
       thinRun += 1;
       if (thinRun >= 2) {
         roofY = y + 2;
+        foundProfile = true;
         break;
       }
     } else {
@@ -536,14 +539,38 @@ function trimUpwardBleedAboveVehicle(maskCanvas){
     }
   }
 
+  // Same-width mask tower above the body (buildings glued to the car).
+  let towerHeight = 0;
+  for (let y = peakY - 1; y >= 0; y -= 1) {
+    if (rowSpan[y] >= maxSpan * 0.58) towerHeight = peakY - y;
+    else break;
+  }
+
+  // Cars are wider than tall: roof sits roughly 0.28–0.36 of body width above peak.
+  const geometricRoof = Math.max(0, peakY - Math.round(maxSpan * 0.34));
+  if (!foundProfile) {
+    roofY = geometricRoof;
+  } else if (
+    towerHeight > Math.round(maxSpan * 0.22)
+    && roofY < peakY - Math.round(maxSpan * 0.48)
+  ) {
+    // Profile only collapsed at the top of a building tower — clamp to car proportion.
+    roofY = geometricRoof;
+  } else if (towerHeight > Math.round(maxSpan * 0.30)) {
+    roofY = Math.max(roofY, geometricRoof);
+    // max() keeps the lower cut (larger y) when profile is below geometric;
+    // when profile climbed too high (small y), prefer geometric:
+    if (roofY < geometricRoof) roofY = geometricRoof;
+  }
+
   // Small margin for roof rails / antennas; clear everything above.
-  const clearAbove = Math.max(0, roofY - Math.round(height * 0.012));
+  const clearAbove = Math.max(0, roofY - Math.round(height * 0.008));
   if (clearAbove <= 0) return maskCanvas;
 
   // Only trim when a meaningful vertical leak exists (mask reaches well above roof).
   let leak = 0;
   for (let y = 0; y < clearAbove; y += 1) leak += rowCount[y];
-  if (leak < width * height * 0.004) return maskCanvas;
+  if (leak < width * height * 0.003) return maskCanvas;
 
   for (let y = 0; y < clearAbove; y += 1) {
     const row = y * width;
