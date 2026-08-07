@@ -1,8 +1,8 @@
-// F9 追焦 - 狀態管理 v0.1.7
+// F9 追焦 - 狀態管理 v0.1.8
 // 第一排：汽車／機車・自行車／調整項目；第二排（按調整後才顯示）：參數下拉 + 滑桿。
 
 export const PAN_FOCUS_FEATURE_ID = "F9_panFocus";
-export const PAN_FOCUS_FEATURE_VERSION = "0.1.7";
+export const PAN_FOCUS_FEATURE_VERSION = "0.1.8";
 export const PAN_FOCUS_DRAFT_KEY = "photoEffects.F9_panFocus.draft.v2";
 
 /** 第一排主選：車種或進入調整 */

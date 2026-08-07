@@ -1,5 +1,5 @@
-// F9 追焦 - Page Controller v0.1.7
-// 手動車種：汽車／機車・自行車；調整項目第二排參數。
+// F9 追焦 - Page Controller v0.1.8
+// 手動車種（先選再套用）：汽車／機車・自行車；調整項目第二排參數。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -45,7 +45,7 @@ export async function renderPanFocusPage(root, navigate){
 
         <div class="topbar-title">
           <h1>追焦</h1>
-          <p class="crystal-version" aria-hidden="true">v0.1.7</p>
+          <p class="crystal-version" aria-hidden="true">v0.1.8</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -67,8 +67,8 @@ export async function renderPanFocusPage(root, navigate){
             <span class="crystal-reset-marker-icon" aria-hidden="true"></span>
           </button>
           <div class="empty-canvas" id="emptyCanvas">
-            請點右上方開啟照片
-            <span class="pan-focus-hint">請先選擇「汽車」或「機車、自行車」；首次使用會下載 AI 模型</span>
+            請先選擇下方「汽車」或「機車、自行車」，再點右上方開啟照片
+            <span class="pan-focus-hint">首次套用時會下載 AI 模型，請稍候</span>
           </div>
           <canvas id="editorCanvas" class="hidden crystal-canvas pan-focus-canvas"></canvas>
           <div class="magic-sky-analyzing hidden" id="panFocusProcessingOverlay" role="status" aria-live="polite" aria-busy="false">
@@ -80,10 +80,10 @@ export async function renderPanFocusPage(root, navigate){
           </div>
         </div>
 
-        <p class="note hidden" id="panFocusHint">請選擇車輛類型後套用追焦。按「調整項目」可分別設定向左／向右拖影與邊緣參數。</p>
+        <p class="note" id="panFocusHint">先手動選擇主體類型（汽車／機車、自行車），再開啟照片套用追焦。按「調整項目」可設定向左／向右拖影與邊緣參數。</p>
         <p class="note pan-focus-status hidden" id="panFocusStatus" role="status"></p>
 
-        <div class="hidden" id="panFocusPrimaryBar" aria-label="追焦模式">
+        <div id="panFocusPrimaryBar" aria-label="追焦模式">
           ${renderPrimaryRow()}
         </div>
 
@@ -269,9 +269,12 @@ export async function renderPanFocusPage(root, navigate){
   const showEditor = () => {
     root.querySelector("#emptyCanvas")?.classList.add("hidden");
     canvas.classList.remove("hidden");
-    root.querySelector("#panFocusPrimaryBar")?.classList.remove("hidden");
-    root.querySelector("#panFocusHint")?.classList.remove("hidden");
     root.querySelector("#resetPanFocusSettingsBtn")?.classList.remove("hidden");
+    const hint = root.querySelector("#panFocusHint");
+    if (hint) {
+      hint.textContent = "可改選「汽車」或「機車、自行車」重新分析；按「調整項目」設定向左／向右拖影與邊緣參數。";
+    }
+    // Primary row stays visible so vehicle type can be chosen before/after open.
     // Adjust panel visibility is controlled by primaryMode === "adjust".
     panFocusUi?.refreshAllControls?.();
   };
@@ -282,18 +285,24 @@ export async function renderPanFocusPage(root, navigate){
   };
 
   const resetEditorSession = () => {
+    const keepVehicle = state.vehicleMode === "rider" ? "rider" : "car";
+    const keepPrimary = state.primaryMode === "adjust" ? "adjust" : keepVehicle;
     sourceImage = null;
     maskEntry = null;
     photoKey = "";
     outputSize = null;
     clearPanFocusMaskCache();
-    Object.assign(state, updatePanFocusState(createDefaultPanFocusState(), {}));
+    Object.assign(state, updatePanFocusState(createDefaultPanFocusState(), {
+      vehicleMode: keepVehicle,
+      primaryMode: keepPrimary
+    }));
     root.querySelector("#emptyCanvas")?.classList.remove("hidden");
     canvas.classList.add("hidden");
-    root.querySelector("#panFocusPrimaryBar")?.classList.add("hidden");
-    root.querySelector("#panFocusAdjustPanel")?.classList.add("hidden");
-    root.querySelector("#panFocusHint")?.classList.add("hidden");
     root.querySelector("#resetPanFocusSettingsBtn")?.classList.add("hidden");
+    const hint = root.querySelector("#panFocusHint");
+    if (hint) {
+      hint.textContent = "先手動選擇主體類型（汽車／機車、自行車），再開啟照片套用追焦。按「調整項目」可設定向左／向右拖影與邊緣參數。";
+    }
     setStatus("");
     panFocusUi?.refreshAllControls?.();
   };
