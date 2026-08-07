@@ -1,4 +1,4 @@
-// F9 追焦 - Canvas 影像處理 v0.1.13
+// F9 追焦 - Canvas 影像處理 v0.1.14
 // 殘影跟拍：整張原圖水平運動模糊 → 貼回清晰主體層（騎士＋整車同一 matte）。
 
 export const PAN_FOCUS_MAX_EDGE = 1600;

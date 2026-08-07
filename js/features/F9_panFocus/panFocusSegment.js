@@ -1,4 +1,4 @@
-// F9 追焦 - AI 主體分割 v0.1.13
+// F9 追焦 - AI 主體分割 v0.1.14
 // 騎士＋整車：緊緻 matte 核心（去光暈）+ 形態學後強制前／後輪復原。
 // 靈敏度／擴張／羽化只改 matte；合成端全圖模糊＋貼回保留跟拍殘影。
 
@@ -9,7 +9,7 @@ const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
 /** General object matting (~4.5MB). Used for cars; also soft-unions rider/bike silhouettes. */
 const MATTE_MODEL_URL = "https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx";
 const MATTE_CACHE_NAME = "photo-effects-panfocus-u2netp-v1";
-const MASK_PIPELINE_VERSION = 13;
+const MASK_PIPELINE_VERSION = 14;
 const INPUT_SIZE = 512;
 const MATTE_SIZE = 320;
 const MATTE_MEAN = [0.485, 0.456, 0.406];
@@ -431,6 +431,12 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
       wheelMask = forced.wheelMask;
     } catch (error) {
       console.warn("[F9 追焦] 強制輪胎復原略過：", error);
+    }
+    try {
+      // Drop sharp outdoor blobs between seat/butt and bike rim/frame.
+      maskCanvas = trimRiderSeatFrameGap(maskCanvas, analysis, sourceImage, width, height, wheelMask);
+    } catch (error) {
+      console.warn("[F9 追焦] 座椅縫隙修剪略過：", error);
     }
   }
 
@@ -1148,82 +1154,205 @@ function findRiderWheelCenters(box, analysis, photo, width, height, direction = 
 }
 
 /**
- * Paint a tire rim. Forced mode fills angular sectors that have any tire evidence
- * so broken YouBike front tires reconnect instead of vanishing into the blur.
+ * Paint a dark tire rim arc only — never a full bright disk.
+ * - Rim annulus only (spokes stay hollow)
+ * - Only evidence-backed angular sectors
+ * - Never paint bright pavement into the subject
+ * - Lower-left arc uses a slightly looser darkness gate (eaten corner)
  */
 function paintWheelDiskForced(alpha, wheelMask, analysis, photo, width, height, cx, cy, radius, forced = false){
   const r = Math.max(10, Math.round(radius));
-  const r2 = r * r;
-  const inner = Math.round(r * 0.48);
+  // Narrow rim strip along the dark tire edge (not a filled disk).
+  const outer = r + 0.85;
+  const inner = Math.max(4, r * (forced ? 0.78 : 0.72));
+  const outer2 = outer * outer;
   const inner2 = inner * inner;
-  const x0 = Math.max(0, cx - r - 2);
-  const x1 = Math.min(width - 1, cx + r + 2);
-  const y0 = Math.max(0, cy - r - 2);
-  const y1 = Math.min(height - 1, cy + r + 2);
+  const x0 = Math.max(0, Math.floor(cx - r - 3));
+  const x1 = Math.min(width - 1, Math.ceil(cx + r + 3));
+  const y0 = Math.max(0, Math.floor(cy - r - 3));
+  const y1 = Math.min(height - 1, Math.ceil(cy + r + 3));
 
-  const sectors = 24;
-  const sectorHits = new Uint8Array(sectors);
+  const sectors = 36;
+  const sectorDark = new Float32Array(sectors);
+  const sectorSamples = new Float32Array(sectors);
 
+  // Pass 1: score dark rim evidence per angular bin (ignore bright pavement).
   for (let y = y0; y <= y1; y += 1) {
     for (let x = x0; x <= x1; x += 1) {
       const dx = x - cx;
       const dy = y - cy;
       const d2 = dx * dx + dy * dy;
-      if (d2 > r2 || d2 < inner2) continue;
+      if (d2 > outer2 || d2 < inner2) continue;
       const i = y * width + x;
+      const L = photo.lum[i];
+      const lowerLeft = dx < 0 && dy > 0;
+      const darkCut = lowerLeft ? 118 : 98;
+      // Bright road / sky must never count as rim evidence.
+      if (L > darkCut && !photo.dark[i]) continue;
+
       const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
-      const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
-      const hit = photo.dark[i] || photo.lum[i] < 78 || thin > 0.02 || matte > 0.3 || photo.colorful[i] || alpha[i] > 50;
-      if (!hit) continue;
+      const darkEnough = photo.dark[i] || L < (lowerLeft ? 112 : 92) || thin > 0.03;
+      if (!darkEnough) continue;
+
       const ang = Math.atan2(dy, dx);
       const s = Math.min(sectors - 1, Math.floor(((ang + Math.PI) / (Math.PI * 2)) * sectors));
-      sectorHits[s] = 1;
-      alpha[i] = 255;
-      wheelMask[i] = 1;
+      sectorSamples[s] += 1;
+      let w = 1;
+      if (photo.dark[i] || L < 70) w += 1.4;
+      if (thin > 0.04) w += 1.1;
+      if (lowerLeft && L < 118) w += 0.35;
+      sectorDark[s] += w;
     }
   }
 
-  if (!forced) {
-    // Still keep some hub/spoke structure when evidence exists.
+  const sectorOk = new Uint8Array(sectors);
+  const minHits = forced ? 1.15 : 1.8;
+  for (let s = 0; s < sectors; s += 1) {
+    if (sectorDark[s] >= minHits) sectorOk[s] = 1;
+  }
+  // Grow arcs by one bin when a neighbor is strongly evidenced (continuity, not full ring).
+  const grown = new Uint8Array(sectors);
+  for (let s = 0; s < sectors; s += 1) {
+    if (sectorOk[s]) {
+      grown[s] = 1;
+      continue;
+    }
+    const prev = sectorOk[(s + sectors - 1) % sectors];
+    const next = sectorOk[(s + 1) % sectors];
+    if ((prev || next) && sectorDark[s] >= (forced ? 0.45 : 0.9)) grown[s] = 1;
+  }
+
+  // Pass 2: paint only dark pixels on evidence-backed rim arcs.
+  for (let y = y0; y <= y1; y += 1) {
+    for (let x = x0; x <= x1; x += 1) {
+      const dx = x - cx;
+      const dy = y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > outer2 || d2 < inner2) continue;
+      const ang = Math.atan2(dy, dx);
+      const s = Math.min(sectors - 1, Math.floor(((ang + Math.PI) / (Math.PI * 2)) * sectors));
+      if (!grown[s]) continue;
+
+      const i = y * width + x;
+      const L = photo.lum[i];
+      const lowerLeft = dx < 0 && dy > 0;
+      const darkCut = lowerLeft ? 120 : 100;
+      // Hard ban: bright pavement / sky never enters the subject via wheel paint.
+      if (L > darkCut && !photo.dark[i]) continue;
+
+      const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+      const keep = photo.dark[i]
+        || L < (lowerLeft ? 114 : 94)
+        || thin > 0.035
+        || (forced && lowerLeft && L < 120 && (photo.dark[i] || L < 110 || thin > 0.02));
+      if (!keep) continue;
+
+      const midR = (outer + inner) * 0.5;
+      const dist = Math.sqrt(d2);
+      const radial = 1 - Math.min(1, Math.abs(dist - midR) / Math.max(1.5, (outer - inner) * 0.55));
+      const darkness = Math.max(0, Math.min(1, (darkCut - L) / Math.max(24, darkCut)));
+      const a = Math.floor(255 * Math.min(1, 0.62 + radial * 0.28 + darkness * 0.22));
+      alpha[i] = Math.max(alpha[i], a);
+      wheelMask[i] = 1;
+    }
+  }
+}
+
+/**
+ * Remove sharp outdoor background trapped between the rider seat/butt and the
+ * bike frame / wheel outer rim (common YouBike clear-gap leak).
+ */
+function trimRiderSeatFrameGap(maskCanvas, analysis, sourceImage, width, height, wheelMask = null){
+  const boxes = listRiderPersonBoxes(analysis, width, height);
+  if (!boxes.length) return maskCanvas;
+
+  const photo = samplePhotoStats(sourceImage, width, height);
+  const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  const rgba = photo.rgba;
+
+  for (const box of boxes) {
+    const pw = box.x1 - box.x0 + 1;
+    const ph = box.y1 - box.y0 + 1;
+    const x0 = Math.max(0, Math.floor(box.x0 - pw * 0.08));
+    const x1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 0.85));
+    const y0 = Math.max(0, Math.floor(box.y0 + ph * 0.42));
+    const y1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.32));
+
     for (let y = y0; y <= y1; y += 1) {
       for (let x = x0; x <= x1; x += 1) {
-        const dx = x - cx;
-        const dy = y - cy;
-        const d2 = dx * dx + dy * dy;
-        if (d2 >= inner2 || d2 > r2) continue;
         const i = y * width + x;
+        if (wheelMask && wheelMask[i]) continue;
+        const a = data[i * 4 + 3];
+        if (a < 10) continue;
+
+        const L = photo.lum[i];
         const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
-        if (thin > 0.04 || photo.dark[i] || alpha[i] > 60) {
-          alpha[i] = Math.max(alpha[i], 230);
-          wheelMask[i] = 1;
+        const person = analysis.personScore[i];
+        const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
+
+        // Keep real bike structure and strong rider body.
+        if (photo.dark[i] || L < 56 || thin > 0.055) continue;
+        if (person > 0.42 && L < 155) continue;
+
+        const o = i * 4;
+        const r = rgba[o];
+        const g = rgba[o + 1];
+        const b = rgba[o + 2];
+        const grass = g > r + 6 && g > b + 4 && L >= 52 && L <= 205;
+        const pavement = Math.abs(r - g) < 24 && Math.abs(g - b) < 24 && L >= 80 && L <= 205;
+        if (!grass && !pavement) continue;
+
+        // Weak subject claim: outdoor mid-tones should not stay sharp in the gap.
+        if (person > 0.32 && matte > 0.62 && thin > 0.02) continue;
+
+        let personAbove = false;
+        for (let dy = 3; dy <= 40 && !personAbove; dy += 2) {
+          const yy = y - dy;
+          if (yy < 0) break;
+          for (let dx = -4; dx <= 4; dx += 2) {
+            const xx = x + dx;
+            if (xx < 0 || xx >= width) continue;
+            const j = yy * width + xx;
+            if (analysis.personScore[j] > 0.28) {
+              personAbove = true;
+              break;
+            }
+            // Masked darker clothing/seat above also counts.
+            if (data[j * 4 + 3] > 90 && photo.lum[j] < 130 && !photo.colorful[j]) {
+              personAbove = true;
+              break;
+            }
+          }
         }
+        if (!personAbove) continue;
+
+        let darkNear = false;
+        const probe = Math.max(10, Math.round(Math.min(pw, ph) * 0.12));
+        const p2 = probe * probe;
+        for (let yy = Math.max(0, y - probe); yy <= Math.min(height - 1, y + probe) && !darkNear; yy += 2) {
+          for (let xx = Math.max(0, x - probe); xx <= Math.min(width - 1, x + probe); xx += 2) {
+            const ddx = xx - x;
+            const ddy = yy - y;
+            if (ddx * ddx + ddy * ddy > p2) continue;
+            const j = yy * width + xx;
+            const jt = Math.max(analysis.bicycleScore[j], analysis.motorbikeScore[j]);
+            if (photo.dark[j] || photo.lum[j] < 58 || jt > 0.05 || (wheelMask && wheelMask[j])) {
+              darkNear = true;
+              break;
+            }
+          }
+        }
+        if (!darkNear) continue;
+
+        data[i * 4 + 3] = 0;
       }
     }
-    return;
   }
 
-  // Forced: fill entire rim sectors that had any hit — reconnects broken front tires.
-  const hitCount = sectorHits.reduce((n, v) => n + v, 0);
-  const fillAll = hitCount >= 3;
-  for (let y = y0; y <= y1; y += 1) {
-    for (let x = x0; x <= x1; x += 1) {
-      const dx = x - cx;
-      const dy = y - cy;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > r2 || d2 < inner2) continue;
-      const ang = Math.atan2(dy, dx);
-      const s = Math.min(sectors - 1, Math.floor(((ang + Math.PI) / (Math.PI * 2)) * sectors));
-      const neighbors = sectorHits[s]
-        || sectorHits[(s + 1) % sectors]
-        || sectorHits[(s + sectors - 1) % sectors];
-      if (!neighbors && !fillAll) continue;
-      const i = y * width + x;
-      // Avoid painting bright sky into the rim; allow pavement-dark / mid tones.
-      if (photo.lum[i] > 195 && !photo.dark[i]) continue;
-      alpha[i] = 255;
-      wheelMask[i] = 1;
-    }
-  }
+  ctx.putImageData(image, 0, 0);
+  return maskCanvas;
 }
 
 function paintWheelDisk(alpha, analysis, photo, width, height, cx, cy, radius){
@@ -1233,29 +1362,34 @@ function paintWheelDisk(alpha, analysis, photo, width, height, cx, cy, radius){
 
 function wheelDiskHasEvidence(cx, cy, radius, analysis, photo, width, height){
   const r = Math.max(4, Math.round(radius));
+  const outer2 = r * r;
+  const inner = Math.max(2, r * 0.72);
+  const inner2 = inner * inner;
   const x0 = Math.max(0, cx - r);
   const x1 = Math.min(width - 1, cx + r);
   const y0 = Math.max(0, cy - r);
   const y1 = Math.min(height - 1, cy + r);
   let hits = 0;
   let samples = 0;
-  const r2 = r * r;
   for (let y = y0; y <= y1; y += 2) {
     for (let x = x0; x <= x1; x += 2) {
       const dx = x - cx;
       const dy = y - cy;
-      if (dx * dx + dy * dy > r2) continue;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > outer2 || d2 < inner2) continue;
       samples += 1;
       const i = y * width + x;
       const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
-      const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
-      if (photo.dark[i] || photo.lum[i] < 75 || thin > 0.025 || matte > 0.35 || photo.colorful[i]) {
+      const lowerLeft = dx < 0 && dy > 0;
+      const darkCut = lowerLeft ? 118 : 98;
+      if (photo.lum[i] > darkCut && !photo.dark[i]) continue;
+      if (photo.dark[i] || photo.lum[i] < darkCut || thin > 0.025) {
         hits += 1;
       }
     }
   }
-  if (samples < 8) return false;
-  return hits / samples >= 0.06;
+  if (samples < 6) return false;
+  return hits / samples >= 0.08;
 }
 
 function samplePhotoStats(sourceImage, width, height){
@@ -1297,7 +1431,7 @@ function samplePhotoStats(sourceImage, width, height){
     }
   }
 
-  return { dark, colorful, lum };
+  return { dark, colorful, lum, rgba: data };
 }
 
 function labelComponents(binary, width, height, minArea){
