@@ -46,9 +46,10 @@ application.
                                                          planet/tunnel,
                                                          warp & atmosphere
 
-  F9         追焦 (Pan Focus)       🚧                   Manual car / bike
-                                                         mode + U2-Netp matte
-                                                         + motion blur
+  F9         追焦 (Pan Focus)       🚧                   Manual object mode
+                                                         (car / bike-rider)
+                                                         first, then U2-Netp
+                                                         matte + motion blur
 
   F10--F28   Reserved               📋                   Future modules
   ------------------------------------------------------------------------

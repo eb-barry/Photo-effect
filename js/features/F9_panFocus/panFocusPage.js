@@ -270,6 +270,10 @@ export async function renderPanFocusPage(root, navigate){
     root.querySelector("#emptyCanvas")?.classList.add("hidden");
     canvas.classList.remove("hidden");
     root.querySelector("#resetPanFocusSettingsBtn")?.classList.remove("hidden");
+    const hint = root.querySelector("#panFocusHint");
+    if (hint) {
+      hint.textContent = "可改選「汽車」或「機車、自行車」重新分析；按「調整項目」設定向左／向右拖影與邊緣參數。";
+    }
     // Primary row stays visible so vehicle type can be chosen before/after open.
     // Adjust panel visibility is controlled by primaryMode === "adjust".
     panFocusUi?.refreshAllControls?.();
@@ -295,6 +299,10 @@ export async function renderPanFocusPage(root, navigate){
     root.querySelector("#emptyCanvas")?.classList.remove("hidden");
     canvas.classList.add("hidden");
     root.querySelector("#resetPanFocusSettingsBtn")?.classList.add("hidden");
+    const hint = root.querySelector("#panFocusHint");
+    if (hint) {
+      hint.textContent = "先手動選擇主體類型（汽車／機車、自行車），再開啟照片套用追焦。按「調整項目」可設定向左／向右拖影與邊緣參數。";
+    }
     setStatus("");
     panFocusUi?.refreshAllControls?.();
   };
