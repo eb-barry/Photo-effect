@@ -883,25 +883,15 @@ function hardenRiderMaskEdges(maskCanvas, analysis, width, height){
 
 function dilateBinaryMap(seed, width, height, radius){
   if (radius <= 0) return seed;
+  const alpha = new Uint8ClampedArray(seed.length);
+  for (let i = 0; i < seed.length; i += 1) alpha[i] = seed[i] ? 255 : 0;
+  let canvas = alphaToMaskCanvas(alpha, width, height);
+  canvas = dilateMaskCanvas(canvas, radius);
+  const data = canvas.getContext("2d", { willReadFrequently: true })
+    .getImageData(0, 0, width, height).data;
   const out = new Uint8Array(seed.length);
-  const r = radius;
-  const r2 = r * r;
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const i = y * width + x;
-      if (!seed[i]) continue;
-      const y0 = Math.max(0, y - r);
-      const y1 = Math.min(height - 1, y + r);
-      const x0 = Math.max(0, x - r);
-      const x1 = Math.min(width - 1, x + r);
-      for (let yy = y0; yy <= y1; yy += 1) {
-        const dy = yy - y;
-        for (let xx = x0; xx <= x1; xx += 1) {
-          const dx = xx - x;
-          if (dx * dx + dy * dy <= r2) out[yy * width + xx] = 1;
-        }
-      }
-    }
+  for (let i = 0; i < out.length; i += 1) {
+    if (data[i * 4 + 3] > 16) out[i] = 1;
   }
   return out;
 }
