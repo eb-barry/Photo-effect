@@ -1,5 +1,5 @@
-// F9 追焦 - AI 主體分割 v0.1.14
-// 騎士＋整車：緊緻 matte 核心（去光暈）+ 形態學後強制前／後輪復原。
+// F9 追焦 - AI 主體分割 v0.1.15
+// 騎士＋整車：緊緻 matte 核心（去光暈）+ 形態學後強制前／後輪與前菜籃復原。
 // 靈敏度／擴張／羽化只改 matte；合成端全圖模糊＋貼回保留跟拍殘影。
 
 const ORT_VERSION = "1.22.0";
@@ -9,7 +9,7 @@ const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
 /** General object matting (~4.5MB). Used for cars; also soft-unions rider/bike silhouettes. */
 const MATTE_MODEL_URL = "https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx";
 const MATTE_CACHE_NAME = "photo-effects-panfocus-u2netp-v1";
-const MASK_PIPELINE_VERSION = 14;
+const MASK_PIPELINE_VERSION = 15;
 const INPUT_SIZE = 512;
 const MATTE_SIZE = 320;
 const MATTE_MEAN = [0.485, 0.456, 0.406];
@@ -422,19 +422,27 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   }
   if (autoExpand > 0) maskCanvas = dilateMaskCanvas(maskCanvas, autoExpand);
 
-  // LAST structural pass: force rear + front wheels after all trim/erode.
-  let wheelMask = null;
+  // LAST structural pass: force rear + front wheels + front basket after all trim/erode.
+  // Blur strength never touches this mask — missing rim/basket only looks worse at high blur.
+  let structureMask = null;
   if (treatAsRider) {
     try {
       const forced = forceRiderWheelsOnMask(maskCanvas, analysis, sourceImage, width, height);
       maskCanvas = forced.maskCanvas;
-      wheelMask = forced.wheelMask;
+      structureMask = forced.wheelMask;
     } catch (error) {
       console.warn("[F9 追焦] 強制輪胎復原略過：", error);
     }
     try {
+      const basket = forceRiderFrontBasketOnMask(maskCanvas, analysis, sourceImage, width, height);
+      maskCanvas = basket.maskCanvas;
+      structureMask = mergeBinaryMasks(structureMask, basket.basketMask);
+    } catch (error) {
+      console.warn("[F9 追焦] 前菜籃復原略過：", error);
+    }
+    try {
       // Drop sharp outdoor blobs between seat/butt and bike rim/frame.
-      maskCanvas = trimRiderSeatFrameGap(maskCanvas, analysis, sourceImage, width, height, wheelMask);
+      maskCanvas = trimRiderSeatFrameGap(maskCanvas, analysis, sourceImage, width, height, structureMask);
     } catch (error) {
       console.warn("[F9 追焦] 座椅縫隙修剪略過：", error);
     }
@@ -449,7 +457,7 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
 
   if (treatAsRider) {
     try {
-      maskCanvas = hardenRiderMaskEdges(maskCanvas, analysis, width, height, wheelMask);
+      maskCanvas = hardenRiderMaskEdges(maskCanvas, analysis, width, height, structureMask);
     } catch (error) {
       console.warn("[F9 追焦] 騎士邊緣硬化略過：", error);
     }
@@ -852,11 +860,142 @@ function forceRiderWheelsOnMask(maskCanvas, analysis, sourceImage, width, height
   for (const box of boxes) {
     const wheels = findRiderWheelCenters(box, analysis, photo, width, height, direction);
     for (const wheel of wheels) {
-      paintWheelDiskForced(alpha, wheelMask, analysis, photo, width, height, wheel.cx, wheel.cy, wheel.radius, wheel.forced);
+      const refined = refineWheelGeometry(wheel.cx, wheel.cy, wheel.radius, analysis, photo, width, height);
+      paintWheelDiskForced(
+        alpha,
+        wheelMask,
+        analysis,
+        photo,
+        width,
+        height,
+        refined.cx,
+        refined.cy,
+        refined.radius,
+        wheel.forced
+      );
     }
   }
 
   return { maskCanvas: alphaToMaskCanvas(alpha, width, height), wheelMask };
+}
+
+function mergeBinaryMasks(a, b){
+  if (!a) return b || null;
+  if (!b) return a;
+  const out = new Uint8Array(a.length);
+  for (let i = 0; i < a.length; i += 1) out[i] = a[i] || b[i] ? 1 : 0;
+  return out;
+}
+
+/**
+ * Force the front mesh basket (and bag inside) into the sharp subject layer.
+ * Mesh holes are filled so the basket reads as a solid sharp object, not ghost blur.
+ */
+function forceRiderFrontBasketOnMask(maskCanvas, analysis, sourceImage, width, height){
+  const boxes = listRiderPersonBoxes(analysis, width, height);
+  if (!boxes.length) return { maskCanvas, basketMask: new Uint8Array(width * height) };
+
+  const photo = samplePhotoStats(sourceImage, width, height);
+  const direction = analysis.resolvedDirection === "left" ? "left" : "right";
+  const ahead = direction === "left" ? -1 : 1;
+  const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  const basketMask = new Uint8Array(width * height);
+  const rgba = photo.rgba;
+
+  for (const box of boxes) {
+    const pw = box.x1 - box.x0 + 1;
+    const ph = box.y1 - box.y0 + 1;
+    const frontX = ahead > 0 ? box.x1 : box.x0;
+    const x0 = Math.max(0, Math.floor(ahead > 0 ? frontX - pw * 0.08 : frontX - pw * 0.72));
+    const x1 = Math.min(width - 1, Math.ceil(ahead > 0 ? frontX + pw * 0.72 : frontX + pw * 0.08));
+    const y0 = Math.max(0, Math.floor(box.y0 + ph * 0.10));
+    const y1 = Math.min(height - 1, Math.ceil(box.y0 + ph * 0.62));
+
+    const seed = new Uint8Array(width * height);
+    for (let y = y0; y <= y1; y += 1) {
+      for (let x = x0; x <= x1; x += 1) {
+        const i = y * width + x;
+        const L = photo.lum[i];
+        const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+        const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
+        const o = i * 4;
+        const r = rgba[o];
+        const g = rgba[o + 1];
+        const b = rgba[o + 2];
+        const maxC = Math.max(r, g, b);
+        const minC = Math.min(r, g, b);
+        const sat = (maxC - minC) / Math.max(1, maxC);
+        const meshDark = photo.dark[i] || L < 95;
+        const meshGray = L < 150 && sat < 0.22;
+        const bagInside = L >= 95 && L < 185 && sat < 0.35 && matte > 0.2;
+        if (thin > 0.028 || meshDark || (meshGray && (thin > 0.012 || matte > 0.28 || localVariance(photo.lum, width, height, x, y) > 18)) || bagInside) {
+          // Reject open sky / bright railing glare in the ROI.
+          if (L > 210 && sat < 0.08) continue;
+          seed[i] = 1;
+        }
+      }
+    }
+
+    // Dilate seeds inside ROI so mesh holes become solid basket silhouette.
+    const solid = dilateBinaryMapInRect(seed, width, height, Math.max(2, Math.round(Math.min(pw, ph) * 0.035)), x0, y0, x1, y1);
+    for (let y = y0; y <= y1; y += 1) {
+      for (let x = x0; x <= x1; x += 1) {
+        const i = y * width + x;
+        if (!solid[i]) continue;
+        // Keep basket interior (bag / mesh holes) but never pure bright sky.
+        if (photo.lum[i] > 220 && !photo.dark[i]) continue;
+        data[i * 4 + 3] = Math.max(data[i * 4 + 3], 245);
+        basketMask[i] = 1;
+      }
+    }
+  }
+
+  ctx.putImageData(image, 0, 0);
+  return { maskCanvas, basketMask };
+}
+
+function localVariance(lum, width, height, x, y){
+  if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) return 0;
+  let sum = 0;
+  let sum2 = 0;
+  let n = 0;
+  for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      const v = lum[(y + dy) * width + (x + dx)];
+      sum += v;
+      sum2 += v * v;
+      n += 1;
+    }
+  }
+  const mean = sum / n;
+  return sum2 / n - mean * mean;
+}
+
+function dilateBinaryMapInRect(seed, width, height, radius, x0, y0, x1, y1){
+  if (radius <= 0) return seed;
+  const out = new Uint8Array(seed.length);
+  const r2 = radius * radius;
+  for (let y = y0; y <= y1; y += 1) {
+    for (let x = x0; x <= x1; x += 1) {
+      let hit = 0;
+      for (let dy = -radius; dy <= radius && !hit; dy += 1) {
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          if (dx * dx + dy * dy > r2) continue;
+          const xx = x + dx;
+          const yy = y + dy;
+          if (xx < x0 || xx > x1 || yy < y0 || yy > y1) continue;
+          if (seed[yy * width + xx]) {
+            hit = 1;
+            break;
+          }
+        }
+      }
+      if (hit) out[y * width + x] = 1;
+    }
+  }
+  return out;
 }
 
 function listRiderPersonBoxes(analysis, width, height){
@@ -1005,12 +1144,15 @@ function recoverRiderBodyStructure(alpha, analysis, sourceImage, width, height){
   const boxes = listRiderPersonBoxes(analysis, width, height);
   if (!boxes.length) return;
   const photo = samplePhotoStats(sourceImage, width, height);
+  const direction = analysis.resolvedDirection === "left" ? "left" : "right";
+  const ahead = direction === "left" ? -1 : 1;
 
   for (const box of boxes) {
     const pw = box.x1 - box.x0 + 1;
     const ph = box.y1 - box.y0 + 1;
-    const bx0 = Math.max(0, Math.floor(box.x0 - pw * 0.22));
-    const bx1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 0.55));
+    // Extend farther toward the travel direction so the front basket / fork stay in ROI.
+    const bx0 = Math.max(0, Math.floor(box.x0 - pw * (ahead < 0 ? 0.75 : 0.22)));
+    const bx1 = Math.min(width - 1, Math.ceil(box.x1 + pw * (ahead > 0 ? 0.75 : 0.22)));
     const top = Math.max(0, Math.floor(box.y0 + ph * 0.08));
     const by1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.35));
     for (let y = top; y <= by1; y += 1) {
@@ -1154,63 +1296,127 @@ function findRiderWheelCenters(box, analysis, photo, width, height, direction = 
 }
 
 /**
- * Paint a dark tire rim arc only — never a full bright disk.
- * - Rim annulus only (spokes stay hollow)
- * - Only evidence-backed angular sectors
- * - Never paint bright pavement into the subject
- * - Lower-left arc uses a slightly looser darkness gate (eaten corner)
+ * Nudge wheel center/radius onto the strongest rim-edge ring so the painted
+ * annulus lands on the real tire instead of nearby pavement.
+ */
+function refineWheelGeometry(cx, cy, radius, analysis, photo, width, height){
+  let best = { cx, cy, radius: Math.max(10, Math.round(radius)), score: -1 };
+  for (let dry = -8; dry <= 8; dry += 2) {
+    for (let drx = -8; drx <= 8; drx += 2) {
+      for (let dr = -5; dr <= 8; dr += 2) {
+        const tcx = cx + drx;
+        const tcy = cy + dry;
+        const tr = Math.max(10, Math.round(radius + dr));
+        if (tcx < 0 || tcy < 0 || tcx >= width || tcy >= height) continue;
+        const score = scoreRimEnergy(tcx, tcy, tr, analysis, photo, width, height);
+        if (score > best.score) best = { cx: tcx, cy: tcy, radius: tr, score };
+      }
+    }
+  }
+  return best;
+}
+
+function scoreRimEnergy(cx, cy, radius, analysis, photo, width, height){
+  const rays = 48;
+  let score = 0;
+  let hits = 0;
+  for (let s = 0; s < rays; s += 1) {
+    const ang = -Math.PI + (Math.PI * 2 * s) / rays;
+    const ux = Math.cos(ang);
+    const uy = Math.sin(ang);
+    let best = 0;
+    for (let t = radius * 0.72; t <= radius * 1.06; t += 0.75) {
+      const x = Math.round(cx + ux * t);
+      const y = Math.round(cy + uy * t);
+      if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) continue;
+      const i = y * width + x;
+      const edge = radialEdgeStrength(photo, width, height, x, y, ux, uy);
+      const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+      const L = photo.lum[i];
+      const darkBoost = photo.dark[i] || L < 100 ? 1.3 : (L < 150 ? 0.7 : 0);
+      const sVal = edge * (0.7 + darkBoost) + thin * 18;
+      if (sVal > best) best = sVal;
+    }
+    if (best > 8) {
+      hits += 1;
+      score += best;
+    }
+  }
+  if (hits < 8) return hits * 0.1;
+  return score / rays + hits * 0.15;
+}
+
+function radialEdgeStrength(photo, width, height, x, y, ux, uy){
+  const i = y * width + x;
+  const xo = Math.round(x + ux * 2);
+  const yo = Math.round(y + uy * 2);
+  const xi = Math.round(x - ux * 2);
+  const yi = Math.round(y - uy * 2);
+  if (xo < 0 || yo < 0 || xo >= width || yo >= height) return 0;
+  if (xi < 0 || yi < 0 || xi >= width || yi >= height) return 0;
+  const L = photo.lum[i];
+  const Lo = photo.lum[yo * width + xo];
+  const Li = photo.lum[yi * width + xi];
+  return Math.max(Math.abs(L - Lo), Math.abs(L - Li), Math.abs(Lo - Li) * 0.5);
+}
+
+/**
+ * Paint a tire/rim arc aligned to image edges — never a bright pavement disk.
+ * Accepts dark rubber AND metallic silver rim via radial-edge evidence.
+ * Forced mode ray-walks the lower-left arc so blur strength cannot "erase" it.
  */
 function paintWheelDiskForced(alpha, wheelMask, analysis, photo, width, height, cx, cy, radius, forced = false){
   const r = Math.max(10, Math.round(radius));
-  // Narrow rim strip along the dark tire edge (not a filled disk).
-  const outer = r + 0.85;
-  const inner = Math.max(4, r * (forced ? 0.78 : 0.72));
+  // Rim strip: outer tire edge + metallic rim; spokes stay hollow.
+  const outer = r + 1.35;
+  const inner = Math.max(4, r * (forced ? 0.74 : 0.70));
   const outer2 = outer * outer;
   const inner2 = inner * inner;
-  const x0 = Math.max(0, Math.floor(cx - r - 3));
-  const x1 = Math.min(width - 1, Math.ceil(cx + r + 3));
-  const y0 = Math.max(0, Math.floor(cy - r - 3));
-  const y1 = Math.min(height - 1, Math.ceil(cy + r + 3));
+  const x0 = Math.max(0, Math.floor(cx - r - 4));
+  const x1 = Math.min(width - 1, Math.ceil(cx + r + 4));
+  const y0 = Math.max(0, Math.floor(cy - r - 4));
+  const y1 = Math.min(height - 1, Math.ceil(cy + r + 4));
 
-  const sectors = 36;
+  const sectors = 48;
   const sectorDark = new Float32Array(sectors);
-  const sectorSamples = new Float32Array(sectors);
 
-  // Pass 1: score dark rim evidence per angular bin (ignore bright pavement).
+  // Pass 1: score dark rubber + metallic rim-edge evidence per angular bin.
   for (let y = y0; y <= y1; y += 1) {
     for (let x = x0; x <= x1; x += 1) {
       const dx = x - cx;
       const dy = y - cy;
       const d2 = dx * dx + dy * dy;
       if (d2 > outer2 || d2 < inner2) continue;
+      const dist = Math.sqrt(d2) || 1;
+      const ux = dx / dist;
+      const uy = dy / dist;
       const i = y * width + x;
       const L = photo.lum[i];
       const lowerLeft = dx < 0 && dy > 0;
-      const darkCut = lowerLeft ? 118 : 98;
-      // Bright road / sky must never count as rim evidence.
-      if (L > darkCut && !photo.dark[i]) continue;
-
+      const edge = radialEdgeStrength(photo, width, height, x, y, ux, uy);
       const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
-      const darkEnough = photo.dark[i] || L < (lowerLeft ? 112 : 92) || thin > 0.03;
-      if (!darkEnough) continue;
+      const darkRubber = photo.dark[i] || L < (lowerLeft ? 128 : 108);
+      const metallicRim = edge >= (lowerLeft ? 9 : 12) && L >= 70 && L <= 205 && !isOutdoorGreen(photo, i);
+      // Bright flat pavement (no edge) must never count.
+      if (!darkRubber && !metallicRim && thin < 0.03) continue;
+      if (L > 215 && edge < 14) continue;
 
       const ang = Math.atan2(dy, dx);
       const s = Math.min(sectors - 1, Math.floor(((ang + Math.PI) / (Math.PI * 2)) * sectors));
-      sectorSamples[s] += 1;
-      let w = 1;
-      if (photo.dark[i] || L < 70) w += 1.4;
-      if (thin > 0.04) w += 1.1;
-      if (lowerLeft && L < 118) w += 0.35;
+      let w = 0.8;
+      if (darkRubber) w += 1.5;
+      if (metallicRim) w += 1.2;
+      if (thin > 0.035) w += 1.0;
+      if (lowerLeft) w += 0.45;
       sectorDark[s] += w;
     }
   }
 
   const sectorOk = new Uint8Array(sectors);
-  const minHits = forced ? 1.15 : 1.8;
+  const minHits = forced ? 0.9 : 1.6;
   for (let s = 0; s < sectors; s += 1) {
     if (sectorDark[s] >= minHits) sectorOk[s] = 1;
   }
-  // Grow arcs by one bin when a neighbor is strongly evidenced (continuity, not full ring).
   const grown = new Uint8Array(sectors);
   for (let s = 0; s < sectors; s += 1) {
     if (sectorOk[s]) {
@@ -1219,10 +1425,10 @@ function paintWheelDiskForced(alpha, wheelMask, analysis, photo, width, height, 
     }
     const prev = sectorOk[(s + sectors - 1) % sectors];
     const next = sectorOk[(s + 1) % sectors];
-    if ((prev || next) && sectorDark[s] >= (forced ? 0.45 : 0.9)) grown[s] = 1;
+    if ((prev || next) && sectorDark[s] >= (forced ? 0.35 : 0.8)) grown[s] = 1;
   }
 
-  // Pass 2: paint only dark pixels on evidence-backed rim arcs.
+  // Pass 2: paint evidence-backed rim pixels (dark rubber + metallic edge).
   for (let y = y0; y <= y1; y += 1) {
     for (let x = x0; x <= x1; x += 1) {
       const dx = x - cx;
@@ -1233,36 +1439,111 @@ function paintWheelDiskForced(alpha, wheelMask, analysis, photo, width, height, 
       const s = Math.min(sectors - 1, Math.floor(((ang + Math.PI) / (Math.PI * 2)) * sectors));
       if (!grown[s]) continue;
 
+      const dist = Math.sqrt(d2) || 1;
+      const ux = dx / dist;
+      const uy = dy / dist;
       const i = y * width + x;
       const L = photo.lum[i];
       const lowerLeft = dx < 0 && dy > 0;
-      const darkCut = lowerLeft ? 120 : 100;
-      // Hard ban: bright pavement / sky never enters the subject via wheel paint.
-      if (L > darkCut && !photo.dark[i]) continue;
-
+      const edge = radialEdgeStrength(photo, width, height, x, y, ux, uy);
       const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
-      const keep = photo.dark[i]
-        || L < (lowerLeft ? 114 : 94)
-        || thin > 0.035
-        || (forced && lowerLeft && L < 120 && (photo.dark[i] || L < 110 || thin > 0.02));
-      if (!keep) continue;
+      const darkRubber = photo.dark[i] || L < (lowerLeft ? 130 : 110);
+      const metallicRim = edge >= (lowerLeft ? 8 : 11) && L >= 65 && L <= 210 && !isOutdoorGreen(photo, i);
+      if (L > 218 && edge < 12 && !photo.dark[i]) continue;
+      if (!darkRubber && !metallicRim && thin < 0.03) continue;
 
-      const midR = (outer + inner) * 0.5;
-      const dist = Math.sqrt(d2);
-      const radial = 1 - Math.min(1, Math.abs(dist - midR) / Math.max(1.5, (outer - inner) * 0.55));
-      const darkness = Math.max(0, Math.min(1, (darkCut - L) / Math.max(24, darkCut)));
-      const a = Math.floor(255 * Math.min(1, 0.62 + radial * 0.28 + darkness * 0.22));
-      alpha[i] = Math.max(alpha[i], a);
+      alpha[i] = Math.max(alpha[i], 250);
       wheelMask[i] = 1;
     }
   }
+
+  // Pass 3: ray-walk completes the rim (esp. lower-left) independent of blur strength.
+  const rays = forced ? 120 : 72;
+  let rimHits = 0;
+  for (let s = 0; s < sectors; s += 1) if (grown[s]) rimHits += 1;
+  const completeLower = forced || rimHits >= Math.floor(sectors * 0.22);
+
+  for (let s = 0; s < rays; s += 1) {
+    const ang = -Math.PI + (Math.PI * 2 * s) / rays;
+    const ux = Math.cos(ang);
+    const uy = Math.sin(ang);
+    const lowerLeft = ux < -0.05 && uy > 0.05;
+    if (!completeLower && lowerLeft) continue;
+
+    const sector = Math.min(sectors - 1, Math.floor(((ang + Math.PI) / (Math.PI * 2)) * sectors));
+    const neighborOk = grown[sector]
+      || grown[(sector + 1) % sectors]
+      || grown[(sector + sectors - 1) % sectors];
+    // Forced lower-left: always try edge walk when any rim evidence exists on the wheel.
+    if (!neighborOk && !(forced && lowerLeft && rimHits >= 4)) continue;
+
+    let bestT = -1;
+    let bestScore = 0;
+    for (let t = r * 0.70; t <= r * 1.10; t += 0.45) {
+      const x = Math.round(cx + ux * t);
+      const y = Math.round(cy + uy * t);
+      if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) continue;
+      const i = y * width + x;
+      const L = photo.lum[i];
+      if (isOutdoorGreen(photo, i) && L > 90) continue;
+      const edge = radialEdgeStrength(photo, width, height, x, y, ux, uy);
+      const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+      const darkRubber = photo.dark[i] || L < (lowerLeft ? 135 : 112);
+      let score = edge;
+      if (darkRubber) score += 14;
+      if (thin > 0.025) score += 8;
+      // Metallic silver rim against asphalt.
+      if (edge >= 8 && L >= 80 && L <= 200) score += 10;
+      if (lowerLeft) score += 3;
+      if (score > bestScore) {
+        bestScore = score;
+        bestT = t;
+      }
+    }
+
+    const need = lowerLeft ? (forced ? 10 : 13) : (forced ? 12 : 15);
+    if (bestT < 0 || bestScore < need) continue;
+
+    // Paint a short radial brush so the thin rim stays continuous.
+    for (let dt = -1.2; dt <= 1.2; dt += 0.4) {
+      const t = bestT + dt;
+      const x = Math.round(cx + ux * t);
+      const y = Math.round(cy + uy * t);
+      if (x < 0 || y < 0 || x >= width || y >= height) continue;
+      const i = y * width + x;
+      const L = photo.lum[i];
+      if (L > 225 && !photo.dark[i]) continue;
+      if (isOutdoorGreen(photo, i) && L > 110 && !photo.dark[i]) continue;
+      alpha[i] = Math.max(alpha[i], 255);
+      wheelMask[i] = 1;
+      // 1px tangential thicken for continuity.
+      const tx = Math.round(x - uy);
+      const ty = Math.round(y + ux);
+      if (tx >= 0 && ty >= 0 && tx < width && ty < height) {
+        const j = ty * width + tx;
+        if (photo.lum[j] <= 220 || photo.dark[j]) {
+          alpha[j] = Math.max(alpha[j], 245);
+          wheelMask[j] = 1;
+        }
+      }
+    }
+  }
+}
+
+function isOutdoorGreen(photo, i){
+  if (!photo.rgba) return false;
+  const o = i * 4;
+  const r = photo.rgba[o];
+  const g = photo.rgba[o + 1];
+  const b = photo.rgba[o + 2];
+  return g > r + 8 && g > b + 6;
 }
 
 /**
  * Remove sharp outdoor background trapped between the rider seat/butt and the
  * bike frame / wheel outer rim (common YouBike clear-gap leak).
  */
-function trimRiderSeatFrameGap(maskCanvas, analysis, sourceImage, width, height, wheelMask = null){
+function trimRiderSeatFrameGap(maskCanvas, analysis, sourceImage, width, height, structureMask = null){
   const boxes = listRiderPersonBoxes(analysis, width, height);
   if (!boxes.length) return maskCanvas;
 
@@ -1275,15 +1556,15 @@ function trimRiderSeatFrameGap(maskCanvas, analysis, sourceImage, width, height,
   for (const box of boxes) {
     const pw = box.x1 - box.x0 + 1;
     const ph = box.y1 - box.y0 + 1;
-    const x0 = Math.max(0, Math.floor(box.x0 - pw * 0.08));
-    const x1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 0.85));
-    const y0 = Math.max(0, Math.floor(box.y0 + ph * 0.42));
-    const y1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.32));
+    const x0 = Math.max(0, Math.floor(box.x0 - pw * 0.12));
+    const x1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 0.95));
+    const y0 = Math.max(0, Math.floor(box.y0 + ph * 0.40));
+    const y1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.38));
 
     for (let y = y0; y <= y1; y += 1) {
       for (let x = x0; x <= x1; x += 1) {
         const i = y * width + x;
-        if (wheelMask && wheelMask[i]) continue;
+        if (structureMask && structureMask[i]) continue;
         const a = data[i * 4 + 3];
         if (a < 10) continue;
 
@@ -1295,23 +1576,27 @@ function trimRiderSeatFrameGap(maskCanvas, analysis, sourceImage, width, height,
         // Keep real bike structure and strong rider body.
         if (photo.dark[i] || L < 56 || thin > 0.055) continue;
         if (person > 0.42 && L < 155) continue;
+        // Keep YouBike yellow fender / white frame pixels themselves.
+        if (isYouBikeAccent(rgba, i) && (thin > 0.02 || matte > 0.35 || photo.colorful[i])) continue;
 
         const o = i * 4;
         const r = rgba[o];
         const g = rgba[o + 1];
         const b = rgba[o + 2];
         const grass = g > r + 6 && g > b + 4 && L >= 52 && L <= 205;
+        const railingGreen = g > r + 4 && g > b + 2 && L >= 70 && L <= 190 && Math.abs(r - b) < 40;
         const pavement = Math.abs(r - g) < 24 && Math.abs(g - b) < 24 && L >= 80 && L <= 205;
-        if (!grass && !pavement) continue;
+        const waterGray = Math.abs(r - g) < 18 && Math.abs(g - b) < 22 && L >= 95 && L <= 175 && satOf(r, g, b) < 0.14;
+        if (!grass && !railingGreen && !pavement && !waterGray) continue;
 
         // Weak subject claim: outdoor mid-tones should not stay sharp in the gap.
         if (person > 0.32 && matte > 0.62 && thin > 0.02) continue;
 
         let personAbove = false;
-        for (let dy = 3; dy <= 40 && !personAbove; dy += 2) {
+        for (let dy = 3; dy <= 44 && !personAbove; dy += 2) {
           const yy = y - dy;
           if (yy < 0) break;
-          for (let dx = -4; dx <= 4; dx += 2) {
+          for (let dx = -5; dx <= 5; dx += 2) {
             const xx = x + dx;
             if (xx < 0 || xx >= width) continue;
             const j = yy * width + xx;
@@ -1319,7 +1604,6 @@ function trimRiderSeatFrameGap(maskCanvas, analysis, sourceImage, width, height,
               personAbove = true;
               break;
             }
-            // Masked darker clothing/seat above also counts.
             if (data[j * 4 + 3] > 90 && photo.lum[j] < 130 && !photo.colorful[j]) {
               personAbove = true;
               break;
@@ -1328,23 +1612,29 @@ function trimRiderSeatFrameGap(maskCanvas, analysis, sourceImage, width, height,
         }
         if (!personAbove) continue;
 
-        let darkNear = false;
-        const probe = Math.max(10, Math.round(Math.min(pw, ph) * 0.12));
+        let bikeNear = false;
+        const probe = Math.max(12, Math.round(Math.min(pw, ph) * 0.14));
         const p2 = probe * probe;
-        for (let yy = Math.max(0, y - probe); yy <= Math.min(height - 1, y + probe) && !darkNear; yy += 2) {
+        for (let yy = Math.max(0, y - probe); yy <= Math.min(height - 1, y + probe) && !bikeNear; yy += 2) {
           for (let xx = Math.max(0, x - probe); xx <= Math.min(width - 1, x + probe); xx += 2) {
             const ddx = xx - x;
             const ddy = yy - y;
             if (ddx * ddx + ddy * ddy > p2) continue;
             const j = yy * width + xx;
             const jt = Math.max(analysis.bicycleScore[j], analysis.motorbikeScore[j]);
-            if (photo.dark[j] || photo.lum[j] < 58 || jt > 0.05 || (wheelMask && wheelMask[j])) {
-              darkNear = true;
+            if (
+              photo.dark[j]
+              || photo.lum[j] < 58
+              || jt > 0.05
+              || (structureMask && structureMask[j])
+              || isYouBikeAccent(rgba, j)
+            ) {
+              bikeNear = true;
               break;
             }
           }
         }
-        if (!darkNear) continue;
+        if (!bikeNear) continue;
 
         data[i * 4 + 3] = 0;
       }
@@ -1353,6 +1643,22 @@ function trimRiderSeatFrameGap(maskCanvas, analysis, sourceImage, width, height,
 
   ctx.putImageData(image, 0, 0);
   return maskCanvas;
+}
+
+function satOf(r, g, b){
+  const maxC = Math.max(r, g, b);
+  const minC = Math.min(r, g, b);
+  return (maxC - minC) / Math.max(1, maxC);
+}
+
+function isYouBikeAccent(rgba, i){
+  const o = i * 4;
+  const r = rgba[o];
+  const g = rgba[o + 1];
+  const b = rgba[o + 2];
+  const yellow = r > 150 && g > 120 && b < 110 && r + g > b * 2.4;
+  const whiteFrame = r > 170 && g > 170 && b > 170 && satOf(r, g, b) < 0.12;
+  return yellow || whiteFrame;
 }
 
 function paintWheelDisk(alpha, analysis, photo, width, height, cx, cy, radius){
