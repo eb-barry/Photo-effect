@@ -1,4 +1,4 @@
-// F9 追焦 - Feature entry metadata v0.1.16
+// F9 追焦 - Feature entry metadata v0.1.17
 
 import { initPanFocusPage } from "./panFocusPage.js";
 
@@ -17,7 +17,7 @@ export const panFocusFeature = {
   enabled: true,
   disabled: false,
   isAvailable: true,
-  version: "0.1.16",
+  version: "0.1.17",
   mount: initPanFocusPage
 };
 

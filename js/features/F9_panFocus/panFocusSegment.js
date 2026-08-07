@@ -1,6 +1,5 @@
-// F9 追焦 - AI 主體分割 v0.1.16
-// 騎士＋整車：緊緻 matte 核心（去光暈）+ 形態學後強制前／後輪與前菜籃復原。
-// 合成前再清掉外觀上的戶外背景外洩（欄杆／山／路面），避免清晰背景洞。
+// F9 追焦 - AI 主體分割 v0.1.17
+// 騎士＋整車：種子連通主體（禁止穿越戶外橋）+ 羽化／硬化後最終清除清晰背景島。
 // 靈敏度／擴張／羽化只改 matte；合成端全圖模糊＋貼回保留跟拍殘影。
 
 const ORT_VERSION = "1.22.0";
@@ -10,7 +9,7 @@ const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
 /** General object matting (~4.5MB). Used for cars; also soft-unions rider/bike silhouettes. */
 const MATTE_MODEL_URL = "https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx";
 const MATTE_CACHE_NAME = "photo-effects-panfocus-u2netp-v1";
-const MASK_PIPELINE_VERSION = 16;
+const MASK_PIPELINE_VERSION = 17;
 const INPUT_SIZE = 512;
 const MATTE_SIZE = 320;
 const MATTE_MEAN = [0.485, 0.456, 0.406];
@@ -408,9 +407,9 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   const autoExpand = preferMatteCar
     ? Math.max(0, Math.min(expandPx, 6))
     : (preferMatteRider
-      ? Math.max(0, Math.min(expandPx, 8))
+      ? Math.max(0, Math.min(expandPx, 4))
       : (treatAsRider
-        ? Math.max(0, Math.min(expandPx, 10))
+        ? Math.max(0, Math.min(expandPx, 5))
         : (treatAsCar
           ? Math.max(expandPx, Math.round(6 + threshold * 6))
           : expandPx)));
@@ -448,8 +447,13 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
       console.warn("[F9 追焦] 座椅縫隙修剪略過：", error);
     }
     try {
-      // Final appearance trim: railing / hill / pavement leaks must go to blur,
-      // even when matte/expand wrongly marked them as subject.
+      // Only keep mask reachable from rider/bike seeds; outdoor pixels cannot bridge.
+      // This kills geometric sharp BG islands attached via dilate/matte.
+      maskCanvas = keepRiderSeedConnected(maskCanvas, analysis, sourceImage, width, height, structureMask);
+    } catch (error) {
+      console.warn("[F9 追焦] 種子連通裁切略過：", error);
+    }
+    try {
       maskCanvas = trimRiderOutdoorLeaks(maskCanvas, analysis, sourceImage, width, height, structureMask);
     } catch (error) {
       console.warn("[F9 追焦] 戶外背景外洩修剪略過：", error);
@@ -459,15 +463,22 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   if (featherPx > 0) {
     const feather = preferMatteCar
       ? Math.max(1, Math.round(featherPx * 0.85))
-      : Math.max(1, Math.min(featherPx, preferMatteRider ? 14 : 20));
+      : Math.max(1, Math.min(featherPx, preferMatteRider ? 10 : 16));
     maskCanvas = featherMaskCanvas(maskCanvas, feather);
   }
 
   if (treatAsRider) {
     try {
-      maskCanvas = hardenRiderMaskEdges(maskCanvas, analysis, width, height, structureMask);
+      const photoForHarden = samplePhotoStats(sourceImage, width, height);
+      maskCanvas = hardenRiderMaskEdges(maskCanvas, analysis, width, height, structureMask, photoForHarden);
     } catch (error) {
       console.warn("[F9 追焦] 騎士邊緣硬化略過：", error);
+    }
+    try {
+      // CRITICAL: feather/harden can re-bleed matte into outdoor. Final purge after.
+      maskCanvas = purgeRiderOutdoorFinal(maskCanvas, analysis, sourceImage, width, height, structureMask);
+    } catch (error) {
+      console.warn("[F9 追焦] 最終戶外清除略過：", error);
     }
   }
 
@@ -1098,14 +1109,21 @@ function trimRiderMatteHalo(alpha, analysis, support, width, height, threshold =
 
 /**
  * Harden soft fringe. Never promote person-only or weak-matte pixels.
- * Wheel-mask pixels are always kept.
+ * Wheel/basket structure pixels are always kept.
+ * Never promote outdoor bridge pixels (feather re-bleed source).
  */
-function hardenRiderMaskEdges(maskCanvas, analysis, width, height, wheelMask = null){
+function hardenRiderMaskEdges(maskCanvas, analysis, width, height, wheelMask = null, photo = null){
   const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
   const image = ctx.getImageData(0, 0, width, height);
   const data = image.data;
   for (let i = 0; i < width * height; i += 1) {
     if (wheelMask && wheelMask[i]) {
+      // Only keep structure if it does not look like outdoor scenery.
+      if (photo && isBackgroundBridgePixel(photo, i) && !photo.dark[i] && photo.lum[i] > 85) {
+        data[i * 4 + 3] = 0;
+        wheelMask[i] = 0;
+        continue;
+      }
       data[i * 4 + 3] = Math.max(data[i * 4 + 3], 230);
       continue;
     }
@@ -1113,6 +1131,14 @@ function hardenRiderMaskEdges(maskCanvas, analysis, width, height, wheelMask = n
     if (a < 12) {
       data[i * 4 + 3] = 0;
       continue;
+    }
+    if (photo && isBackgroundBridgePixel(photo, i)) {
+      const person = analysis.personScore[i];
+      const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+      if (person < 0.42 && thin < 0.07) {
+        data[i * 4 + 3] = 0;
+        continue;
+      }
     }
     if (a >= 210) continue;
     const person = analysis.personScore[i];
@@ -1683,9 +1709,10 @@ function trimRiderOutdoorLeaks(maskCanvas, analysis, sourceImage, width, height,
 
     // Outdoor pixel with only weak/false subject support → send to blur.
     // High matte alone is NOT enough (hill/railing blobs behind the rider).
-    if (person > 0.28 && matte > 0.78 && thin > 0.02) continue;
+    // No matte escape — that was re-keeping geometric BG islands.
+    if (person > 0.42 && thin > 0.03) continue;
     // Mesh bag / gray basket interior: mid-gray with texture near bike class.
-    if (pavement && !scenic && edge >= 12 && (thin > 0.02 || matte > 0.45)) continue;
+    if (pavement && !scenic && edge >= 12 && (thin > 0.035 || (matte > 0.55 && thin > 0.02))) continue;
     data[i * 4 + 3] = 0;
     if (structureMask) structureMask[i] = 0;
   }
@@ -1706,6 +1733,201 @@ function isRiderClothingPixel(rgba, i){
   // Black / dark leggings already handled via darkness; skin-ish warm tones.
   if (r > g + 5 && r > b + 8 && L > 60 && L < 200 && sat > 0.1 && sat < 0.45) return true;
   return false;
+}
+
+/**
+ * Keep only mask pixels reachable from rider/bike seeds.
+ * Outdoor scenery and flat pavement are NOT traversable — this breaks dilate/matte
+ * bridges that otherwise attach geometric sharp BG islands to the subject.
+ * Structure (wheels/basket) is always stamped back on.
+ */
+function keepRiderSeedConnected(maskCanvas, analysis, sourceImage, width, height, structureMask = null){
+  const photo = samplePhotoStats(sourceImage, width, height);
+  const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  const n = width * height;
+  const rgba = photo.rgba;
+
+  const alpha = new Uint8Array(n);
+  for (let i = 0; i < n; i += 1) alpha[i] = data[i * 4 + 3];
+
+  // Scrub false structure on outdoor first so it cannot seed BG islands.
+  if (structureMask) {
+    for (let i = 0; i < n; i += 1) {
+      if (!structureMask[i]) continue;
+      if (!isBackgroundBridgePixel(photo, i)) continue;
+      const L = photo.lum[i];
+      if (photo.dark[i] || L < 75) continue;
+      structureMask[i] = 0;
+    }
+  }
+
+  const seed = new Uint8Array(n);
+  for (let i = 0; i < n; i += 1) {
+    const person = analysis.personScore[i];
+    const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+    const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
+    if (person > 0.48) {
+      seed[i] = 1;
+      continue;
+    }
+    if (thin > 0.09) {
+      seed[i] = 1;
+      continue;
+    }
+    if (structureMask && structureMask[i]) {
+      seed[i] = 1;
+      continue;
+    }
+    // Dark clothing / bike frame attached to person response.
+    if (photo.dark[i] && person > 0.22 && alpha[i] > 20) {
+      seed[i] = 1;
+      continue;
+    }
+    if (isYouBikeAccent(rgba, i) && (person > 0.12 || thin > 0.02 || matte > 0.4) && alpha[i] > 20) {
+      seed[i] = 1;
+    }
+  }
+
+  const keep = new Uint8Array(n);
+  const stack = new Int32Array(n);
+  let top = 0;
+  for (let i = 0; i < n; i += 1) {
+    if (!seed[i]) continue;
+    // Seed may sit slightly outside current alpha — still allow grow into alpha.
+    keep[i] = 1;
+    stack[top++] = i;
+  }
+
+  while (top > 0) {
+    const idx = stack[--top];
+    const x = idx % width;
+    const y = (idx - x) / width;
+    const tryPush = (nx, ny) => {
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) return;
+      const j = ny * width + nx;
+      if (keep[j]) return;
+      const struct = structureMask && structureMask[j];
+      if (!struct && alpha[j] < 14) return;
+
+      const person = analysis.personScore[j];
+      const thin = Math.max(analysis.bicycleScore[j], analysis.motorbikeScore[j]);
+      // Break bridges through hill / railing / pavement / water.
+      if (!struct && isBackgroundBridgePixel(photo, j)) {
+        // Allow crossing only if this pixel is clearly rider/bike, not scenery.
+        const clothing = isRiderClothingPixel(rgba, j) && person > 0.18;
+        const strongSubj = person > 0.42 || thin > 0.07 || (photo.dark[j] && person > 0.2);
+        const accent = isYouBikeAccent(rgba, j) && (thin > 0.02 || person > 0.12);
+        if (!clothing && !strongSubj && !accent) return;
+      }
+
+      keep[j] = 1;
+      stack[top++] = j;
+    };
+    tryPush(x - 1, y);
+    tryPush(x + 1, y);
+    tryPush(x, y - 1);
+    tryPush(x, y + 1);
+  }
+
+  for (let i = 0; i < n; i += 1) {
+    if (structureMask && structureMask[i]) {
+      data[i * 4 + 3] = Math.max(alpha[i], 245);
+      continue;
+    }
+    if (!keep[i]) {
+      data[i * 4 + 3] = 0;
+      continue;
+    }
+    data[i * 4 + 3] = Math.max(alpha[i], seed[i] ? Math.max(alpha[i], 200) : alpha[i]);
+  }
+
+  ctx.putImageData(image, 0, 0);
+  return maskCanvas;
+}
+
+/** Pixels that must not form connectivity bridges into sharp BG islands. */
+function isBackgroundBridgePixel(photo, i){
+  if (isOutdoorBackgroundPixel(photo, i)) return true;
+  const xEdge = 0;
+  if (isPavementLeakPixel(photo, i, xEdge)) return true;
+  // Extra: bright sky / overexposed railing glare.
+  if (!photo.rgba) return false;
+  const L = photo.lum[i];
+  const o = i * 4;
+  const sat = satOf(photo.rgba[o], photo.rgba[o + 1], photo.rgba[o + 2]);
+  if (L >= 200 && sat < 0.08 && !photo.dark[i]) return true;
+  return false;
+}
+
+/**
+ * Last pass AFTER feather + harden. Those steps re-bleed high-matte outdoor into
+ * soft alpha and promote it — which looks like sharp geometric BG cutouts on
+ * horizontal motion blur. Zero them unless evidence is overwhelmingly subject.
+ */
+function purgeRiderOutdoorFinal(maskCanvas, analysis, sourceImage, width, height, structureMask = null){
+  const photo = samplePhotoStats(sourceImage, width, height);
+  const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  const rgba = photo.rgba;
+  const n = width * height;
+
+  if (structureMask) {
+    for (let i = 0; i < n; i += 1) {
+      if (!structureMask[i]) continue;
+      if (!isBackgroundBridgePixel(photo, i)) continue;
+      if (photo.dark[i] || photo.lum[i] < 75) continue;
+      structureMask[i] = 0;
+    }
+  }
+
+  for (let i = 0; i < n; i += 1) {
+    if (data[i * 4 + 3] < 6) continue;
+
+    const person = analysis.personScore[i];
+    const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+    const L = photo.lum[i];
+    const x = i % width;
+    const y = (i - x) / width;
+    const edge = (x > 1 && y > 1 && x < width - 2 && y < height - 2)
+      ? Math.max(
+        Math.abs(photo.lum[i] - photo.lum[i - 1]),
+        Math.abs(photo.lum[i] - photo.lum[i + 1]),
+        Math.abs(photo.lum[i] - photo.lum[i - width]),
+        Math.abs(photo.lum[i] - photo.lum[i + width])
+      )
+      : 0;
+
+    const realStructure = structureMask
+      && structureMask[i]
+      && (photo.dark[i] || L < 80 || (edge >= 10 && !isOutdoorBackgroundPixel(photo, i)));
+    if (realStructure) continue;
+
+    // Strong subject — never purge.
+    if (person > 0.45) continue;
+    if (thin > 0.08) continue;
+    if (photo.dark[i] && person > 0.2) continue;
+    if (isYouBikeAccent(rgba, i) && (person > 0.1 || thin > 0.015)) continue;
+    if (isRiderClothingPixel(rgba, i) && person > 0.2) continue;
+
+    const bridge = isBackgroundBridgePixel(photo, i) || isPavementLeakPixel(photo, i, edge);
+    if (!bridge) {
+      // Also purge soft fringe that is mostly sky/neutral with almost no class support.
+      if (data[i * 4 + 3] < 140 && person < 0.2 && thin < 0.03 && L > 160 && satOf(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]) < 0.1) {
+        data[i * 4 + 3] = 0;
+      }
+      continue;
+    }
+
+    // No matte escape hatch — matte is why these geometric islands survived.
+    data[i * 4 + 3] = 0;
+    if (structureMask) structureMask[i] = 0;
+  }
+
+  ctx.putImageData(image, 0, 0);
+  return maskCanvas;
 }
 
 /**
