@@ -1,4 +1,4 @@
-// F9 追焦 - AI 主體分割 v0.1.11
+// F9 追焦 - AI 主體分割 v0.1.12
 // 手動車種管線：汽車去背精修／機車・自行車同一 matte（含前輪）+ U2-Netp。
 // 靈敏度／擴張／羽化只改 matte；合成端做全圖模糊＋貼回以保留跟拍殘影。
 
@@ -9,7 +9,7 @@ const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
 /** General object matting (~4.5MB). Used for cars; also soft-unions rider/bike silhouettes. */
 const MATTE_MODEL_URL = "https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx";
 const MATTE_CACHE_NAME = "photo-effects-panfocus-u2netp-v1";
-const MASK_PIPELINE_VERSION = 11;
+const MASK_PIPELINE_VERSION = 12;
 const INPUT_SIZE = 512;
 const MATTE_SIZE = 320;
 const MATTE_MEAN = [0.485, 0.456, 0.406];
@@ -248,12 +248,12 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   const vehicleFloor = 0.48 - threshold * 0.4;
   const carFloor = 0.10 + (1 - threshold) * 0.08;
   const thinFloor = treatAsRider
-    ? 0.028 + (1 - threshold) * 0.05
+    ? 0.022 + (1 - threshold) * 0.06
     : 0.04 + (1 - threshold) * 0.08;
   const matteFloor = preferMatteCar
     ? 0.58 - threshold * 0.16
     : (preferMatteRider
-      ? 0.66 - threshold * 0.12
+      ? 0.70 - threshold * 0.18
       : 0.52 - threshold * 0.14);
   const subjectFloor = treatAsRider
     ? 0.72 - threshold * 0.28
@@ -262,7 +262,7 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   const alpha = new Uint8ClampedArray(width * height);
   let kept = 0;
   const riderSupport = treatAsRider
-    ? buildRiderSupportMap(analysis, width, height)
+    ? buildRiderSupportMap(analysis, width, height, threshold)
     : null;
 
   if (preferMatteCar) {
@@ -283,8 +283,8 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
       kept += 1;
     }
   } else if (preferMatteRider) {
-    // Matte only where person/bike support exists — cuts head/sky halo.
-    // Thin class alone may keep wheels even when matte misses the tire.
+    // Prefer matte ∩ (person|bike). Never take bloated DeepLab person alone —
+    // that creates the sharp rectangular halo behind the rider.
     for (let i = 0; i < alpha.length; i += 1) {
       const matte = analysis.matteScore[i];
       const person = analysis.personScore[i];
@@ -293,15 +293,14 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
       let score = 0;
       if (matte >= matteFloor && supported) {
         score = Math.max(score, Math.min(1, matte));
-      } else if (matte >= matteFloor + 0.14 && person > 0.05) {
-        // Very confident matte on weak support (bag / basket edge).
-        score = Math.max(score, Math.min(1, matte * 0.92));
       }
-      if (person >= personFloor) {
-        score = Math.max(score, Math.min(1, person));
+      // Person only where matte also agrees (cuts DeepLab blob halo).
+      if (person >= personFloor && matte >= Math.max(0.28, matteFloor - 0.18)) {
+        score = Math.max(score, Math.min(1, Math.min(person, matte + 0.15)));
       }
-      if (thin >= thinFloor) {
-        score = Math.max(score, Math.min(1, thin * 5.0));
+      // Thin bike class may extend slightly beyond matte (tires / spokes).
+      if (thin >= thinFloor && (supported || matte > 0.12 || person > 0.1)) {
+        score = Math.max(score, Math.min(1, thin * 5.2));
       }
       if (score <= 0) {
         alpha[i] = 0;
@@ -366,7 +365,7 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
 
   if (treatAsRider && riderSupport) {
     try {
-      trimRiderMatteHalo(alpha, analysis, riderSupport, width, height);
+      trimRiderMatteHalo(alpha, analysis, riderSupport, width, height, threshold);
     } catch (error) {
       console.warn("[F9 追焦] 騎士光暈裁切略過：", error);
     }
@@ -406,13 +405,13 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     }
   }
 
-  // Riders: honor the expand slider only — do not force a large auto halo.
+  // Riders: honor expand slider with a usable range (still capped to avoid huge halos).
   const autoExpand = preferMatteCar
     ? Math.max(0, Math.min(expandPx, 6))
     : (preferMatteRider
-      ? Math.max(0, Math.min(expandPx, 2))
+      ? Math.max(0, Math.min(expandPx, 10))
       : (treatAsRider
-        ? Math.max(0, Math.min(expandPx, 3))
+        ? Math.max(0, Math.min(expandPx, 12))
         : (treatAsCar
           ? Math.max(expandPx, Math.round(6 + threshold * 6))
           : expandPx)));
@@ -421,7 +420,7 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   }
   if (preferMatteRider) {
     // Light fringe shrink only — heavy erode eats front tires (bad with ghost trails).
-    maskCanvas = erodeMaskCanvas(maskCanvas, 1);
+    maskCanvas = erodeMaskCanvas(maskCanvas, autoExpand <= 0 ? 2 : 1);
   } else if (treatAsRider) {
     maskCanvas = erodeMaskCanvas(maskCanvas, 1);
   }
@@ -436,16 +435,15 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     }
   }
 
+  // Feather uses the caller-mapped px value directly so the UI slider is visible.
   if (featherPx > 0) {
     const feather = preferMatteCar
-      ? Math.max(1, Math.round(featherPx * 0.45))
-      : (preferMatteRider
-        ? Math.max(1, Math.round(featherPx * 0.2))
-        : (treatAsRider ? Math.max(1, Math.round(featherPx * 0.25)) : featherPx));
+      ? Math.max(1, Math.round(featherPx * 0.85))
+      : Math.max(1, featherPx);
     maskCanvas = featherMaskCanvas(maskCanvas, feather);
   }
 
-  // Re-harden rider edges after feather so soft halo does not read as sharp background.
+  // Re-harden rider edges after feather — do NOT revive matte-only sky/hill halo.
   if (treatAsRider) {
     try {
       maskCanvas = hardenRiderMaskEdges(maskCanvas, analysis, width, height);
@@ -869,38 +867,48 @@ function reinforceRiderWheelsOnMask(maskCanvas, analysis, sourceImage, width, he
 
 /**
  * Dilated person + bicycle/motorbike support. Matte may only stick near this.
+ * Sensitivity (threshold) controls seed strictness and dilate radius.
  */
-function buildRiderSupportMap(analysis, width, height){
+function buildRiderSupportMap(analysis, width, height, threshold = 0.66){
+  const t = clamp01(threshold);
+  const personSeed = 0.28 - t * 0.14;
+  const thinSeed = 0.055 - t * 0.035;
   const seed = new Uint8Array(width * height);
   for (let i = 0; i < seed.length; i += 1) {
     const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
-    if (analysis.personScore[i] > 0.16 || thin > 0.03) seed[i] = 1;
+    if (analysis.personScore[i] > personSeed || thin > thinSeed) seed[i] = 1;
   }
-  const radius = Math.max(4, Math.round(Math.min(width, height) * 0.012));
+  // Higher sensitivity → slightly larger support; low sensitivity stays tight.
+  const radius = Math.max(2, Math.round(Math.min(width, height) * (0.004 + t * 0.008)));
   return dilateBinaryMap(seed, width, height, radius);
 }
 
 /**
  * Drop matte-only / soft pixels far from person+bike support (head/sky halo).
+ * Lower sensitivity trims more aggressively.
  */
-function trimRiderMatteHalo(alpha, analysis, support, width, height){
+function trimRiderMatteHalo(alpha, analysis, support, width, height, threshold = 0.66){
+  const t = clamp01(threshold);
+  const keepThin = 0.10 - t * 0.04;
+  const keepPerson = 0.40 - t * 0.08;
+  const matteKeep = 0.88 - t * 0.06;
   for (let i = 0; i < alpha.length; i += 1) {
     if (alpha[i] < 8) continue;
     if (support[i]) continue;
     const person = analysis.personScore[i];
     const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
     const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
-    // Keep strong bike class even slightly outside support.
-    if (thin > 0.08 || person > 0.35) continue;
+    if (thin > keepThin || person > keepPerson) continue;
     // Matte-only fringe / head halo → remove.
-    if (matte < 0.82 || person < 0.08) {
+    if (matte < matteKeep || person < 0.12) {
       alpha[i] = 0;
     }
   }
 }
 
 /**
- * After feather, snap weak fringe back to transparent unless class/matte supports it.
+ * After feather, snap weak fringe back to transparent unless class supports it.
+ * Do not revive matte-only sky/hill pixels (that recreated the head halo).
  */
 function hardenRiderMaskEdges(maskCanvas, analysis, width, height){
   const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
@@ -912,17 +920,18 @@ function hardenRiderMaskEdges(maskCanvas, analysis, width, height){
       data[i * 4 + 3] = 0;
       continue;
     }
-    if (a >= 170) continue;
+    if (a >= 200) continue;
     const person = analysis.personScore[i];
     const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
     const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
-    if (person > 0.2 || thin > 0.05 || matte > 0.55) {
-      data[i * 4 + 3] = Math.max(a, 200);
-    } else if (a < 90) {
-      data[i * 4 + 3] = 0;
-    } else {
-      data[i * 4 + 3] = Math.round(a * 0.35);
+    const classOk = person > 0.22 || thin > 0.045;
+    const matteOk = matte > 0.62 && (person > 0.1 || thin > 0.02);
+    if (classOk || matteOk) {
+      if (a < 140) data[i * 4 + 3] = Math.max(a, 180);
+      continue;
     }
+    // Soft fringe without class support → drop (prevents sharp background islands).
+    data[i * 4 + 3] = a < 120 ? 0 : Math.round(a * 0.2);
   }
   ctx.putImageData(image, 0, 0);
   return maskCanvas;

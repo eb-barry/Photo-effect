@@ -1,4 +1,4 @@
-// F9 追焦 - Page Controller v0.1.11
+// F9 追焦 - Page Controller v0.1.12
 // 手動車種（先選再套用）：汽車／機車・自行車；全圖模糊＋主體貼回（殘影跟拍）。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -45,7 +45,7 @@ export async function renderPanFocusPage(root, navigate){
 
         <div class="topbar-title">
           <h1>追焦</h1>
-          <p class="crystal-version" aria-hidden="true">v0.1.11</p>
+          <p class="crystal-version" aria-hidden="true">v0.1.12</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -123,6 +123,7 @@ export async function renderPanFocusPage(root, navigate){
   let analyzeSerial = 0;
   let openSerial = 0;
   let renderTask = null;
+  let renderQueued = false;
   let panFocusUi = null;
 
   const applyCanvasSize = size => {
@@ -174,12 +175,12 @@ export async function renderPanFocusPage(root, navigate){
   };
 
   // Sensitivity / expand / feather only build the cutout matte — never a post-blur protect zone.
+  // Feather: map 0–100 UI → 0–32 px so the slider has a visible range.
   const maskOptions = () => ({
     vehicleMode: state.vehicleMode === "rider" ? "rider" : "car",
     subjectThreshold: state.subjectThreshold,
     subjectExpand: state.subjectExpand,
-    // Map 0–100 UI to mask feather px; 0 stays hard-edged (narrow alpha).
-    edgeFeather: Math.max(0, Math.round(Number(state.edgeFeather || 0) * 0.18))
+    edgeFeather: Math.max(0, Math.round(Number(state.edgeFeather || 0) * 0.32))
   });
 
   const ensureMaskForCurrentPhoto = async ({ showDownload = false } = {}) => {
@@ -253,17 +254,32 @@ export async function renderPanFocusPage(root, navigate){
   };
 
   const render = () => {
-    if (renderTask) return renderTask;
+    if (renderTask) {
+      renderQueued = true;
+      return renderTask;
+    }
     renderTask = renderCore().finally(() => {
       renderTask = null;
+      if (renderQueued) {
+        renderQueued = false;
+        render();
+      }
     });
     return renderTask;
   };
 
   const renderBusy = (message = "合成追焦效果，請稍候…") => {
-    if (renderTask) return renderTask;
+    if (renderTask) {
+      // Coalesce: always run one more pass with the latest slider state.
+      renderQueued = true;
+      return renderTask;
+    }
     renderTask = processing.run(message, renderCore, { delay: 0 }).finally(() => {
       renderTask = null;
+      if (renderQueued) {
+        renderQueued = false;
+        renderBusy(message);
+      }
     });
     return renderTask;
   };
