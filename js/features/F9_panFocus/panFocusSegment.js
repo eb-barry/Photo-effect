@@ -1,6 +1,6 @@
-// F9 追焦 - AI 主體分割 v0.1.12
-// 手動車種管線：汽車去背精修／機車・自行車同一 matte（含前輪）+ U2-Netp。
-// 靈敏度／擴張／羽化只改 matte；合成端做全圖模糊＋貼回以保留跟拍殘影。
+// F9 追焦 - AI 主體分割 v0.1.13
+// 騎士＋整車：緊緻 matte 核心（去光暈）+ 形態學後強制前／後輪復原。
+// 靈敏度／擴張／羽化只改 matte；合成端全圖模糊＋貼回保留跟拍殘影。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
@@ -9,7 +9,7 @@ const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
 /** General object matting (~4.5MB). Used for cars; also soft-unions rider/bike silhouettes. */
 const MATTE_MODEL_URL = "https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx";
 const MATTE_CACHE_NAME = "photo-effects-panfocus-u2netp-v1";
-const MASK_PIPELINE_VERSION = 12;
+const MASK_PIPELINE_VERSION = 13;
 const INPUT_SIZE = 512;
 const MATTE_SIZE = 320;
 const MATTE_MEAN = [0.485, 0.456, 0.406];
@@ -283,8 +283,8 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
       kept += 1;
     }
   } else if (preferMatteRider) {
-    // Prefer matte ∩ (person|bike). Never take bloated DeepLab person alone —
-    // that creates the sharp rectangular halo behind the rider.
+    // Tight core: matte ∩ support, and person only as min(person, matte).
+    // Never keep DeepLab person without matte — that was the sharp back/head halo.
     for (let i = 0; i < alpha.length; i += 1) {
       const matte = analysis.matteScore[i];
       const person = analysis.personScore[i];
@@ -294,13 +294,12 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
       if (matte >= matteFloor && supported) {
         score = Math.max(score, Math.min(1, matte));
       }
-      // Person only where matte also agrees (cuts DeepLab blob halo).
-      if (person >= personFloor && matte >= Math.max(0.28, matteFloor - 0.18)) {
-        score = Math.max(score, Math.min(1, Math.min(person, matte + 0.15)));
+      if (person >= personFloor && matte >= matteFloor) {
+        score = Math.max(score, Math.min(person, matte));
       }
       // Thin bike class may extend slightly beyond matte (tires / spokes).
-      if (thin >= thinFloor && (supported || matte > 0.12 || person > 0.1)) {
-        score = Math.max(score, Math.min(1, thin * 5.2));
+      if (thin >= thinFloor && (supported || matte > 0.15 || person > 0.12)) {
+        score = Math.max(score, Math.min(1, thin * 5.5));
       }
       if (score <= 0) {
         alpha[i] = 0;
@@ -344,7 +343,16 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     }
   }
 
-  // Recover bicycle / motorcycle thin parts — always for rider scenes.
+  // Rider body: trim halo FIRST, then recover dark/thin structure (no person-alone paint).
+  // Wheels are forced later — after morph — so trim/erode cannot eat the front tire.
+  if (treatAsRider && riderSupport) {
+    try {
+      trimRiderMatteHalo(alpha, analysis, riderSupport, width, height, threshold);
+    } catch (error) {
+      console.warn("[F9 追焦] 騎士光暈裁切略過：", error);
+    }
+  }
+
   if (
     treatAsRider
     || (
@@ -357,17 +365,9 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     )
   ) {
     try {
-      recoverRiderCraft(alpha, analysis, sourceImage, width, height);
+      recoverRiderBodyStructure(alpha, analysis, sourceImage, width, height);
     } catch (error) {
-      console.warn("[F9 追焦] 細結構復原略過：", error);
-    }
-  }
-
-  if (treatAsRider && riderSupport) {
-    try {
-      trimRiderMatteHalo(alpha, analysis, riderSupport, width, height, threshold);
-    } catch (error) {
-      console.warn("[F9 追焦] 騎士光暈裁切略過：", error);
+      console.warn("[F9 追焦] 車體結構復原略過：", error);
     }
   }
 
@@ -376,9 +376,9 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   const closeRadius = preferMatteCar
     ? Math.max(2, Math.round(Math.min(width, height) * 0.005))
     : (preferMatteRider
-      ? Math.max(1, Math.round(Math.min(width, height) * 0.0035))
+      ? Math.max(1, Math.round(Math.min(width, height) * 0.003))
       : (treatAsRider
-        ? Math.max(2, Math.round(Math.min(width, height) * 0.005))
+        ? Math.max(2, Math.round(Math.min(width, height) * 0.004))
         : (treatAsCar
           ? Math.max(6, Math.round(Math.min(width, height) * 0.018))
           : 2)));
@@ -387,7 +387,6 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   if (treatAsCar && !preferMatteCar) {
     maskCanvas = fillMaskCanvasHoles(maskCanvas);
   }
-  // Riders: never hole-fill the whole silhouette (connects railing / pavement).
 
   if (treatAsCar) {
     try {
@@ -405,48 +404,46 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     }
   }
 
-  // Riders: honor expand slider with a usable range (still capped to avoid huge halos).
   const autoExpand = preferMatteCar
     ? Math.max(0, Math.min(expandPx, 6))
     : (preferMatteRider
-      ? Math.max(0, Math.min(expandPx, 10))
+      ? Math.max(0, Math.min(expandPx, 8))
       : (treatAsRider
-        ? Math.max(0, Math.min(expandPx, 12))
+        ? Math.max(0, Math.min(expandPx, 10))
         : (treatAsCar
           ? Math.max(expandPx, Math.round(6 + threshold * 6))
           : expandPx)));
   if (preferMatteCar) {
     maskCanvas = erodeMaskCanvas(maskCanvas, autoExpand <= 2 ? 3 : 2);
   }
-  if (preferMatteRider) {
-    // Light fringe shrink only — heavy erode eats front tires (bad with ghost trails).
-    maskCanvas = erodeMaskCanvas(maskCanvas, autoExpand <= 0 ? 2 : 1);
-  } else if (treatAsRider) {
-    maskCanvas = erodeMaskCanvas(maskCanvas, 1);
+  if (preferMatteRider || treatAsRider) {
+    // Erode upper body only — never erode the wheel band (front tire lives there).
+    maskCanvas = erodeRiderUpperBody(maskCanvas, analysis, width, height, preferMatteRider ? 2 : 1);
   }
   if (autoExpand > 0) maskCanvas = dilateMaskCanvas(maskCanvas, autoExpand);
 
-  // Re-apply wheels after morph so front tires survive erode (ghost-trail mode needs them).
+  // LAST structural pass: force rear + front wheels after all trim/erode.
+  let wheelMask = null;
   if (treatAsRider) {
     try {
-      maskCanvas = reinforceRiderWheelsOnMask(maskCanvas, analysis, sourceImage, width, height);
+      const forced = forceRiderWheelsOnMask(maskCanvas, analysis, sourceImage, width, height);
+      maskCanvas = forced.maskCanvas;
+      wheelMask = forced.wheelMask;
     } catch (error) {
-      console.warn("[F9 追焦] 輪胎補強略過：", error);
+      console.warn("[F9 追焦] 強制輪胎復原略過：", error);
     }
   }
 
-  // Feather uses the caller-mapped px value directly so the UI slider is visible.
   if (featherPx > 0) {
     const feather = preferMatteCar
       ? Math.max(1, Math.round(featherPx * 0.85))
-      : Math.max(1, featherPx);
+      : Math.max(1, Math.min(featherPx, preferMatteRider ? 14 : 20));
     maskCanvas = featherMaskCanvas(maskCanvas, feather);
   }
 
-  // Re-harden rider edges after feather — do NOT revive matte-only sky/hill halo.
   if (treatAsRider) {
     try {
-      maskCanvas = hardenRiderMaskEdges(maskCanvas, analysis, width, height);
+      maskCanvas = hardenRiderMaskEdges(maskCanvas, analysis, width, height, wheelMask);
     } catch (error) {
       console.warn("[F9 追焦] 騎士邊緣硬化略過：", error);
     }
@@ -830,108 +827,151 @@ function maxArray(arr){
 }
 
 /**
- * After close/erode/expand, repaint evidence-gated wheels onto the mask so
- * front tires are not missing when the full frame is motion-blurred underneath.
+ * Force rear + front wheels onto the mask AFTER morph. Returns wheelMask so
+ * harden/feather cleanup cannot delete restored tires again.
  */
-function reinforceRiderWheelsOnMask(maskCanvas, analysis, sourceImage, width, height){
+function forceRiderWheelsOnMask(maskCanvas, analysis, sourceImage, width, height){
   const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
   const image = ctx.getImageData(0, 0, width, height);
   const alpha = new Uint8ClampedArray(width * height);
   for (let i = 0; i < alpha.length; i += 1) alpha[i] = image.data[i * 4 + 3];
+  const wheelMask = new Uint8Array(width * height);
 
+  const boxes = listRiderPersonBoxes(analysis, width, height);
+  if (!boxes.length) return { maskCanvas, wheelMask };
+
+  const photo = samplePhotoStats(sourceImage, width, height);
+  const direction = analysis.resolvedDirection === "left" ? "left" : "right";
+
+  for (const box of boxes) {
+    const wheels = findRiderWheelCenters(box, analysis, photo, width, height, direction);
+    for (const wheel of wheels) {
+      paintWheelDiskForced(alpha, wheelMask, analysis, photo, width, height, wheel.cx, wheel.cy, wheel.radius, wheel.forced);
+    }
+  }
+
+  return { maskCanvas: alphaToMaskCanvas(alpha, width, height), wheelMask };
+}
+
+function listRiderPersonBoxes(analysis, width, height){
   const personBinary = new Uint8Array(width * height);
   for (let i = 0; i < personBinary.length; i += 1) {
-    if (analysis.personScore[i] > 0.28) personBinary[i] = 1;
+    if (analysis.personScore[i] > 0.26) personBinary[i] = 1;
   }
-  const components = labelComponents(
+  return labelComponents(
     personBinary,
     width,
     height,
     Math.max(220, width * height * 0.0008)
-  );
-  if (!components.length) return maskCanvas;
-
-  const photo = samplePhotoStats(sourceImage, width, height);
-  for (const box of components) {
-    const pw = box.x1 - box.x0 + 1;
-    const ph = box.y1 - box.y0 + 1;
-    if (ph < 24 || pw < 12) continue;
-    const wheels = findRiderWheelCenters(box, analysis, photo, width, height);
-    for (const wheel of wheels) {
-      paintWheelDisk(alpha, analysis, photo, width, height, wheel.cx, wheel.cy, wheel.radius);
-    }
-  }
-
-  return alphaToMaskCanvas(alpha, width, height);
+  ).filter(box => (box.y1 - box.y0 + 1) >= 24 && (box.x1 - box.x0 + 1) >= 12);
 }
 
 /**
- * Dilated person + bicycle/motorbike support. Matte may only stick near this.
- * Sensitivity (threshold) controls seed strictness and dilate radius.
+ * Erode only the upper body band so wheel-band geometry is preserved.
+ */
+function erodeRiderUpperBody(maskCanvas, analysis, width, height, radius){
+  if (radius <= 0) return maskCanvas;
+  const boxes = listRiderPersonBoxes(analysis, width, height);
+  if (!boxes.length) return erodeMaskCanvas(maskCanvas, Math.min(1, radius));
+
+  const eroded = erodeMaskCanvas(maskCanvas, radius);
+  const srcCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const dstCtx = eroded.getContext("2d", { willReadFrequently: true });
+  const src = srcCtx.getImageData(0, 0, width, height);
+  const dst = dstCtx.getImageData(0, 0, width, height);
+
+  // Wheel band starts ~55% down the tallest person box — keep original alpha there.
+  let bandY = Math.floor(height * 0.62);
+  for (const box of boxes) {
+    const ph = box.y1 - box.y0 + 1;
+    bandY = Math.min(bandY, Math.floor(box.y0 + ph * 0.55));
+  }
+  for (let y = bandY; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const o = (y * width + x) * 4 + 3;
+      dst.data[o] = src.data[o];
+    }
+  }
+  dstCtx.putImageData(dst, 0, 0);
+  return eroded;
+}
+
+/**
+ * Tight support for matte stick. Keep dilate small so sky/hill near the head
+ * cannot become "supported" matte.
  */
 function buildRiderSupportMap(analysis, width, height, threshold = 0.66){
   const t = clamp01(threshold);
-  const personSeed = 0.28 - t * 0.14;
-  const thinSeed = 0.055 - t * 0.035;
+  const personSeed = 0.30 - t * 0.12;
+  const thinSeed = 0.06 - t * 0.035;
   const seed = new Uint8Array(width * height);
   for (let i = 0; i < seed.length; i += 1) {
     const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
     if (analysis.personScore[i] > personSeed || thin > thinSeed) seed[i] = 1;
   }
-  // Higher sensitivity → slightly larger support; low sensitivity stays tight.
-  const radius = Math.max(2, Math.round(Math.min(width, height) * (0.004 + t * 0.008)));
+  const radius = Math.max(2, Math.round(Math.min(width, height) * (0.003 + t * 0.005)));
   return dilateBinaryMap(seed, width, height, radius);
 }
 
 /**
- * Drop matte-only / soft pixels far from person+bike support (head/sky halo).
- * Lower sensitivity trims more aggressively.
+ * Remove sharp background islands: matte-only fringe and DeepLab person without matte.
+ * Also trims INSIDE support when person is high but matte is weak (blob halo).
  */
 function trimRiderMatteHalo(alpha, analysis, support, width, height, threshold = 0.66){
   const t = clamp01(threshold);
-  const keepThin = 0.10 - t * 0.04;
-  const keepPerson = 0.40 - t * 0.08;
-  const matteKeep = 0.88 - t * 0.06;
+  const keepThin = 0.085 - t * 0.03;
+  const matteCore = 0.72 - t * 0.08;
   for (let i = 0; i < alpha.length; i += 1) {
     if (alpha[i] < 8) continue;
-    if (support[i]) continue;
     const person = analysis.personScore[i];
     const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
     const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
-    if (thin > keepThin || person > keepPerson) continue;
-    // Matte-only fringe / head halo → remove.
-    if (matte < matteKeep || person < 0.12) {
-      alpha[i] = 0;
+
+    if (thin > keepThin) continue;
+
+    // Inside support: drop DeepLab-only / weak-matte person blobs (back/head halo).
+    if (support[i]) {
+      if (person > 0.2 && matte < matteCore && thin < 0.04) {
+        alpha[i] = 0;
+      }
+      continue;
     }
+
+    // Outside support: keep only strong bike or strong matte∩person.
+    if (matte >= 0.85 && person > 0.2) continue;
+    alpha[i] = 0;
   }
 }
 
 /**
- * After feather, snap weak fringe back to transparent unless class supports it.
- * Do not revive matte-only sky/hill pixels (that recreated the head halo).
+ * Harden soft fringe. Never promote person-only or weak-matte pixels.
+ * Wheel-mask pixels are always kept.
  */
-function hardenRiderMaskEdges(maskCanvas, analysis, width, height){
+function hardenRiderMaskEdges(maskCanvas, analysis, width, height, wheelMask = null){
   const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
   const image = ctx.getImageData(0, 0, width, height);
   const data = image.data;
   for (let i = 0; i < width * height; i += 1) {
+    if (wheelMask && wheelMask[i]) {
+      data[i * 4 + 3] = Math.max(data[i * 4 + 3], 230);
+      continue;
+    }
     const a = data[i * 4 + 3];
     if (a < 12) {
       data[i * 4 + 3] = 0;
       continue;
     }
-    if (a >= 200) continue;
+    if (a >= 210) continue;
     const person = analysis.personScore[i];
     const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
     const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
-    const classOk = person > 0.22 || thin > 0.045;
-    const matteOk = matte > 0.62 && (person > 0.1 || thin > 0.02);
+    const classOk = thin > 0.05 || (person > 0.25 && matte > 0.55);
+    const matteOk = matte > 0.72 && (person > 0.18 || thin > 0.03);
     if (classOk || matteOk) {
-      if (a < 140) data[i * 4 + 3] = Math.max(a, 180);
+      if (a < 150) data[i * 4 + 3] = Math.max(a, 190);
       continue;
     }
-    // Soft fringe without class support → drop (prevents sharp background islands).
-    data[i * 4 + 3] = a < 120 ? 0 : Math.round(a * 0.2);
+    data[i * 4 + 3] = a < 130 ? 0 : Math.round(a * 0.15);
   }
   ctx.putImageData(image, 0, 0);
   return maskCanvas;
@@ -953,80 +993,61 @@ function dilateBinaryMap(seed, width, height, radius){
 }
 
 /**
- * Recover thin bike parts: compact body ROI + wider wheel search so the front
- * tire is restored without reintroducing a body halo.
+ * Recover bike frame/basket structure near the rider without painting DeepLab person alone.
  */
-function recoverRiderCraft(alpha, analysis, sourceImage, width, height){
-  const personBinary = new Uint8Array(width * height);
-  for (let i = 0; i < personBinary.length; i += 1) {
-    if (analysis.personScore[i] > 0.28) personBinary[i] = 1;
-  }
-
-  const components = labelComponents(
-    personBinary,
-    width,
-    height,
-    Math.max(220, width * height * 0.0008)
-  );
-  if (!components.length) return;
-
+function recoverRiderBodyStructure(alpha, analysis, sourceImage, width, height){
+  const boxes = listRiderPersonBoxes(analysis, width, height);
+  if (!boxes.length) return;
   const photo = samplePhotoStats(sourceImage, width, height);
 
-  for (const box of components) {
+  for (const box of boxes) {
     const pw = box.x1 - box.x0 + 1;
     const ph = box.y1 - box.y0 + 1;
-    if (ph < 24 || pw < 12) continue;
-
-    // Compact body ROI (no wide capsule) — structure pixels only.
-    const bx0 = Math.max(0, Math.floor(box.x0 - pw * 0.18));
-    const bx1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 0.18));
-    const top = Math.max(0, Math.floor(box.y0 - ph * 0.04));
-    const by1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.2));
+    const bx0 = Math.max(0, Math.floor(box.x0 - pw * 0.22));
+    const bx1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 0.55));
+    const top = Math.max(0, Math.floor(box.y0 + ph * 0.08));
+    const by1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.35));
     for (let y = top; y <= by1; y += 1) {
       for (let x = bx0; x <= bx1; x += 1) {
         const i = y * width + x;
         const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
         const person = analysis.personScore[i];
         const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
-        if (
-          photo.dark[i]
-          || thin > 0.05
-          || person > 0.24
-          || (photo.colorful[i] && (thin > 0.025 || matte > 0.45))
-        ) {
-          alpha[i] = Math.max(alpha[i], person > 0.3 || thin > 0.1 || photo.dark[i] ? 245 : 200);
+        // Structure only — never person-alone (halo source).
+        if (thin > 0.045 || photo.dark[i] || (photo.colorful[i] && (thin > 0.02 || matte > 0.5))) {
+          if (matte > 0.2 || thin > 0.03 || photo.dark[i]) {
+            alpha[i] = Math.max(alpha[i], thin > 0.08 || photo.dark[i] ? 245 : 210);
+          }
+        } else if (person > 0.35 && matte > 0.55) {
+          alpha[i] = Math.max(alpha[i], 220);
         }
       }
-    }
-
-    const wheels = findRiderWheelCenters(box, analysis, photo, width, height);
-    for (const wheel of wheels) {
-      paintWheelDisk(alpha, analysis, photo, width, height, wheel.cx, wheel.cy, wheel.radius);
     }
   }
 }
 
 /**
- * Locate rear/front wheel centers from bicycle score mass + classic anchors.
- * Front wheel search extends farther ahead so YouBike tires are not clipped.
+ * Locate rear/front wheel centers. Always forces a forward-side front-wheel anchor
+ * for YouBike-style bikes (front tire often has weak DeepLab/matte response).
  */
-function findRiderWheelCenters(box, analysis, photo, width, height){
+function findRiderWheelCenters(box, analysis, photo, width, height, direction = "right"){
   const pw = box.x1 - box.x0 + 1;
   const ph = box.y1 - box.y0 + 1;
-  const radius = Math.max(12, Math.round(ph * 0.26));
-  const yBand0 = Math.max(0, Math.floor(box.y0 + ph * 0.42));
-  const yBand1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.55));
-  const xBand0 = Math.max(0, Math.floor(box.x0 - pw * 0.35));
-  const xBand1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 1.05));
+  const radius = Math.max(14, Math.round(ph * 0.28));
+  const yBand0 = Math.max(0, Math.floor(box.y0 + ph * 0.48));
+  const yBand1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.62));
+  const ahead = direction === "left" ? -1 : 1;
+  const xBand0 = Math.max(0, Math.floor(box.x0 - pw * (ahead < 0 ? 1.15 : 0.35)));
+  const xBand1 = Math.min(width - 1, Math.ceil(box.x1 + pw * (ahead > 0 ? 1.15 : 0.35)));
 
   const peaks = [];
-  const step = Math.max(4, Math.round(radius * 0.45));
+  const step = Math.max(3, Math.round(radius * 0.4));
   for (let y = yBand0; y <= yBand1; y += step) {
     for (let x = xBand0; x <= xBand1; x += step) {
       let mass = 0;
       let darkMass = 0;
       let samples = 0;
-      const probe = Math.max(6, Math.round(radius * 0.55));
+      const probe = Math.max(6, Math.round(radius * 0.6));
       const p2 = probe * probe;
       for (let yy = Math.max(0, y - probe); yy <= Math.min(height - 1, y + probe); yy += 2) {
         for (let xx = Math.max(0, x - probe); xx <= Math.min(width - 1, x + probe); xx += 2) {
@@ -1037,13 +1058,13 @@ function findRiderWheelCenters(box, analysis, photo, width, height){
           const i = yy * width + xx;
           const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
           mass += thin;
-          if (photo.dark[i]) darkMass += 1;
+          if (photo.dark[i] || photo.lum[i] < 70) darkMass += 1;
         }
       }
-      if (samples < 10) continue;
-      const score = mass / samples + (darkMass / samples) * 0.08;
-      if (score < 0.028) continue;
-      peaks.push({ cx: x, cy: y, score, radius });
+      if (samples < 8) continue;
+      const score = mass / samples + (darkMass / samples) * 0.12;
+      if (score < 0.018) continue;
+      peaks.push({ cx: x, cy: y, score, radius, forced: false });
     }
   }
 
@@ -1054,74 +1075,162 @@ function findRiderWheelCenters(box, analysis, photo, width, height){
     const farEnough = picked.every(p => {
       const dx = p.cx - peak.cx;
       const dy = p.cy - peak.cy;
-      return dx * dx + dy * dy > (radius * 1.1) * (radius * 1.1);
+      return dx * dx + dy * dy > (radius * 1.05) * (radius * 1.05);
     });
     if (farEnough) picked.push(peak);
   }
 
-  // Fallback anchors if score peaks miss (common for thin front tires).
-  if (picked.length < 2) {
-    const cy = Math.min(height - 1, Math.round(box.y1 + radius * 0.02));
-    const anchors = [
-      { cx: Math.round(box.x0 + pw * 0.18), cy, radius, score: 0 },
-      { cx: Math.round(box.x1 + pw * 0.22), cy, radius, score: 0 },
-      { cx: Math.round(box.x1 + pw * 0.55), cy, radius: Math.round(radius * 1.05), score: 0 }
-    ];
-    for (const anchor of anchors) {
-      if (picked.length >= 2) break;
-      if (anchor.cx < 0 || anchor.cx >= width) continue;
-      if (!wheelDiskHasEvidence(anchor.cx, anchor.cy, anchor.radius, analysis, photo, width, height)) {
-        continue;
+  const cy = Math.min(height - 1, Math.round(box.y1 + radius * 0.02));
+  const rearCx = ahead > 0
+    ? Math.round(box.x0 + pw * 0.22)
+    : Math.round(box.x1 - pw * 0.22);
+  const frontCx = ahead > 0
+    ? Math.round(box.x1 + pw * 0.42)
+    : Math.round(box.x0 - pw * 0.42);
+  const anchors = [
+    { cx: rearCx, cy, radius, score: 0, forced: false, role: "rear" },
+    { cx: frontCx, cy, radius: Math.round(radius * 1.08), score: 0, forced: true, role: "front" },
+    {
+      cx: ahead > 0 ? Math.round(box.x1 + pw * 0.72) : Math.round(box.x0 - pw * 0.72),
+      cy,
+      radius: Math.round(radius * 1.1),
+      score: 0,
+      forced: true,
+      role: "front-far"
+    }
+  ];
+
+  for (const anchor of anchors) {
+    if (anchor.cx < 0 || anchor.cx >= width) continue;
+    const farEnough = picked.every(p => {
+      const dx = p.cx - anchor.cx;
+      const dy = p.cy - anchor.cy;
+      return dx * dx + dy * dy > (radius * 0.85) * (radius * 0.85);
+    });
+    if (!farEnough) continue;
+    const hasEv = wheelDiskHasEvidence(anchor.cx, anchor.cy, anchor.radius, analysis, photo, width, height);
+    if (hasEv || anchor.forced) {
+      // Prefer replacing a weak peak with a forced front anchor when needed.
+      if (picked.length >= 2 && anchor.forced) {
+        // Drop the peak farthest from the front direction and insert front.
+        let worst = 0;
+        let worstScore = Infinity;
+        for (let i = 0; i < picked.length; i += 1) {
+          const toward = ahead > 0 ? picked[i].cx : -picked[i].cx;
+          if (toward < worstScore) {
+            worstScore = toward;
+            worst = i;
+          }
+        }
+        // Only replace if we don't already have something near the front.
+        const hasFrontish = picked.some(p => (ahead > 0 ? p.cx >= box.x1 : p.cx <= box.x0));
+        if (!hasFrontish) picked[worst] = anchor;
+      } else if (picked.length < 2) {
+        picked.push(anchor);
       }
-      const farEnough = picked.every(p => {
-        const dx = p.cx - anchor.cx;
-        const dy = p.cy - anchor.cy;
-        return dx * dx + dy * dy > (radius * 0.9) * (radius * 0.9);
-      });
-      if (farEnough) picked.push(anchor);
     }
   }
 
-  return picked;
+  // Guarantee at least one forward wheel for bikes.
+  const hasFront = picked.some(p => (ahead > 0 ? p.cx >= box.x1 - pw * 0.05 : p.cx <= box.x0 + pw * 0.05));
+  if (!hasFront && frontCx >= 0 && frontCx < width) {
+    picked.push({
+      cx: frontCx,
+      cy,
+      radius: Math.round(radius * 1.1),
+      score: 0,
+      forced: true,
+      role: "front-guarantee"
+    });
+  }
+
+  return picked.slice(0, 3);
 }
 
 /**
- * Paint a wheel: prefer tire rim, but also keep spoke/hub pixels with bike evidence.
+ * Paint a tire rim. Forced mode fills angular sectors that have any tire evidence
+ * so broken YouBike front tires reconnect instead of vanishing into the blur.
  */
-function paintWheelDisk(alpha, analysis, photo, width, height, cx, cy, radius){
-  const r = Math.max(8, Math.round(radius));
+function paintWheelDiskForced(alpha, wheelMask, analysis, photo, width, height, cx, cy, radius, forced = false){
+  const r = Math.max(10, Math.round(radius));
   const r2 = r * r;
-  const inner2 = Math.round(r * 0.42) ** 2;
-  const x0 = Math.max(0, cx - r - 1);
-  const x1 = Math.min(width - 1, cx + r + 1);
-  const y0 = Math.max(0, cy - r - 1);
-  const y1 = Math.min(height - 1, cy + r + 1);
+  const inner = Math.round(r * 0.48);
+  const inner2 = inner * inner;
+  const x0 = Math.max(0, cx - r - 2);
+  const x1 = Math.min(width - 1, cx + r + 2);
+  const y0 = Math.max(0, cy - r - 2);
+  const y1 = Math.min(height - 1, cy + r + 2);
+
+  const sectors = 24;
+  const sectorHits = new Uint8Array(sectors);
 
   for (let y = y0; y <= y1; y += 1) {
     for (let x = x0; x <= x1; x += 1) {
       const dx = x - cx;
       const dy = y - cy;
       const d2 = dx * dx + dy * dy;
-      if (d2 > r2) continue;
+      if (d2 > r2 || d2 < inner2) continue;
       const i = y * width + x;
       const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
-      const person = analysis.personScore[i];
       const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
-      const onRim = d2 >= inner2;
-      if (onRim) {
-        if (photo.dark[i] || thin > 0.025 || matte > 0.35 || photo.colorful[i] || alpha[i] > 40) {
-          alpha[i] = 255;
-        } else if (thin > 0.012) {
-          alpha[i] = Math.max(alpha[i], 220);
+      const hit = photo.dark[i] || photo.lum[i] < 78 || thin > 0.02 || matte > 0.3 || photo.colorful[i] || alpha[i] > 50;
+      if (!hit) continue;
+      const ang = Math.atan2(dy, dx);
+      const s = Math.min(sectors - 1, Math.floor(((ang + Math.PI) / (Math.PI * 2)) * sectors));
+      sectorHits[s] = 1;
+      alpha[i] = 255;
+      wheelMask[i] = 1;
+    }
+  }
+
+  if (!forced) {
+    // Still keep some hub/spoke structure when evidence exists.
+    for (let y = y0; y <= y1; y += 1) {
+      for (let x = x0; x <= x1; x += 1) {
+        const dx = x - cx;
+        const dy = y - cy;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= inner2 || d2 > r2) continue;
+        const i = y * width + x;
+        const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+        if (thin > 0.04 || photo.dark[i] || alpha[i] > 60) {
+          alpha[i] = Math.max(alpha[i], 230);
+          wheelMask[i] = 1;
         }
-      } else if (thin > 0.04 || matte > 0.4 || person > 0.15 || photo.dark[i] || alpha[i] > 60) {
-        alpha[i] = Math.max(alpha[i], 230);
       }
+    }
+    return;
+  }
+
+  // Forced: fill entire rim sectors that had any hit — reconnects broken front tires.
+  const hitCount = sectorHits.reduce((n, v) => n + v, 0);
+  const fillAll = hitCount >= 3;
+  for (let y = y0; y <= y1; y += 1) {
+    for (let x = x0; x <= x1; x += 1) {
+      const dx = x - cx;
+      const dy = y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2 || d2 < inner2) continue;
+      const ang = Math.atan2(dy, dx);
+      const s = Math.min(sectors - 1, Math.floor(((ang + Math.PI) / (Math.PI * 2)) * sectors));
+      const neighbors = sectorHits[s]
+        || sectorHits[(s + 1) % sectors]
+        || sectorHits[(s + sectors - 1) % sectors];
+      if (!neighbors && !fillAll) continue;
+      const i = y * width + x;
+      // Avoid painting bright sky into the rim; allow pavement-dark / mid tones.
+      if (photo.lum[i] > 195 && !photo.dark[i]) continue;
+      alpha[i] = 255;
+      wheelMask[i] = 1;
     }
   }
 }
 
-/** Require local bike/tire evidence before committing a fallback wheel anchor. */
+function paintWheelDisk(alpha, analysis, photo, width, height, cx, cy, radius){
+  const dummy = new Uint8Array(width * height);
+  paintWheelDiskForced(alpha, dummy, analysis, photo, width, height, cx, cy, radius, false);
+}
+
 function wheelDiskHasEvidence(cx, cy, radius, analysis, photo, width, height){
   const r = Math.max(4, Math.round(radius));
   const x0 = Math.max(0, cx - r);
@@ -1140,11 +1249,13 @@ function wheelDiskHasEvidence(cx, cy, radius, analysis, photo, width, height){
       const i = y * width + x;
       const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
       const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
-      if (photo.dark[i] || thin > 0.03 || matte > 0.4 || photo.colorful[i]) hits += 1;
+      if (photo.dark[i] || photo.lum[i] < 75 || thin > 0.025 || matte > 0.35 || photo.colorful[i]) {
+        hits += 1;
+      }
     }
   }
   if (samples < 8) return false;
-  return hits / samples >= 0.08;
+  return hits / samples >= 0.06;
 }
 
 function samplePhotoStats(sourceImage, width, height){
@@ -1186,7 +1297,7 @@ function samplePhotoStats(sourceImage, width, height){
     }
   }
 
-  return { dark, colorful };
+  return { dark, colorful, lum };
 }
 
 function labelComponents(binary, width, height, minArea){

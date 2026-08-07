@@ -1,4 +1,4 @@
-const CACHE_NAME = "photo-effects-v0.9.22.12";
+const CACHE_NAME = "photo-effects-v0.9.22.13";
 
 const CORE_ASSETS = [
   "./",
