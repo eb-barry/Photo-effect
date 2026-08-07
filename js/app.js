@@ -59,7 +59,7 @@ async function navigate(routeName){
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./service-worker.js?v=0.4.19.8").catch(console.warn);
+    navigator.serviceWorker.register("./service-worker.js?v=0.4.19.9").catch(console.warn);
   });
 }
 
