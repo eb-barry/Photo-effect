@@ -1,4 +1,4 @@
-// F9 追焦 - Feature entry metadata v0.1.10
+// F9 追焦 - Feature entry metadata v0.1.11
 
 import { initPanFocusPage } from "./panFocusPage.js";
 
@@ -8,8 +8,8 @@ export const panFocusFeature = {
   code: "F9",
   title: "追焦",
   name: "追焦",
-  subtitle: "主體清晰・水平拖影",
-  description: "手動選擇汽車或機車／自行車，保持主體清晰並為背景套用水平追焦運動模糊。",
+  subtitle: "主體清晰・跟拍殘影",
+  description: "手動選擇汽車或機車／自行車去背成一層，對整張照片做水平運動模糊後貼回主體，呈現跟拍殘影感。",
   icon: "assets/icons/features/F9-追焦.webp",
   route: "#/feature/F9_panFocus",
   modulePath: "./features/F9_panFocus/panFocusPage.js",
@@ -17,7 +17,7 @@ export const panFocusFeature = {
   enabled: true,
   disabled: false,
   isAvailable: true,
-  version: "0.1.10",
+  version: "0.1.11",
   mount: initPanFocusPage
 };
 

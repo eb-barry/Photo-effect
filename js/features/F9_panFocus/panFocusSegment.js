@@ -1,5 +1,6 @@
-// F9 追焦 - AI 主體分割 v0.1.10
-// 手動車種管線：汽車去背精修／機車・自行車緊貼輪廓 + 前輪復原 + U2-Netp。
+// F9 追焦 - AI 主體分割 v0.1.11
+// 手動車種管線：汽車去背精修／機車・自行車同一 matte（含前輪）+ U2-Netp。
+// 靈敏度／擴張／羽化只改 matte；合成端做全圖模糊＋貼回以保留跟拍殘影。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
@@ -8,7 +9,7 @@ const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
 /** General object matting (~4.5MB). Used for cars; also soft-unions rider/bike silhouettes. */
 const MATTE_MODEL_URL = "https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx";
 const MATTE_CACHE_NAME = "photo-effects-panfocus-u2netp-v1";
-const MASK_PIPELINE_VERSION = 10;
+const MASK_PIPELINE_VERSION = 11;
 const INPUT_SIZE = 512;
 const MATTE_SIZE = 320;
 const MATTE_MEAN = [0.485, 0.456, 0.406];
@@ -419,18 +420,28 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     maskCanvas = erodeMaskCanvas(maskCanvas, autoExpand <= 2 ? 3 : 2);
   }
   if (preferMatteRider) {
-    // Stronger shrink of soft matte fringe (head/sky halo) before user expand.
-    maskCanvas = erodeMaskCanvas(maskCanvas, autoExpand <= 0 ? 3 : 2);
+    // Light fringe shrink only — heavy erode eats front tires (bad with ghost trails).
+    maskCanvas = erodeMaskCanvas(maskCanvas, 1);
   } else if (treatAsRider) {
     maskCanvas = erodeMaskCanvas(maskCanvas, 1);
   }
   if (autoExpand > 0) maskCanvas = dilateMaskCanvas(maskCanvas, autoExpand);
+
+  // Re-apply wheels after morph so front tires survive erode (ghost-trail mode needs them).
+  if (treatAsRider) {
+    try {
+      maskCanvas = reinforceRiderWheelsOnMask(maskCanvas, analysis, sourceImage, width, height);
+    } catch (error) {
+      console.warn("[F9 追焦] 輪胎補強略過：", error);
+    }
+  }
+
   if (featherPx > 0) {
     const feather = preferMatteCar
       ? Math.max(1, Math.round(featherPx * 0.45))
       : (preferMatteRider
-        ? Math.max(1, Math.round(featherPx * 0.22))
-        : (treatAsRider ? Math.max(1, Math.round(featherPx * 0.28)) : featherPx));
+        ? Math.max(1, Math.round(featherPx * 0.2))
+        : (treatAsRider ? Math.max(1, Math.round(featherPx * 0.25)) : featherPx));
     maskCanvas = featherMaskCanvas(maskCanvas, feather);
   }
 
@@ -818,6 +829,42 @@ function maxArray(arr){
     if (arr[i] > best) best = arr[i];
   }
   return best;
+}
+
+/**
+ * After close/erode/expand, repaint evidence-gated wheels onto the mask so
+ * front tires are not missing when the full frame is motion-blurred underneath.
+ */
+function reinforceRiderWheelsOnMask(maskCanvas, analysis, sourceImage, width, height){
+  const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, width, height);
+  const alpha = new Uint8ClampedArray(width * height);
+  for (let i = 0; i < alpha.length; i += 1) alpha[i] = image.data[i * 4 + 3];
+
+  const personBinary = new Uint8Array(width * height);
+  for (let i = 0; i < personBinary.length; i += 1) {
+    if (analysis.personScore[i] > 0.28) personBinary[i] = 1;
+  }
+  const components = labelComponents(
+    personBinary,
+    width,
+    height,
+    Math.max(220, width * height * 0.0008)
+  );
+  if (!components.length) return maskCanvas;
+
+  const photo = samplePhotoStats(sourceImage, width, height);
+  for (const box of components) {
+    const pw = box.x1 - box.x0 + 1;
+    const ph = box.y1 - box.y0 + 1;
+    if (ph < 24 || pw < 12) continue;
+    const wheels = findRiderWheelCenters(box, analysis, photo, width, height);
+    for (const wheel of wheels) {
+      paintWheelDisk(alpha, analysis, photo, width, height, wheel.cx, wheel.cy, wheel.radius);
+    }
+  }
+
+  return alphaToMaskCanvas(alpha, width, height);
 }
 
 /**
