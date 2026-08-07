@@ -1,5 +1,6 @@
-// F9 追焦 - AI 主體分割 v0.1.15
+// F9 追焦 - AI 主體分割 v0.1.16
 // 騎士＋整車：緊緻 matte 核心（去光暈）+ 形態學後強制前／後輪與前菜籃復原。
+// 合成前再清掉外觀上的戶外背景外洩（欄杆／山／路面），避免清晰背景洞。
 // 靈敏度／擴張／羽化只改 matte；合成端全圖模糊＋貼回保留跟拍殘影。
 
 const ORT_VERSION = "1.22.0";
@@ -9,7 +10,7 @@ const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
 /** General object matting (~4.5MB). Used for cars; also soft-unions rider/bike silhouettes. */
 const MATTE_MODEL_URL = "https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx";
 const MATTE_CACHE_NAME = "photo-effects-panfocus-u2netp-v1";
-const MASK_PIPELINE_VERSION = 15;
+const MASK_PIPELINE_VERSION = 16;
 const INPUT_SIZE = 512;
 const MATTE_SIZE = 320;
 const MATTE_MEAN = [0.485, 0.456, 0.406];
@@ -445,6 +446,13 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
       maskCanvas = trimRiderSeatFrameGap(maskCanvas, analysis, sourceImage, width, height, structureMask);
     } catch (error) {
       console.warn("[F9 追焦] 座椅縫隙修剪略過：", error);
+    }
+    try {
+      // Final appearance trim: railing / hill / pavement leaks must go to blur,
+      // even when matte/expand wrongly marked them as subject.
+      maskCanvas = trimRiderOutdoorLeaks(maskCanvas, analysis, sourceImage, width, height, structureMask);
+    } catch (error) {
+      console.warn("[F9 追焦] 戶外背景外洩修剪略過：", error);
     }
   }
 
@@ -908,15 +916,17 @@ function forceRiderFrontBasketOnMask(maskCanvas, analysis, sourceImage, width, h
     const pw = box.x1 - box.x0 + 1;
     const ph = box.y1 - box.y0 + 1;
     const frontX = ahead > 0 ? box.x1 : box.x0;
-    const x0 = Math.max(0, Math.floor(ahead > 0 ? frontX - pw * 0.08 : frontX - pw * 0.72));
-    const x1 = Math.min(width - 1, Math.ceil(ahead > 0 ? frontX + pw * 0.72 : frontX + pw * 0.08));
-    const y0 = Math.max(0, Math.floor(box.y0 + ph * 0.10));
-    const y1 = Math.min(height - 1, Math.ceil(box.y0 + ph * 0.62));
+    // Keep ROI tight on the basket — do not spill into hill/railing behind the rider.
+    const x0 = Math.max(0, Math.floor(ahead > 0 ? frontX - pw * 0.05 : frontX - pw * 0.58));
+    const x1 = Math.min(width - 1, Math.ceil(ahead > 0 ? frontX + pw * 0.58 : frontX + pw * 0.05));
+    const y0 = Math.max(0, Math.floor(box.y0 + ph * 0.18));
+    const y1 = Math.min(height - 1, Math.ceil(box.y0 + ph * 0.58));
 
     const seed = new Uint8Array(width * height);
     for (let y = y0; y <= y1; y += 1) {
       for (let x = x0; x <= x1; x += 1) {
         const i = y * width + x;
+        if (isOutdoorBackgroundPixel(photo, i)) continue;
         const L = photo.lum[i];
         const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
         const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
@@ -924,28 +934,26 @@ function forceRiderFrontBasketOnMask(maskCanvas, analysis, sourceImage, width, h
         const r = rgba[o];
         const g = rgba[o + 1];
         const b = rgba[o + 2];
-        const maxC = Math.max(r, g, b);
-        const minC = Math.min(r, g, b);
-        const sat = (maxC - minC) / Math.max(1, maxC);
-        const meshDark = photo.dark[i] || L < 95;
-        const meshGray = L < 150 && sat < 0.22;
-        const bagInside = L >= 95 && L < 185 && sat < 0.35 && matte > 0.2;
+        const sat = satOf(r, g, b);
+        const meshDark = photo.dark[i] || L < 92;
+        const meshGray = L < 140 && sat < 0.20;
+        const bagInside = L >= 90 && L < 175 && sat < 0.30 && matte > 0.22 && !isOutdoorGreen(photo, i);
         if (thin > 0.028 || meshDark || (meshGray && (thin > 0.012 || matte > 0.28 || localVariance(photo.lum, width, height, x, y) > 18)) || bagInside) {
-          // Reject open sky / bright railing glare in the ROI.
-          if (L > 210 && sat < 0.08) continue;
+          if (L > 200 && sat < 0.08) continue;
           seed[i] = 1;
         }
       }
     }
 
     // Dilate seeds inside ROI so mesh holes become solid basket silhouette.
-    const solid = dilateBinaryMapInRect(seed, width, height, Math.max(2, Math.round(Math.min(pw, ph) * 0.035)), x0, y0, x1, y1);
+    const solid = dilateBinaryMapInRect(seed, width, height, Math.max(2, Math.round(Math.min(pw, ph) * 0.028)), x0, y0, x1, y1);
     for (let y = y0; y <= y1; y += 1) {
       for (let x = x0; x <= x1; x += 1) {
         const i = y * width + x;
         if (!solid[i]) continue;
-        // Keep basket interior (bag / mesh holes) but never pure bright sky.
-        if (photo.lum[i] > 220 && !photo.dark[i]) continue;
+        // Never promote outdoor hill / railing / pavement into the basket mask.
+        if (isOutdoorBackgroundPixel(photo, i) && !(photo.dark[i] || photo.lum[i] < 80)) continue;
+        if (photo.lum[i] > 210 && !photo.dark[i]) continue;
         data[i * 4 + 3] = Math.max(data[i * 4 + 3], 245);
         basketMask[i] = 1;
       }
@@ -1395,11 +1403,19 @@ function paintWheelDiskForced(alpha, wheelMask, analysis, photo, width, height, 
       const lowerLeft = dx < 0 && dy > 0;
       const edge = radialEdgeStrength(photo, width, height, x, y, ux, uy);
       const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
-      const darkRubber = photo.dark[i] || L < (lowerLeft ? 128 : 108);
-      const metallicRim = edge >= (lowerLeft ? 9 : 12) && L >= 70 && L <= 205 && !isOutdoorGreen(photo, i);
+      // Flat mid-gray asphalt must NOT count as rubber (was painting sharp pavement disks).
+      const darkRubber = photo.dark[i]
+        || L < (lowerLeft ? 90 : 80)
+        || (L < (lowerLeft ? 112 : 98) && edge >= 10);
+      const metallicRim = edge >= (lowerLeft ? 10 : 12)
+        && L >= 70
+        && L <= 200
+        && !isOutdoorGreen(photo, i)
+        && !isFlatPavement(photo, i, edge);
       // Bright flat pavement (no edge) must never count.
       if (!darkRubber && !metallicRim && thin < 0.03) continue;
       if (L > 215 && edge < 14) continue;
+      if (isOutdoorBackgroundPixel(photo, i) && !darkRubber && !metallicRim) continue;
 
       const ang = Math.atan2(dy, dx);
       const s = Math.min(sectors - 1, Math.floor(((ang + Math.PI) / (Math.PI * 2)) * sectors));
@@ -1447,9 +1463,16 @@ function paintWheelDiskForced(alpha, wheelMask, analysis, photo, width, height, 
       const lowerLeft = dx < 0 && dy > 0;
       const edge = radialEdgeStrength(photo, width, height, x, y, ux, uy);
       const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
-      const darkRubber = photo.dark[i] || L < (lowerLeft ? 130 : 110);
-      const metallicRim = edge >= (lowerLeft ? 8 : 11) && L >= 65 && L <= 210 && !isOutdoorGreen(photo, i);
+      const darkRubber = photo.dark[i]
+        || L < (lowerLeft ? 92 : 82)
+        || (L < (lowerLeft ? 115 : 100) && edge >= 10);
+      const metallicRim = edge >= (lowerLeft ? 9 : 11)
+        && L >= 65
+        && L <= 205
+        && !isOutdoorGreen(photo, i)
+        && !isFlatPavement(photo, i, edge);
       if (L > 218 && edge < 12 && !photo.dark[i]) continue;
+      if (isOutdoorBackgroundPixel(photo, i) && !darkRubber && !metallicRim) continue;
       if (!darkRubber && !metallicRim && thin < 0.03) continue;
 
       alpha[i] = Math.max(alpha[i], 250);
@@ -1486,14 +1509,17 @@ function paintWheelDiskForced(alpha, wheelMask, analysis, photo, width, height, 
       const i = y * width + x;
       const L = photo.lum[i];
       if (isOutdoorGreen(photo, i) && L > 90) continue;
+      if (isFlatPavement(photo, i, 0) && L > 95) continue;
       const edge = radialEdgeStrength(photo, width, height, x, y, ux, uy);
       const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
-      const darkRubber = photo.dark[i] || L < (lowerLeft ? 135 : 112);
+      const darkRubber = photo.dark[i]
+        || L < (lowerLeft ? 95 : 85)
+        || (L < (lowerLeft ? 118 : 105) && edge >= 10);
       let score = edge;
       if (darkRubber) score += 14;
       if (thin > 0.025) score += 8;
-      // Metallic silver rim against asphalt.
-      if (edge >= 8 && L >= 80 && L <= 200) score += 10;
+      // Metallic silver rim against asphalt — needs real edge, not flat road.
+      if (edge >= 9 && L >= 80 && L <= 200 && !isFlatPavement(photo, i, edge)) score += 10;
       if (lowerLeft) score += 3;
       if (score > bestScore) {
         bestScore = score;
@@ -1501,19 +1527,22 @@ function paintWheelDiskForced(alpha, wheelMask, analysis, photo, width, height, 
       }
     }
 
-    const need = lowerLeft ? (forced ? 10 : 13) : (forced ? 12 : 15);
+    const need = lowerLeft ? (forced ? 11 : 14) : (forced ? 13 : 16);
     if (bestT < 0 || bestScore < need) continue;
 
     // Paint a short radial brush so the thin rim stays continuous.
-    for (let dt = -1.2; dt <= 1.2; dt += 0.4) {
+    for (let dt = -1.0; dt <= 1.0; dt += 0.4) {
       const t = bestT + dt;
       const x = Math.round(cx + ux * t);
       const y = Math.round(cy + uy * t);
       if (x < 0 || y < 0 || x >= width || y >= height) continue;
       const i = y * width + x;
       const L = photo.lum[i];
+      const edge = radialEdgeStrength(photo, width, height, x, y, ux, uy);
       if (L > 225 && !photo.dark[i]) continue;
       if (isOutdoorGreen(photo, i) && L > 110 && !photo.dark[i]) continue;
+      if (isFlatPavement(photo, i, edge) && !photo.dark[i] && L > 95) continue;
+      if (isOutdoorBackgroundPixel(photo, i) && edge < 9 && !photo.dark[i] && L > 90) continue;
       alpha[i] = Math.max(alpha[i], 255);
       wheelMask[i] = 1;
       // 1px tangential thicken for continuity.
@@ -1521,7 +1550,8 @@ function paintWheelDiskForced(alpha, wheelMask, analysis, photo, width, height, 
       const ty = Math.round(y + ux);
       if (tx >= 0 && ty >= 0 && tx < width && ty < height) {
         const j = ty * width + tx;
-        if (photo.lum[j] <= 220 || photo.dark[j]) {
+        const e2 = radialEdgeStrength(photo, width, height, tx, ty, ux, uy);
+        if ((photo.dark[j] || photo.lum[j] < 100 || e2 >= 9) && !isOutdoorGreen(photo, j)) {
           alpha[j] = Math.max(alpha[j], 245);
           wheelMask[j] = 1;
         }
@@ -1537,6 +1567,145 @@ function isOutdoorGreen(photo, i){
   const g = photo.rgba[o + 1];
   const b = photo.rgba[o + 2];
   return g > r + 8 && g > b + 6;
+}
+
+/** Flat asphalt / path with no rim edge — must stay in the blur layer. */
+function isFlatPavement(photo, i, edge = 0){
+  if (!photo.rgba) return false;
+  const o = i * 4;
+  const r = photo.rgba[o];
+  const g = photo.rgba[o + 1];
+  const b = photo.rgba[o + 2];
+  const L = photo.lum[i];
+  const sat = satOf(r, g, b);
+  if (photo.dark[i] || L < 78) return false;
+  if (sat > 0.12) return false;
+  if (Math.abs(r - g) > 22 || Math.abs(g - b) > 22) return false;
+  if (L < 85 || L > 200) return false;
+  return edge < 9;
+}
+
+/**
+ * Outdoor scenery that must receive motion blur when wrongly stuck in the subject matte:
+ * green hill/railing, white posts, water. (Flat pavement is handled separately —
+ * gray mesh baskets are also low-sat mid-gray and must not be rejected here.)
+ */
+function isOutdoorBackgroundPixel(photo, i){
+  if (!photo.rgba) return false;
+  const o = i * 4;
+  const r = photo.rgba[o];
+  const g = photo.rgba[o + 1];
+  const b = photo.rgba[o + 2];
+  const L = photo.lum[i];
+  const sat = satOf(r, g, b);
+  if (isOutdoorGreen(photo, i) && L >= 40 && L <= 215) return true;
+  // Soft green metal railing bars.
+  if (g > r + 4 && g > b + 2 && L >= 65 && L <= 195 && Math.abs(r - b) < 45) return true;
+  // White railing / bright posts (not yellow YouBike plastic).
+  if (L >= 175 && sat < 0.10 && !(r > 150 && g > 120 && b < 110)) return true;
+  // Water / distant haze gray-blue.
+  if (sat < 0.14 && b >= g - 8 && L >= 90 && L <= 175 && Math.abs(r - g) < 26 && !photo.dark[i]) {
+    // Avoid killing neutral gray bags: require a bit more blue than red.
+    if (b > r + 4) return true;
+  }
+  return false;
+}
+
+function isPavementLeakPixel(photo, i, edge = 0){
+  return isFlatPavement(photo, i, edge);
+}
+
+/**
+ * Strip sharp outdoor leaks (hill behind back, pavement near wheels, railing
+ * behind rear fender, seat gaps). Matte score alone is not trusted — U2Net
+ * often marks nearby scenery as subject.
+ */
+function trimRiderOutdoorLeaks(maskCanvas, analysis, sourceImage, width, height, structureMask = null){
+  const photo = samplePhotoStats(sourceImage, width, height);
+  const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  const rgba = photo.rgba;
+
+  // First: un-protect structure pixels that are clearly outdoor (false pavement/basket spill).
+  if (structureMask) {
+    for (let i = 0; i < structureMask.length; i += 1) {
+      if (!structureMask[i]) continue;
+      const L = photo.lum[i];
+      const x = i % width;
+      const y = (i - x) / width;
+      const edge = (x > 1 && y > 1 && x < width - 2 && y < height - 2)
+        ? Math.max(
+          Math.abs(photo.lum[i] - photo.lum[i - 1]),
+          Math.abs(photo.lum[i] - photo.lum[i + 1]),
+          Math.abs(photo.lum[i] - photo.lum[i - width]),
+          Math.abs(photo.lum[i] - photo.lum[i + width])
+        )
+        : 0;
+      const realRim = photo.dark[i] || L < 78 || (edge >= 10 && L <= 200 && !isOutdoorGreen(photo, i));
+      const realBasket = (photo.dark[i] || L < 95) && !isOutdoorBackgroundPixel(photo, i);
+      if ((isOutdoorBackgroundPixel(photo, i) || (isPavementLeakPixel(photo, i, edge) && edge < 8)) && !realRim && !realBasket) {
+        structureMask[i] = 0;
+      }
+    }
+  }
+
+  for (let i = 0; i < width * height; i += 1) {
+    const a = data[i * 4 + 3];
+    if (a < 8) continue;
+    if (structureMask && structureMask[i]) continue;
+
+    const person = analysis.personScore[i];
+    const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+    const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
+    const L = photo.lum[i];
+    const x = i % width;
+    const y = (i - x) / width;
+    const edge = (x > 1 && y > 1 && x < width - 2 && y < height - 2)
+      ? Math.max(
+        Math.abs(photo.lum[i] - photo.lum[i - 1]),
+        Math.abs(photo.lum[i] - photo.lum[i + 1]),
+        Math.abs(photo.lum[i] - photo.lum[i - width]),
+        Math.abs(photo.lum[i] - photo.lum[i + width])
+      )
+      : 0;
+
+    // Keep real rider / bike claims.
+    if (person > 0.38) continue;
+    if (thin > 0.055) continue;
+    if (photo.dark[i] && L < 70) continue;
+    if (isYouBikeAccent(rgba, i) && (thin > 0.015 || matte > 0.3 || person > 0.12)) continue;
+    if (isRiderClothingPixel(rgba, i) && person > 0.16) continue;
+
+    const scenic = isOutdoorBackgroundPixel(photo, i);
+    const pavement = isPavementLeakPixel(photo, i, edge);
+    if (!scenic && !pavement) continue;
+
+    // Outdoor pixel with only weak/false subject support → send to blur.
+    // High matte alone is NOT enough (hill/railing blobs behind the rider).
+    if (person > 0.28 && matte > 0.78 && thin > 0.02) continue;
+    // Mesh bag / gray basket interior: mid-gray with texture near bike class.
+    if (pavement && !scenic && edge >= 12 && (thin > 0.02 || matte > 0.45)) continue;
+    data[i * 4 + 3] = 0;
+    if (structureMask) structureMask[i] = 0;
+  }
+
+  ctx.putImageData(image, 0, 0);
+  return maskCanvas;
+}
+
+function isRiderClothingPixel(rgba, i){
+  const o = i * 4;
+  const r = rgba[o];
+  const g = rgba[o + 1];
+  const b = rgba[o + 2];
+  const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const sat = satOf(r, g, b);
+  // Light athletic blue / cyan top.
+  if (b > r + 8 && b >= g - 6 && L > 70 && L < 210 && sat > 0.08) return true;
+  // Black / dark leggings already handled via darkness; skin-ish warm tones.
+  if (r > g + 5 && r > b + 8 && L > 60 && L < 200 && sat > 0.1 && sat < 0.45) return true;
+  return false;
 }
 
 /**
