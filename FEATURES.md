@@ -46,11 +46,11 @@ application.
                                                          planet/tunnel,
                                                          warp & atmosphere
 
-  F9         追焦 (Pan Focus)       🚧                   Manual object matte
-                                                         (car / bike+rider),
-                                                         full-frame pan blur
-                                                         + sharp subject layer
-                                                         (ghost-trail look)
+  F9         追焦 (Pan Focus)       🚧                   Tight rider+bike matte,
+                                                         forced front-wheel
+                                                         restore, full-frame
+                                                         pan blur + subject
+                                                         layer (ghost trails)
 
   F10--F28   Reserved               📋                   Future modules
   ------------------------------------------------------------------------
