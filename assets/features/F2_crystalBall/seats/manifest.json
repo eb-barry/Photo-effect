@@ -1,0 +1,10 @@
+{
+  "items": [
+    { "id": "seat1", "label": "白大理石", "file": "seat1.webp" },
+    { "id": "seat2", "label": "七彩水晶", "file": "seat2.webp" },
+    { "id": "seat3", "label": "黃金寶石", "file": "seat3.webp" },
+    { "id": "seat4", "label": "楠木雕刻", "file": "seat4.webp" },
+    { "id": "seat5", "label": "藍綠寶石", "file": "seat5.webp" },
+    { "id": "seat6", "label": "檜木雕刻", "file": "seat6.webp" }
+  ]
+}

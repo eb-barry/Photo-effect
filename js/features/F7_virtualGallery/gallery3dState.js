@@ -1,0 +1,290 @@
+// F7 3D 展館 - 狀態管理 v0.3.27
+
+import {
+  GALLERY3D_ROOM_COUNT,
+  ROUND_ROOM_ID,
+  ROUND_ROOM_MAX_WALL_PHOTOS
+} from "./gallery3dRooms.js";
+import {
+  GALLERY_DEFAULT_INNER_FRAME_ID,
+  GALLERY_DEFAULT_OUTER_FRAME_ID
+} from "./gallery3dFrames.js";
+
+export const GALLERY3D_FEATURE_ID = "F7_virtualGallery";
+export const GALLERY3D_FEATURE_VERSION = "0.3.27";
+export const GALLERY3D_DRAFT_KEY = "photoEffects.F7_virtualGallery.draft.v3";
+export const GALLERY3D_TUTORIAL_KEY = "photoEffects.F7_virtualGallery.tutorial.v1";
+export const GALLERY3D_MAX_PHOTOS = 100;
+export const GALLERY3D_RECOMMENDED_PHOTOS_PER_ROOM = 10;
+export const GALLERY3D_ROUND_ROOM_MAX_PHOTOS = ROUND_ROOM_MAX_WALL_PHOTOS;
+
+export const GALLERY3D_TABS = [
+  { id: "scene", label: "展間佈置" }
+];
+
+export const GALLERY3D_LAYOUT_MATERIAL_TARGETS = ["floor", "wall", "frame", "door"];
+
+/** @deprecated use GALLERY3D_LAYOUT_MATERIAL_TARGETS */
+export const GALLERY3D_SCENE_MATERIAL_TARGETS = GALLERY3D_LAYOUT_MATERIAL_TARGETS;
+
+export function createPhotoId(){
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `gallery-photo-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+export function createDefaultRoomSettings(){
+  return Array.from({ length: GALLERY3D_ROOM_COUNT }, (_, index) => ({
+    roomId: index + 1,
+    wallTextureId: "wall-01",
+    floorTextureId: "floor-01",
+    doorTextureId: "door-01",
+    outerFrameTypeId: GALLERY_DEFAULT_OUTER_FRAME_ID,
+    innerFrameTypeId: GALLERY_DEFAULT_INNER_FRAME_ID
+  }));
+}
+
+export function createDefaultGallery3dState(){
+  return {
+    featureId: GALLERY3D_FEATURE_ID,
+    featureVersion: GALLERY3D_FEATURE_VERSION,
+    activeTab: "scene",
+    selectedRoomNumber: 1,
+    sceneMaterialTarget: "floor",
+    rooms: createDefaultRoomSettings(),
+    currentRoomId: 1,
+    photos: [],
+    gyroEnabled: false,
+    gallerySessionReady: false,
+    updatedAt: Date.now()
+  };
+}
+
+export function getRoomSettings(state, roomId){
+  const id = Number(roomId);
+  return state.rooms.find(room => room.roomId === id)
+    || createDefaultRoomSettings().find(room => room.roomId === id);
+}
+
+export function updateRoomSettings(state, roomId, partial){
+  const id = Number(roomId);
+  const rooms = state.rooms.map(room => (
+    room.roomId === id ? { ...room, ...partial, roomId: id } : room
+  ));
+  return updateGallery3dState(state, { rooms });
+}
+
+export function toggleSceneMaterialTarget(_currentTarget, nextTarget){
+  return GALLERY3D_LAYOUT_MATERIAL_TARGETS.includes(nextTarget) ? nextTarget : "floor";
+}
+
+function normalizeSceneMaterialTarget(value){
+  if (value === "outerFrame" || value === "innerFrame") return "frame";
+  return GALLERY3D_LAYOUT_MATERIAL_TARGETS.includes(value) ? value : "floor";
+}
+
+function getRoomPhotoCapacity(roomId){
+  return Number(roomId) === ROUND_ROOM_ID ? ROUND_ROOM_MAX_WALL_PHOTOS : Infinity;
+}
+
+export function enforceRoundRoomPhotoLimit(photos){
+  const list = photos.map(photo => ({ ...photo }));
+  const counts = getPhotoCountsByRoom(list);
+  const overflow = counts[ROUND_ROOM_ID] - ROUND_ROOM_MAX_WALL_PHOTOS;
+  if (overflow <= 0) return list;
+
+  let moved = 0;
+  for (let index = list.length - 1; index >= 0 && moved < overflow; index -= 1) {
+    if (clampRoomNumber(list[index].roomId) !== ROUND_ROOM_ID) continue;
+    const targetRoom = counts[1] <= counts[3] ? 1 : 3;
+    list[index] = { ...list[index], roomId: targetRoom };
+    counts[ROUND_ROOM_ID] -= 1;
+    counts[targetRoom] += 1;
+    moved += 1;
+  }
+  return list;
+}
+
+export function distributePhotosToRooms(photos){
+  const total = photos.length;
+  if (!total) return [];
+
+  const roomCounts = Array.from({ length: GALLERY3D_ROOM_COUNT }, () => 0);
+  const result = [];
+
+  for (const photo of photos) {
+    let targetRoomId = 1;
+    let lowestCount = Infinity;
+
+    for (let roomIndex = 0; roomIndex < GALLERY3D_ROOM_COUNT; roomIndex += 1) {
+      const roomId = roomIndex + 1;
+      if (roomCounts[roomIndex] >= getRoomPhotoCapacity(roomId)) continue;
+      if (roomCounts[roomIndex] < lowestCount) {
+        lowestCount = roomCounts[roomIndex];
+        targetRoomId = roomId;
+      }
+    }
+
+    result.push({ ...photo, roomId: targetRoomId });
+    roomCounts[targetRoomId - 1] += 1;
+  }
+
+  return result;
+}
+
+export function getPhotoCountsByRoom(photos){
+  const counts = Object.fromEntries(
+    Array.from({ length: GALLERY3D_ROOM_COUNT }, (_, index) => [index + 1, 0])
+  );
+  photos.forEach(photo => {
+    const roomId = clampRoomNumber(photo.roomId);
+    counts[roomId] = (counts[roomId] || 0) + 1;
+  });
+  return counts;
+}
+
+export function hasSeenGalleryTutorial(){
+  try {
+    return localStorage.getItem(GALLERY3D_TUTORIAL_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function markGalleryTutorialSeen(){
+  try {
+    localStorage.setItem(GALLERY3D_TUTORIAL_KEY, "1");
+  } catch {
+    // ignore
+  }
+}
+
+export function updateGallery3dState(currentState, partial, options = {}){
+  const next = {
+    ...currentState,
+    ...partial,
+    updatedAt: Date.now()
+  };
+
+  next.activeTab = next.activeTab === "photos" ? "scene" : next.activeTab;
+  next.activeTab = ["scene", "gallery"].includes(next.activeTab)
+    ? next.activeTab
+    : "scene";
+
+  next.selectedRoomNumber = clampRoomNumber(next.selectedRoomNumber);
+  next.currentRoomId = clampRoomNumber(next.currentRoomId);
+  next.sceneMaterialTarget = normalizeSceneMaterialTarget(next.sceneMaterialTarget);
+
+  next.rooms = normalizeRooms(next.rooms);
+
+  if (Array.isArray(next.photos)) {
+    const trimmed = next.photos.slice(0, GALLERY3D_MAX_PHOTOS).map(normalizePhotoRecord);
+    const shouldDistribute = partial && "photos" in partial && !options.preservePhotoRoomIds;
+    next.photos = shouldDistribute
+      ? distributePhotosToRooms(trimmed)
+      : enforceRoundRoomPhotoLimit(trimmed);
+  } else {
+    next.photos = [];
+  }
+
+  next.gyroEnabled = Boolean(next.gyroEnabled);
+  next.gallerySessionReady = Boolean(next.gallerySessionReady);
+  return next;
+}
+
+export function normalizePhotoRecord(photo){
+  const legacyWidth = photo?.aspect === "4x3" ? 4 : 3;
+  const legacyHeight = photo?.aspect === "4x3" ? 3 : 4;
+  const width = Number(photo?.width) > 0 ? Number(photo.width) : legacyWidth;
+  const height = Number(photo?.height) > 0 ? Number(photo.height) : legacyHeight;
+  return {
+    id: photo?.id || createPhotoId(),
+    roomId: clampRoomNumber(photo?.roomId || 1),
+    aspect: width >= height ? "4x3" : "3x4",
+    width,
+    height,
+    thumbDataUrl: photo?.thumbDataUrl || null,
+    textureDataUrl: photo?.textureDataUrl || photo?.workDataUrl || photo?.dataUrl || null,
+    dataUrl: photo?.dataUrl || null
+  };
+}
+
+function normalizeRooms(rooms){
+  const defaults = createDefaultRoomSettings();
+  const map = new Map((Array.isArray(rooms) ? rooms : []).map(room => [Number(room.roomId), room]));
+  return defaults.map(defaultRoom => {
+    const saved = map.get(defaultRoom.roomId) || {};
+    return {
+      roomId: defaultRoom.roomId,
+      wallTextureId: typeof saved.wallTextureId === "string" ? saved.wallTextureId : defaultRoom.wallTextureId,
+      floorTextureId: typeof saved.floorTextureId === "string" ? saved.floorTextureId : defaultRoom.floorTextureId,
+      doorTextureId: typeof saved.doorTextureId === "string" ? saved.doorTextureId : defaultRoom.doorTextureId,
+      outerFrameTypeId: typeof saved.outerFrameTypeId === "string"
+        ? saved.outerFrameTypeId
+        : defaultRoom.outerFrameTypeId,
+      innerFrameTypeId: typeof saved.innerFrameTypeId === "string"
+        ? saved.innerFrameTypeId
+        : defaultRoom.innerFrameTypeId
+    };
+  });
+}
+
+function clampRoomNumber(value){
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 1;
+  return Math.max(1, Math.min(GALLERY3D_ROOM_COUNT, Math.round(number)));
+}
+
+export function saveGallery3dDraft(state){
+  try {
+    const saved = {
+      featureId: GALLERY3D_FEATURE_ID,
+      featureVersion: GALLERY3D_FEATURE_VERSION,
+      activeTab: state.activeTab,
+      selectedRoomNumber: state.selectedRoomNumber,
+      sceneMaterialTarget: state.sceneMaterialTarget,
+      rooms: state.rooms,
+      currentRoomId: state.currentRoomId,
+      gyroEnabled: state.gyroEnabled,
+      photoMeta: state.photos.map(photo => ({
+        id: photo.id,
+        roomId: photo.roomId,
+        aspect: photo.aspect,
+        width: photo.width,
+        height: photo.height
+      })),
+      updatedAt: Date.now()
+    };
+    localStorage.setItem(GALLERY3D_DRAFT_KEY, JSON.stringify(saved));
+  } catch (error) {
+    console.warn("[F7 3D 展館] 無法儲存草稿：", error);
+  }
+}
+
+export function loadGallery3dDraft(){
+  try {
+    const raw = localStorage.getItem(GALLERY3D_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed?.featureId !== GALLERY3D_FEATURE_ID) return null;
+    return updateGallery3dState(createDefaultGallery3dState(), {
+      activeTab: parsed.activeTab,
+      selectedRoomNumber: parsed.selectedRoomNumber,
+      sceneMaterialTarget: parsed.sceneMaterialTarget,
+      rooms: parsed.rooms,
+      currentRoomId: parsed.currentRoomId,
+      gyroEnabled: parsed.gyroEnabled,
+      photos: []
+    });
+  } catch (error) {
+    console.warn("[F7 3D 展館] 無法讀取草稿：", error);
+    return null;
+  }
+}
+
+export function clearGallery3dDraft(){
+  try {
+    localStorage.removeItem(GALLERY3D_DRAFT_KEY);
+  } catch (error) {
+    console.warn("[F7 3D 展館] 無法清除草稿：", error);
+  }
+}
