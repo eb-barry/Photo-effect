@@ -1,8 +1,9 @@
-// F9 追焦 - 狀態管理 v0.1.9
+// F9 追焦 - 狀態管理 v0.1.11
 // 第一排：汽車／機車・自行車／調整項目；第二排（按調整後才顯示）：參數下拉 + 滑桿。
+// 靈敏度／擴張／羽化只作用在去背 matte；拖影強度只作用在全圖運動模糊。
 
 export const PAN_FOCUS_FEATURE_ID = "F9_panFocus";
-export const PAN_FOCUS_FEATURE_VERSION = "0.1.9";
+export const PAN_FOCUS_FEATURE_VERSION = "0.1.11";
 export const PAN_FOCUS_DRAFT_KEY = "photoEffects.F9_panFocus.draft.v2";
 
 /** 第一排主選：車種或進入調整 */
@@ -12,7 +13,7 @@ export const PRIMARY_MODES = [
   { id: "adjust", label: "調整項目", kind: "adjust" }
 ];
 
-/** 調整項目（第二排下拉） */
+/** 調整項目（第二排下拉）— matte 參數與模糊參數分開語意 */
 export const ADJUST_PARAMETERS = [
   { id: "blurRightStrength", label: "向右拖影強度", min: 0, max: 100, step: 1, suffix: "%" },
   { id: "blurLeftStrength", label: "向左拖影強度", min: 0, max: 100, step: 1, suffix: "%" },
@@ -49,7 +50,8 @@ export function createDefaultPanFocusState(){
 
     blurRightStrength: 58,
     blurLeftStrength: 0,
-    edgeFeather: 10,
+    // Narrow alpha by default; users can raise feather if edges look harsh.
+    edgeFeather: 8,
     subjectExpand: 1,
     subjectThreshold: 66,
 

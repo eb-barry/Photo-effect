@@ -1,5 +1,5 @@
-// F9 追焦 - Page Controller v0.1.10
-// 手動車種（先選再套用）：汽車／機車・自行車；調整項目第二排參數。
+// F9 追焦 - Page Controller v0.1.11
+// 手動車種（先選再套用）：汽車／機車・自行車；全圖模糊＋主體貼回（殘影跟拍）。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
 import { iconButton } from "../../core/iconLoader.js";
@@ -45,7 +45,7 @@ export async function renderPanFocusPage(root, navigate){
 
         <div class="topbar-title">
           <h1>追焦</h1>
-          <p class="crystal-version" aria-hidden="true">v0.1.10</p>
+          <p class="crystal-version" aria-hidden="true">v0.1.11</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
@@ -80,7 +80,7 @@ export async function renderPanFocusPage(root, navigate){
           </div>
         </div>
 
-        <p class="note" id="panFocusHint">先手動選擇主體類型（汽車／機車、自行車），再開啟照片套用追焦。按「調整項目」可設定向左／向右拖影與邊緣參數。</p>
+        <p class="note" id="panFocusHint">先手動選擇主體類型（汽車／機車、自行車），再開啟照片。將對整張圖做水平拖影並貼回清晰主體（保留跟拍殘影）。「調整項目」可改拖影與去背邊緣參數。</p>
         <p class="note pan-focus-status hidden" id="panFocusStatus" role="status"></p>
 
         <div id="panFocusPrimaryBar" aria-label="追焦模式">
@@ -173,11 +173,13 @@ export async function renderPanFocusPage(root, navigate){
     return modelsReadyPromise;
   };
 
+  // Sensitivity / expand / feather only build the cutout matte — never a post-blur protect zone.
   const maskOptions = () => ({
     vehicleMode: state.vehicleMode === "rider" ? "rider" : "car",
     subjectThreshold: state.subjectThreshold,
     subjectExpand: state.subjectExpand,
-    edgeFeather: Math.max(2, Math.round(Number(state.edgeFeather || 0) * 0.22))
+    // Map 0–100 UI to mask feather px; 0 stays hard-edged (narrow alpha).
+    edgeFeather: Math.max(0, Math.round(Number(state.edgeFeather || 0) * 0.18))
   });
 
   const ensureMaskForCurrentPhoto = async ({ showDownload = false } = {}) => {
@@ -272,7 +274,7 @@ export async function renderPanFocusPage(root, navigate){
     root.querySelector("#resetPanFocusSettingsBtn")?.classList.remove("hidden");
     const hint = root.querySelector("#panFocusHint");
     if (hint) {
-      hint.textContent = "可改選「汽車」或「機車、自行車」重新分析；按「調整項目」設定向左／向右拖影與邊緣參數。";
+      hint.textContent = "可改選「汽車」或「機車、自行車」重新去背；「調整項目」可改拖影強度與 matte 邊緣（靈敏度／擴張／柔化）。";
     }
     // Primary row stays visible so vehicle type can be chosen before/after open.
     // Adjust panel visibility is controlled by primaryMode === "adjust".
@@ -301,7 +303,7 @@ export async function renderPanFocusPage(root, navigate){
     root.querySelector("#resetPanFocusSettingsBtn")?.classList.add("hidden");
     const hint = root.querySelector("#panFocusHint");
     if (hint) {
-      hint.textContent = "先手動選擇主體類型（汽車／機車、自行車），再開啟照片套用追焦。按「調整項目」可設定向左／向右拖影與邊緣參數。";
+      hint.textContent = "先手動選擇主體類型（汽車／機車、自行車），再開啟照片。將對整張圖做水平拖影並貼回清晰主體（保留跟拍殘影）。";
     }
     setStatus("");
     panFocusUi?.refreshAllControls?.();

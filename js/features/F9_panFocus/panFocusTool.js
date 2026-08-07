@@ -1,6 +1,5 @@
-// F9 追焦 - Canvas 影像處理 v0.1.10
-// 方案 A：主體遮罩清晰 + 背景水平運動模糊。
-// 模糊前先填補主體區域，避免車體／騎士顏色拖進背景拖影。
+// F9 追焦 - Canvas 影像處理 v0.1.11
+// 殘影跟拍：整張原圖水平運動模糊 → 貼回清晰主體層（騎士＋整車同一 matte）。
 
 export const PAN_FOCUS_MAX_EDGE = 1600;
 /** @deprecated Use resolveOutputSize() for the active photo. */
@@ -94,15 +93,9 @@ export async function renderPanFocus(ctx, sourceImage, state, maskEntry = null){
     return { applied: true, reason: "zero-blur", coverage: maskEntry.subjectCoverage, direction };
   }
 
-  let blurred;
-  try {
-    // Fill subject area before blur so rider/bike colors do not smear into streaks.
-    const backgroundPlate = prepareBackgroundPlate(sourceCanvas, maskEntry.maskCanvas, width, height);
-    blurred = applyHorizontalMotionBlur(backgroundPlate, blurStrength, direction);
-  } catch (error) {
-    console.warn("[F9 追焦] 背景預處理失敗，改用直接模糊：", error);
-    blurred = applyHorizontalMotionBlur(sourceCanvas, blurStrength, direction);
-  }
+  // Full-frame blur keeps subject ghost trails in the streaks (panning look).
+  // Do NOT hole-fill the subject before blur — that path removes the ghost.
+  const blurred = applyHorizontalMotionBlur(sourceCanvas, blurStrength, direction);
   const subjectLayer = extractSubjectLayer(sourceCanvas, maskEntry.maskCanvas, width, height);
 
   ctx.drawImage(blurred, 0, 0);
@@ -111,7 +104,8 @@ export async function renderPanFocus(ctx, sourceImage, state, maskEntry = null){
     applied: true,
     reason: "ok",
     coverage: maskEntry.subjectCoverage,
-    direction
+    direction,
+    ghostTrails: true
   };
 }
 
@@ -143,8 +137,9 @@ function drawSourceToCanvas(sourceImage, width, height){
 }
 
 /**
- * Replace subject pixels with horizontally sampled background colors so
- * motion blur does not drag rider / bike colors into the streaks.
+ * Optional: replace subject pixels with horizontally sampled background colors
+ * before blur (clean poster look, no ghost trails). Not used by the default
+ * panning path — kept for experiments / fallback callers.
  */
 export function prepareBackgroundPlate(sourceCanvas, maskCanvas, width, height){
   const srcCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
