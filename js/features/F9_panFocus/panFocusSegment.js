@@ -510,7 +510,7 @@ function personBlobLooksLikeRider(personScore, width, height){
   return false;
 }
 
-/** Run U2-Netp for cars, and also for riders (soft union, not car-primary). */
+/** Run U2-Netp for cars and riders (matte-primary when coverage looks sane). */
 function shouldRunMatte(sceneKind, classCounts, carSoftMax, thinSoftMax, subjectCoverage){
   if (sceneKind === "rider") return true;
   if (sceneKind === "car") return true;
