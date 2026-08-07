@@ -1,5 +1,5 @@
-// F9 追焦 - AI 主體分割 v0.1.9
-// 手動車種管線：汽車去背精修／機車・自行車緊緻去背 + U2-Netp。
+// F9 追焦 - AI 主體分割 v0.1.10
+// 手動車種管線：汽車去背精修／機車・自行車緊貼輪廓 + 前輪復原 + U2-Netp。
 
 const ORT_VERSION = "1.22.0";
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist`;
@@ -8,7 +8,7 @@ const MODEL_CACHE_NAME = "photo-effects-panfocus-deeplab-v1";
 /** General object matting (~4.5MB). Used for cars; also soft-unions rider/bike silhouettes. */
 const MATTE_MODEL_URL = "https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx";
 const MATTE_CACHE_NAME = "photo-effects-panfocus-u2netp-v1";
-const MASK_PIPELINE_VERSION = 9;
+const MASK_PIPELINE_VERSION = 10;
 const INPUT_SIZE = 512;
 const MATTE_SIZE = 320;
 const MATTE_MEAN = [0.485, 0.456, 0.406];
@@ -247,12 +247,12 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   const vehicleFloor = 0.48 - threshold * 0.4;
   const carFloor = 0.10 + (1 - threshold) * 0.08;
   const thinFloor = treatAsRider
-    ? 0.035 + (1 - threshold) * 0.06
+    ? 0.028 + (1 - threshold) * 0.05
     : 0.04 + (1 - threshold) * 0.08;
   const matteFloor = preferMatteCar
     ? 0.58 - threshold * 0.16
     : (preferMatteRider
-      ? 0.62 - threshold * 0.14
+      ? 0.66 - threshold * 0.12
       : 0.52 - threshold * 0.14);
   const subjectFloor = treatAsRider
     ? 0.72 - threshold * 0.28
@@ -260,6 +260,9 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
 
   const alpha = new Uint8ClampedArray(width * height);
   let kept = 0;
+  const riderSupport = treatAsRider
+    ? buildRiderSupportMap(analysis, width, height)
+    : null;
 
   if (preferMatteCar) {
     // U2-Netp silhouette is the primary car body; DeepLab only supplements.
@@ -279,19 +282,25 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
       kept += 1;
     }
   } else if (preferMatteRider) {
-    // Tight matte core + person/bike class support. Avoid loose matte halo.
+    // Matte only where person/bike support exists — cuts head/sky halo.
+    // Thin class alone may keep wheels even when matte misses the tire.
     for (let i = 0; i < alpha.length; i += 1) {
       const matte = analysis.matteScore[i];
       const person = analysis.personScore[i];
       const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+      const supported = riderSupport[i] > 0;
       let score = 0;
-      if (matte >= matteFloor) score = Math.max(score, Math.min(1, matte));
-      // Strong class support may extend slightly beyond matte (wheels / limbs).
-      if (person >= personFloor && matte > 0.22) {
+      if (matte >= matteFloor && supported) {
+        score = Math.max(score, Math.min(1, matte));
+      } else if (matte >= matteFloor + 0.14 && person > 0.05) {
+        // Very confident matte on weak support (bag / basket edge).
+        score = Math.max(score, Math.min(1, matte * 0.92));
+      }
+      if (person >= personFloor) {
         score = Math.max(score, Math.min(1, person));
       }
-      if (thin >= thinFloor && (matte > 0.16 || person > 0.12)) {
-        score = Math.max(score, Math.min(1, thin * 4.2));
+      if (thin >= thinFloor) {
+        score = Math.max(score, Math.min(1, thin * 5.0));
       }
       if (score <= 0) {
         alpha[i] = 0;
@@ -354,14 +363,22 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     }
   }
 
+  if (treatAsRider && riderSupport) {
+    try {
+      trimRiderMatteHalo(alpha, analysis, riderSupport, width, height);
+    } catch (error) {
+      console.warn("[F9 追焦] 騎士光暈裁切略過：", error);
+    }
+  }
+
   // Morphological close: fill spokes / small gaps / car body holes.
   let maskCanvas = alphaToMaskCanvas(alpha, width, height);
   const closeRadius = preferMatteCar
     ? Math.max(2, Math.round(Math.min(width, height) * 0.005))
     : (preferMatteRider
-      ? Math.max(2, Math.round(Math.min(width, height) * 0.0045))
+      ? Math.max(1, Math.round(Math.min(width, height) * 0.0035))
       : (treatAsRider
-        ? Math.max(2, Math.round(Math.min(width, height) * 0.006))
+        ? Math.max(2, Math.round(Math.min(width, height) * 0.005))
         : (treatAsCar
           ? Math.max(6, Math.round(Math.min(width, height) * 0.018))
           : 2)));
@@ -370,10 +387,7 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   if (treatAsCar && !preferMatteCar) {
     maskCanvas = fillMaskCanvasHoles(maskCanvas);
   }
-  if (treatAsRider && !preferMatteRider) {
-    // Only fill holes when we did not start from a tight matte (avoids sealing railing gaps).
-    maskCanvas = fillMaskCanvasHoles(maskCanvas);
-  }
+  // Riders: never hole-fill the whole silhouette (connects railing / pavement).
 
   if (treatAsCar) {
     try {
@@ -395,9 +409,9 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
   const autoExpand = preferMatteCar
     ? Math.max(0, Math.min(expandPx, 6))
     : (preferMatteRider
-      ? Math.max(0, Math.min(expandPx, 3))
+      ? Math.max(0, Math.min(expandPx, 2))
       : (treatAsRider
-        ? Math.max(0, Math.min(expandPx, 5))
+        ? Math.max(0, Math.min(expandPx, 3))
         : (treatAsCar
           ? Math.max(expandPx, Math.round(6 + threshold * 6))
           : expandPx)));
@@ -405,17 +419,28 @@ function buildMaskFromAnalysis(analysis, sourceImage, options = {}){
     maskCanvas = erodeMaskCanvas(maskCanvas, autoExpand <= 2 ? 3 : 2);
   }
   if (preferMatteRider) {
-    // Shrink soft matte fringe before any user expand.
-    maskCanvas = erodeMaskCanvas(maskCanvas, autoExpand <= 1 ? 2 : 1);
+    // Stronger shrink of soft matte fringe (head/sky halo) before user expand.
+    maskCanvas = erodeMaskCanvas(maskCanvas, autoExpand <= 0 ? 3 : 2);
+  } else if (treatAsRider) {
+    maskCanvas = erodeMaskCanvas(maskCanvas, 1);
   }
   if (autoExpand > 0) maskCanvas = dilateMaskCanvas(maskCanvas, autoExpand);
   if (featherPx > 0) {
     const feather = preferMatteCar
       ? Math.max(1, Math.round(featherPx * 0.45))
       : (preferMatteRider
-        ? Math.max(1, Math.round(featherPx * 0.35))
-        : (treatAsRider ? Math.max(1, Math.round(featherPx * 0.4)) : featherPx));
+        ? Math.max(1, Math.round(featherPx * 0.22))
+        : (treatAsRider ? Math.max(1, Math.round(featherPx * 0.28)) : featherPx));
     maskCanvas = featherMaskCanvas(maskCanvas, feather);
+  }
+
+  // Re-harden rider edges after feather so soft halo does not read as sharp background.
+  if (treatAsRider) {
+    try {
+      maskCanvas = hardenRiderMaskEdges(maskCanvas, analysis, width, height);
+    } catch (error) {
+      console.warn("[F9 追焦] 騎士邊緣硬化略過：", error);
+    }
   }
 
   if (treatAsCar) {
@@ -796,13 +821,96 @@ function maxArray(arr){
 }
 
 /**
- * Recover thin bike parts near person blobs without painting a solid halo.
- * Wheel disks are evidence-gated (dark / thin / matte core); soft ROI never
- * reintroduces loose background matte.
+ * Dilated person + bicycle/motorbike support. Matte may only stick near this.
+ */
+function buildRiderSupportMap(analysis, width, height){
+  const seed = new Uint8Array(width * height);
+  for (let i = 0; i < seed.length; i += 1) {
+    const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+    if (analysis.personScore[i] > 0.16 || thin > 0.03) seed[i] = 1;
+  }
+  const radius = Math.max(4, Math.round(Math.min(width, height) * 0.012));
+  return dilateBinaryMap(seed, width, height, radius);
+}
+
+/**
+ * Drop matte-only / soft pixels far from person+bike support (head/sky halo).
+ */
+function trimRiderMatteHalo(alpha, analysis, support, width, height){
+  for (let i = 0; i < alpha.length; i += 1) {
+    if (alpha[i] < 8) continue;
+    if (support[i]) continue;
+    const person = analysis.personScore[i];
+    const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+    const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
+    // Keep strong bike class even slightly outside support.
+    if (thin > 0.08 || person > 0.35) continue;
+    // Matte-only fringe / head halo → remove.
+    if (matte < 0.82 || person < 0.08) {
+      alpha[i] = 0;
+    }
+  }
+}
+
+/**
+ * After feather, snap weak fringe back to transparent unless class/matte supports it.
+ */
+function hardenRiderMaskEdges(maskCanvas, analysis, width, height){
+  const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  for (let i = 0; i < width * height; i += 1) {
+    const a = data[i * 4 + 3];
+    if (a < 12) {
+      data[i * 4 + 3] = 0;
+      continue;
+    }
+    if (a >= 170) continue;
+    const person = analysis.personScore[i];
+    const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+    const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
+    if (person > 0.2 || thin > 0.05 || matte > 0.55) {
+      data[i * 4 + 3] = Math.max(a, 200);
+    } else if (a < 90) {
+      data[i * 4 + 3] = 0;
+    } else {
+      data[i * 4 + 3] = Math.round(a * 0.35);
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  return maskCanvas;
+}
+
+function dilateBinaryMap(seed, width, height, radius){
+  if (radius <= 0) return seed;
+  const out = new Uint8Array(seed.length);
+  const r = radius;
+  const r2 = r * r;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = y * width + x;
+      if (!seed[i]) continue;
+      const y0 = Math.max(0, y - r);
+      const y1 = Math.min(height - 1, y + r);
+      const x0 = Math.max(0, x - r);
+      const x1 = Math.min(width - 1, x + r);
+      for (let yy = y0; yy <= y1; yy += 1) {
+        const dy = yy - y;
+        for (let xx = x0; xx <= x1; xx += 1) {
+          const dx = xx - x;
+          if (dx * dx + dy * dy <= r2) out[yy * width + xx] = 1;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Recover thin bike parts: compact body ROI + wider wheel search so the front
+ * tire is restored without reintroducing a body halo.
  */
 function recoverRiderCraft(alpha, analysis, sourceImage, width, height){
-  // Seed only from person class — not from the current alpha (which may already
-  // include an oversized matte blob and would inflate the craft envelope).
   const personBinary = new Uint8Array(width * height);
   for (let i = 0; i < personBinary.length; i += 1) {
     if (analysis.personScore[i] > 0.28) personBinary[i] = 1;
@@ -817,87 +925,157 @@ function recoverRiderCraft(alpha, analysis, sourceImage, width, height){
   if (!components.length) return;
 
   const photo = samplePhotoStats(sourceImage, width, height);
-  const craft = document.createElement("canvas");
-  craft.width = width;
-  craft.height = height;
-  const ctx = craft.getContext("2d");
-  ctx.clearRect(0, 0, width, height);
 
   for (const box of components) {
     const pw = box.x1 - box.x0 + 1;
     const ph = box.y1 - box.y0 + 1;
     if (ph < 24 || pw < 12) continue;
 
-    // Compact ROI around rider; wheels sit slightly below / beside the torso.
-    const bx0 = Math.max(0, Math.floor(box.x0 - pw * 0.38));
-    const bx1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 0.38));
-    const top = Math.max(0, Math.floor(box.y0 - ph * 0.06));
-    const by1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.42));
-
-    const radius = Math.max(10, Math.round(ph * 0.22));
-    const cy = Math.min(height - 1, Math.round(box.y1 + radius * 0.05));
-    const span = bx1 - bx0;
-    const cxA = Math.round(bx0 + span * 0.22);
-    const cxB = Math.round(bx0 + span * 0.78);
-
-    // Soft search ROI (low alpha): structure pixels only later.
-    ctx.fillStyle = "rgba(255,255,255,0.35)";
-    const cw = bx1 - bx0;
-    const ch = by1 - top;
-    if (cw > 2 && ch > 2) {
-      const rr = Math.max(6, Math.round(ph * 0.08));
-      roundRect(ctx, bx0, top, cw, ch, rr);
-      ctx.fill();
-    }
-
-    // Candidate wheel disks — painted only where structure evidence exists below.
-    ctx.fillStyle = "rgba(255,255,255,1)";
-    for (const cx of [cxA, cxB]) {
-      if (wheelDiskHasEvidence(cx, cy, radius, analysis, photo, width, height)) {
-        ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-        ctx.fill();
+    // Compact body ROI (no wide capsule) — structure pixels only.
+    const bx0 = Math.max(0, Math.floor(box.x0 - pw * 0.18));
+    const bx1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 0.18));
+    const top = Math.max(0, Math.floor(box.y0 - ph * 0.04));
+    const by1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.2));
+    for (let y = top; y <= by1; y += 1) {
+      for (let x = bx0; x <= bx1; x += 1) {
+        const i = y * width + x;
+        const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+        const person = analysis.personScore[i];
+        const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
+        if (
+          photo.dark[i]
+          || thin > 0.05
+          || person > 0.24
+          || (photo.colorful[i] && (thin > 0.025 || matte > 0.45))
+        ) {
+          alpha[i] = Math.max(alpha[i], person > 0.3 || thin > 0.1 || photo.dark[i] ? 245 : 200);
+        }
       }
     }
-  }
 
-  const craftAlpha = ctx.getImageData(0, 0, width, height).data;
-  for (let i = 0; i < width * height; i += 1) {
-    const craftA = craftAlpha[i * 4 + 3];
-    if (craftA < 16) continue;
-
-    const darkBoost = photo.dark[i];
-    const colorBoost = photo.colorful[i];
-    const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
-    const person = analysis.personScore[i];
-    const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
-    const inWheelCore = craftA > 200;
-
-    if (inWheelCore) {
-      // Evidence-gated disks: keep tires/spokes solid.
-      if (darkBoost || thin > 0.04 || matte > 0.45 || person > 0.2) {
-        alpha[i] = 255;
-      }
-      continue;
+    const wheels = findRiderWheelCenters(box, analysis, photo, width, height);
+    for (const wheel of wheels) {
+      paintWheelDisk(alpha, analysis, photo, width, height, wheel.cx, wheel.cy, wheel.radius);
     }
-
-    // Soft ROI: real bike/rider structure only — never matte-only background.
-    const structure = darkBoost
-      || (colorBoost && (thin > 0.03 || person > 0.12 || matte > 0.4))
-      || thin > 0.05
-      || person > 0.22
-      || (matte > 0.55 && (thin > 0.02 || person > 0.1 || darkBoost));
-    if (!structure) continue;
-
-    const target = Math.max(
-      alpha[i],
-      darkBoost || person > 0.3 || thin > 0.12 ? 245 : 190
-    );
-    if (target > alpha[i]) alpha[i] = target;
   }
 }
 
-/** Require local bike/tire evidence before committing a solid wheel disk. */
+/**
+ * Locate rear/front wheel centers from bicycle score mass + classic anchors.
+ * Front wheel search extends farther ahead so YouBike tires are not clipped.
+ */
+function findRiderWheelCenters(box, analysis, photo, width, height){
+  const pw = box.x1 - box.x0 + 1;
+  const ph = box.y1 - box.y0 + 1;
+  const radius = Math.max(12, Math.round(ph * 0.26));
+  const yBand0 = Math.max(0, Math.floor(box.y0 + ph * 0.42));
+  const yBand1 = Math.min(height - 1, Math.ceil(box.y1 + ph * 0.55));
+  const xBand0 = Math.max(0, Math.floor(box.x0 - pw * 0.35));
+  const xBand1 = Math.min(width - 1, Math.ceil(box.x1 + pw * 1.05));
+
+  const peaks = [];
+  const step = Math.max(4, Math.round(radius * 0.45));
+  for (let y = yBand0; y <= yBand1; y += step) {
+    for (let x = xBand0; x <= xBand1; x += step) {
+      let mass = 0;
+      let darkMass = 0;
+      let samples = 0;
+      const probe = Math.max(6, Math.round(radius * 0.55));
+      const p2 = probe * probe;
+      for (let yy = Math.max(0, y - probe); yy <= Math.min(height - 1, y + probe); yy += 2) {
+        for (let xx = Math.max(0, x - probe); xx <= Math.min(width - 1, x + probe); xx += 2) {
+          const dx = xx - x;
+          const dy = yy - y;
+          if (dx * dx + dy * dy > p2) continue;
+          samples += 1;
+          const i = yy * width + xx;
+          const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+          mass += thin;
+          if (photo.dark[i]) darkMass += 1;
+        }
+      }
+      if (samples < 10) continue;
+      const score = mass / samples + (darkMass / samples) * 0.08;
+      if (score < 0.028) continue;
+      peaks.push({ cx: x, cy: y, score, radius });
+    }
+  }
+
+  peaks.sort((a, b) => b.score - a.score);
+  const picked = [];
+  for (const peak of peaks) {
+    if (picked.length >= 2) break;
+    const farEnough = picked.every(p => {
+      const dx = p.cx - peak.cx;
+      const dy = p.cy - peak.cy;
+      return dx * dx + dy * dy > (radius * 1.1) * (radius * 1.1);
+    });
+    if (farEnough) picked.push(peak);
+  }
+
+  // Fallback anchors if score peaks miss (common for thin front tires).
+  if (picked.length < 2) {
+    const cy = Math.min(height - 1, Math.round(box.y1 + radius * 0.02));
+    const anchors = [
+      { cx: Math.round(box.x0 + pw * 0.18), cy, radius, score: 0 },
+      { cx: Math.round(box.x1 + pw * 0.22), cy, radius, score: 0 },
+      { cx: Math.round(box.x1 + pw * 0.55), cy, radius: Math.round(radius * 1.05), score: 0 }
+    ];
+    for (const anchor of anchors) {
+      if (picked.length >= 2) break;
+      if (anchor.cx < 0 || anchor.cx >= width) continue;
+      if (!wheelDiskHasEvidence(anchor.cx, anchor.cy, anchor.radius, analysis, photo, width, height)) {
+        continue;
+      }
+      const farEnough = picked.every(p => {
+        const dx = p.cx - anchor.cx;
+        const dy = p.cy - anchor.cy;
+        return dx * dx + dy * dy > (radius * 0.9) * (radius * 0.9);
+      });
+      if (farEnough) picked.push(anchor);
+    }
+  }
+
+  return picked;
+}
+
+/**
+ * Paint a wheel: prefer tire rim, but also keep spoke/hub pixels with bike evidence.
+ */
+function paintWheelDisk(alpha, analysis, photo, width, height, cx, cy, radius){
+  const r = Math.max(8, Math.round(radius));
+  const r2 = r * r;
+  const inner2 = Math.round(r * 0.42) ** 2;
+  const x0 = Math.max(0, cx - r - 1);
+  const x1 = Math.min(width - 1, cx + r + 1);
+  const y0 = Math.max(0, cy - r - 1);
+  const y1 = Math.min(height - 1, cy + r + 1);
+
+  for (let y = y0; y <= y1; y += 1) {
+    for (let x = x0; x <= x1; x += 1) {
+      const dx = x - cx;
+      const dy = y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      const i = y * width + x;
+      const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
+      const person = analysis.personScore[i];
+      const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
+      const onRim = d2 >= inner2;
+      if (onRim) {
+        if (photo.dark[i] || thin > 0.025 || matte > 0.35 || photo.colorful[i] || alpha[i] > 40) {
+          alpha[i] = 255;
+        } else if (thin > 0.012) {
+          alpha[i] = Math.max(alpha[i], 220);
+        }
+      } else if (thin > 0.04 || matte > 0.4 || person > 0.15 || photo.dark[i] || alpha[i] > 60) {
+        alpha[i] = Math.max(alpha[i], 230);
+      }
+    }
+  }
+}
+
+/** Require local bike/tire evidence before committing a fallback wheel anchor. */
 function wheelDiskHasEvidence(cx, cy, radius, analysis, photo, width, height){
   const r = Math.max(4, Math.round(radius));
   const x0 = Math.max(0, cx - r);
@@ -916,11 +1094,11 @@ function wheelDiskHasEvidence(cx, cy, radius, analysis, photo, width, height){
       const i = y * width + x;
       const thin = Math.max(analysis.bicycleScore[i], analysis.motorbikeScore[i]);
       const matte = analysis.matteScore ? analysis.matteScore[i] : 0;
-      if (photo.dark[i] || thin > 0.04 || matte > 0.5) hits += 1;
+      if (photo.dark[i] || thin > 0.03 || matte > 0.4 || photo.colorful[i]) hits += 1;
     }
   }
   if (samples < 8) return false;
-  return hits / samples >= 0.12;
+  return hits / samples >= 0.08;
 }
 
 function samplePhotoStats(sourceImage, width, height){

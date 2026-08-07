@@ -49,9 +49,9 @@ export function createDefaultPanFocusState(){
 
     blurRightStrength: 58,
     blurLeftStrength: 0,
-    edgeFeather: 14,
-    subjectExpand: 2,
-    subjectThreshold: 68,
+    edgeFeather: 10,
+    subjectExpand: 1,
+    subjectThreshold: 66,
 
     updatedAt: Date.now()
   };

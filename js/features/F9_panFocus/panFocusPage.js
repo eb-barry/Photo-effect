@@ -1,4 +1,4 @@
-// F9 追焦 - Page Controller v0.1.9
+// F9 追焦 - Page Controller v0.1.10
 // 手動車種（先選再套用）：汽車／機車・自行車；調整項目第二排參數。
 
 import { downloadCanvas, shareCanvas } from "../../core/exportManager.js";
@@ -45,7 +45,7 @@ export async function renderPanFocusPage(root, navigate){
 
         <div class="topbar-title">
           <h1>追焦</h1>
-          <p class="crystal-version" aria-hidden="true">v0.1.9</p>
+          <p class="crystal-version" aria-hidden="true">v0.1.10</p>
         </div>
 
         <div class="topbar-actions" aria-label="照片操作">
