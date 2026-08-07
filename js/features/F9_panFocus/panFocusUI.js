@@ -117,9 +117,23 @@ export function setupPanFocusUI(root, state, render, persistDraft = () => {}, ho
     const heavy = config.id === "subjectThreshold"
       || config.id === "subjectExpand"
       || config.id === "edgeFeather";
-    scheduleRender(heavy ? 90 : 36);
+    // Heavy matte rebuilds need a short debounce; queue ensures the last value wins.
+    scheduleRender(heavy ? 120 : 40);
   });
-  slider?.addEventListener("change", () => persistDraft());
+  slider?.addEventListener("change", () => {
+    persistDraft();
+    // Ensure final slider value always rebuilds (input may have been coalesced).
+    const config = getCurrentConfig();
+    if (
+      config.id === "subjectThreshold"
+      || config.id === "subjectExpand"
+      || config.id === "edgeFeather"
+      || config.id === "blurRightStrength"
+      || config.id === "blurLeftStrength"
+    ) {
+      render("adjust-commit");
+    }
+  });
 
   resetSettingsButton?.addEventListener("click", event => {
     event.preventDefault();
